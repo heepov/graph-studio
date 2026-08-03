@@ -1,0 +1,8 @@
+.DS_Store
+**/.DS_Store
+.claude/settings.local.json
+*.log
+*.bak
+graph_studio.html.*.bak
+chrome-prof*/
+node_modules/
