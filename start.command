@@ -8,7 +8,10 @@ PORT=8123
 python3 -m http.server "$PORT" --directory app >/dev/null 2>&1 &
 SRV=$!
 sleep 1
-open "http://localhost:$PORT/"
+# именно /graph_studio.html: http.server считает индексом только index.html,
+# на «/» он отдал бы листинг папки. Заодно это тот же адрес, что и раньше,
+# так что старые закладки и установленная PWA продолжают работать.
+open "http://localhost:$PORT/graph_studio.html"
 echo "Graph Studio запущен на http://localhost:$PORT"
 echo "Это окно можно свернуть. Чтобы остановить сервер — закройте это окно Терминала."
 # держим сервер живым, пока открыто окно терминала
