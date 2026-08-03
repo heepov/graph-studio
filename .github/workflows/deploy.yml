@@ -1,0 +1,75 @@
+name: Проверка и деплой
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# два деплоя одновременно наступили бы друг другу на пятки; в очередь, не отменяя
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Прогон в headless Chrome
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Собрать образ
+        run: docker compose build
+
+      - name: Поднять контейнер
+        run: |
+          docker compose up -d
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8081/healthz >/dev/null && break
+            [ "$i" = 30 ] && { docker compose logs; exit 1; }
+            sleep 1
+          done
+
+      - name: Регрессионный прогон
+        run: node test/smoke.js
+        env:
+          APP_URL: http://127.0.0.1:8081/
+
+      - name: Логи контейнера при падении
+        if: failure()
+        run: docker compose logs --tail 100
+
+  deploy:
+    name: Деплой на graph.heeprod.ru
+    needs: test
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Настроить ssh
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Деплой
+        # ключ прописан на сервере с forced command — что бы сюда ни передали,
+        # выполнится только /usr/local/bin/graph-studio-ci-deploy
+        run: |
+          ssh -o BatchMode=yes -o ConnectTimeout=20 -i ~/.ssh/id_ed25519 \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}"
+
+      - name: Прогон по боевому адресу
+        run: node test/smoke.js
+        env:
+          APP_URL: https://graph.heeprod.ru/
+
+      - name: Итог
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' https://graph.heeprod.ru/)
+          echo "### Задеплоено: https://graph.heeprod.ru (HTTP $code)" >> $GITHUB_STEP_SUMMARY
+          echo "Коммит: \`${GITHUB_SHA::7}\`" >> $GITHUB_STEP_SUMMARY

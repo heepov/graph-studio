@@ -1,7 +1,16 @@
 // Минимальный CDP-драйвер поверх встроенного WebSocket (node >= 22)
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const { spawn } = require('child_process');
 const fs = require('fs');
+
+const CHROME = process.env.CHROME_PATH || [
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/chromium',
+].find(p => fs.existsSync(p));
+if (!CHROME) throw new Error('Chrome не найден — укажите путь через CHROME_PATH');
 
 async function jget(url) { return (await fetch(url)).json(); }
 const sleep = ms => new Promise(r => setTimeout(r, ms));

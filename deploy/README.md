@@ -37,9 +37,39 @@ nginx -t && systemctl reload nginx
 
 ## Обновление
 
+Обычный путь — просто закоммитить в `main`: GitHub Actions прогоняет тесты и
+деплоит сам. Руками, если нужно:
+
 ```bash
 cd /opt/graph-studio && ./deploy/deploy.sh
 ```
+
+## CI/CD
+
+`.github/workflows/deploy.yml`: пуш в `main` → сборка образа и регрессионный прогон
+в headless Chrome → деплой на сервер → повторный прогон уже по боевому адресу.
+На pull request'ах гоняются только тесты, деплоя нет.
+
+Как это устроено на сервере:
+
+- у Actions свой ed25519-ключ, **не** личный ключ владельца;
+- в `/root/.ssh/authorized_keys` он записан с forced command:
+  `command="/usr/local/bin/graph-studio-ci-deploy",restrict` — по этому ключу
+  нельзя выполнить ничего, кроме деплоя, что бы ни передали в ssh;
+- сам скрипт лежит **вне** репозитория (`/usr/local/bin/graph-studio-ci-deploy`):
+  `git reset` перезаписал бы его прямо во время исполнения, а bash дочитывает
+  скрипт по ходу работы и на этом ломается.
+
+Секреты репозитория: `DEPLOY_SSH_KEY`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_KNOWN_HOSTS`.
+
+После правки `deploy/ci-deploy.sh` его нужно переустановить руками:
+
+```bash
+cd /opt/graph-studio && install -m 755 deploy/ci-deploy.sh /usr/local/bin/graph-studio-ci-deploy
+```
+
+Отозвать доступ CI: удалить строку с `github-actions-graph-studio` из
+`/root/.ssh/authorized_keys`.
 
 ## Откат
 
