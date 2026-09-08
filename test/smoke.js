@@ -211,6 +211,9 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       await sleep(1200); // дать save() отработать
       await c.send('Page.navigate', { url: URL + '?v=reload' });
       await c.waitFor('typeof PROJECTS !== "undefined" && typeof G === "function"', 20000, 'перезагрузка');
+      // глобали появляются сразу, а idb — только после await openDB() внутри boot();
+      // без этого ожидания dbGet ниже иногда падает с «нет БД»
+      await c.waitFor('typeof idb !== "undefined" && !!idb', 20000, 'база открыта');
       await sleep(1500);
       const afterReload = await c.eval(`(async () => {
         const pr = await dbGet(STORE, '${pid}');

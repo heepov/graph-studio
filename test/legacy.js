@@ -97,6 +97,10 @@ E.projects[0].id = 'old_bundle';
   try {
     await c.send('Page.navigate', {url: URL});
     await c.waitFor('typeof PROJECTS !== "undefined" && typeof G === "function"', 20000, 'загрузка');
+    // Ждём именно открытую базу, а не просто разобранный скрипт: глобали существуют
+    // сразу, а idb появляется только после await openDB() внутри boot(). Без этого
+    // dbPut падает с «нет БД» — на быстрой машине везёт, на CI-раннере нет.
+    await c.waitFor('typeof idb !== "undefined" && !!idb', 20000, 'база открыта');
     await c.eval('(closeModal(), true)');
     if (c.errors.length) bad('исключения при загрузке', c.errors.join(' | ').slice(0, 200));
 
