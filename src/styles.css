@@ -287,6 +287,21 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
 /* Зависимости: чипы выбранного + поиск.
    Раньше на каждый тип связи рисовался чекбокс на КАЖДУЮ другую ноду проекта —
    4 типа × 150 узлов давали 600 DOM-элементов и бесконечную прокрутку. */
+/* Разделы инспектора: свёрнутые группы вместо плоской простыни из полей.
+   Раньше все поля шли подряд одинаковым весом — без подсказки было не понять,
+   что здесь главное, а что служебное. */
+.isect{display:flex;align-items:center;gap:7px;margin:14px 0 0;padding:6px 0 5px;cursor:pointer;
+  border-top:1px solid var(--line2);user-select:none}
+.isect:first-child{border-top:none;margin-top:4px}
+.isect .ttl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink2)}
+.isect .cnt{font-size:10.5px;font-weight:700;color:var(--muted);background:#eef0f6;border-radius:9px;padding:0 6px}
+.isect .chev{margin-left:auto;color:var(--muted);font-size:10px;transition:transform .13s}
+.isect:hover .ttl{color:var(--ink)}
+.isect.closed .chev{transform:rotate(-90deg)}
+.ibody{padding-bottom:2px}
+.ibody.hidden{display:none}
+.ihint{font-size:11px;color:var(--muted);line-height:1.4;margin:2px 0 6px}
+body.dark .isect .cnt{background:var(--surf2)}
 .deps{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
 .dchip{font-size:11.4px;font-weight:600;padding:3px 5px 3px 9px;border-radius:12px;
   border:1px solid var(--accent-br);background:var(--accent-bg);color:var(--accent);

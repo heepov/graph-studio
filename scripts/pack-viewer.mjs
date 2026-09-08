@@ -19,19 +19,24 @@ const inlineOne = async (src, tagRe, wrap) => {
   if (body.includes('</scr' + 'ipt>')) {
     throw new Error(`в ${file} встретился литерал закрывающего script-тега — он оборвёт встроенный блок`);
   }
-  return { out: src.replace(m[0], wrap(body)), hit: file };
+  // ВАЖНО: замена функцией, а не строкой. String.replace трактует в СТРОКЕ ЗАМЕНЫ
+  // последовательности $&, $`, $', $1… как спецсимволы, а в бандле их полно —
+  // подстановка начинала вставлять сама себя и сборка падала по нехватке памяти.
+  return { out: src.replace(m[0], () => wrap(body)), hit: file };
 };
 
-let out = html, inlined = [];
+let out = html, inlined = [], guard = 0;
 
 // стили
 for (;;) {
+  if (++guard > 50) throw new Error('слишком много ассетов — похоже, замена зациклилась');
   const r = await inlineOne(out, /<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"[^>]*>/, b => `<style>\n${b}\n</style>`);
   if (!r.hit) break;
   out = r.out; inlined.push(r.hit);
 }
 // скрипты-модули
 for (;;) {
+  if (++guard > 50) throw new Error('слишком много ассетов — похоже, замена зациклилась');
   const r = await inlineOne(out, /<script[^>]*type="module"[^>]*src="([^"]+)"[^>]*><\/scr(?:)ipt>/,
     b => `<script type="module">\n${b}\n</scr` + `ipt>`);
   if (!r.hit) break;

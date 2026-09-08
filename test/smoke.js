@@ -200,14 +200,16 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
           x = a; y = b; break outer;
         }
         if (!x) return {err: 'не нашлось подходящей пары'};
-        UI.iTab = 'edit'; openNode(x.id);
+        UI.iTab = 'edit'; UI.sects = {main:1, desc:1, links:1, fields:1, checks:1, more:1};
+        openNode(x.id);
         const ib = document.getElementById('ib');
         const before = {
           checkboxes: ib.querySelectorAll('[data-dep]').length,
           searches: ib.querySelectorAll('[data-depq]').length,
           links: P.links.length
         };
-        const box = ib.querySelector('[data-depadd^="in|"]');
+        const box = ib.querySelector('[data-depadd]');
+        box.querySelector('[data-depdir]').value = 'in';
         const inp = box.querySelector('[data-depq]');
         inp.value = y.name.slice(0, 6); inp.oninput();
         const opt = box.querySelector('[data-pick="' + CSS.escape(y.id) + '"]')
@@ -245,8 +247,10 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       const cyc = await c.eval(`(() => {
         const l = P.links[0]; if (!l) return {err: 'нет связей'};
         const before = P.links.length;
-        UI.iTab = 'edit'; openNode(l.from);          // пробуем добавить l.to как то, что держит l.from
-        const box = document.getElementById('ib').querySelector('[data-depadd^="in|"]');
+        UI.iTab = 'edit'; UI.sects = {links: 1};
+        openNode(l.from);                            // пробуем добавить l.to как то, что держит l.from
+        const box = document.getElementById('ib').querySelector('[data-depadd]');
+        box.querySelector('[data-depdir]').value = 'in';
         const inp = box.querySelector('[data-depq]');
         const target = nodeById(l.to);
         inp.value = target.name.slice(0, 6); inp.oninput();

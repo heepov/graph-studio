@@ -1286,6 +1286,7 @@ async function loadInspW() {
   try {
     const rec = await dbGet(META, 'ui');
     if (rec && rec.v && rec.v.inspW) applyInspW(rec.v.inspW);
+    if (rec && rec.v && rec.v.sects) UI.sects = rec.v.sects;
   } catch (e) {}
 }
 function saveInspW(px) {
@@ -1405,67 +1406,97 @@ function createLane(n) {
     toast('Колонка добавлена: «' + label + '»');
   });
 }
+// Состояние свёрнутости разделов инспектора. Хранится в meta вместе с шириной панели:
+// это настройка человека, а не проекта.
+const SECT_DEFAULT = {main: 1, desc: 1, links: 1, fields: 0, checks: 0, more: 0};
+function sectOpen(key) {
+  const v = (UI.sects || {})[key];
+  return v === undefined ? !!SECT_DEFAULT[key] : !!v;
+}
+function saveSects() {
+  if (VIEWER) return;
+  dbGet(META, 'ui').catch(() => null).then(rec => {
+    const v = Object.assign({}, (rec && rec.v) || {}, {sects: UI.sects});
+    dbPut(META, {k: 'ui', v}).catch(() => {});
+  });
+}
+
 function editForm(n) {
   const sts = P.schema.statuses.map(s => [s.key, s.name]);
   const cats = P.schema.categories.map(s => [s.key, s.name]);
   const tys = P.schema.nodeTypes.map(s => [s.key, s.name]);
-  const others = P.nodes.filter(x => x.id !== n.id);
   const g = G();
   const lanes = (curPage().canvas || {}).lanes || [];
   const newOpt = t => `<option value="__new__">＋ ${t}…</option>`;
-  let h = `<div class="f"><label>Название</label><input type="text" data-k="name" value="${esc(n.name)}"></div>
-  <div class="f"><label>Подпись</label><input type="text" data-k="sub" value="${esc(n.sub || '')}"></div>
-  <div class="frow">
-    <div class="f"><label>Тип</label><select data-k="type">${opts(tys, n.type)}${newOpt('Новый тип')}</select></div>
-    <div class="f"><label>Статус</label><select data-k="status">${opts(sts, n.status)}${newOpt('Новый статус')}</select></div>
-  </div>
-  <div class="frow">
-    <div class="f"><label>Категория</label><select data-k="cat">${opts(cats, n.cat)}${newOpt('Новая категория')}</select></div>
-    <div class="f"><label>Колонка на холсте</label><select data-k="lane">${opts(lanes.map((l, i) => [i, i + ' — ' + l]), n.lane == null ? '' : n.lane, 'авто · сейчас ' + g.layer[n.id])}${curPage().kind === 'canvas' ? newOpt('Новая колонка') : ''}</select></div>
-  </div>`;
+
+  // раздел: заголовок со счётчиком + сворачиваемое тело
+  const sect = (key, title, count, inner, hint) => {
+    const open = sectOpen(key);
+    return `<div class="isect${open ? '' : ' closed'}" data-sect="${key}">
+        <span class="ttl">${esc(title)}</span>${count ? `<span class="cnt">${count}</span>` : ''}
+        <span class="chev">▼</span></div>
+      <div class="ibody${open ? '' : ' hidden'}" data-sbody="${key}">
+        ${hint ? `<div class="ihint">${hint}</div>` : ''}${inner}</div>`;
+  };
+
+  // --- главное: то, что правят чаще всего ---
+  let main = `<div class="f" style="margin-top:2px"><label>Название</label><input type="text" data-k="name" value="${esc(n.name)}"></div>
+    <div class="f"><label>Подпись под названием</label><input type="text" data-k="sub" value="${esc(n.sub || '')}" placeholder="одна строка контекста"></div>
+    <div class="frow">
+      <div class="f"><label>Статус</label><select data-k="status">${opts(sts, n.status)}${newOpt('Новый статус')}</select></div>
+      <div class="f"><label>Категория</label><select data-k="cat">${opts(cats, n.cat)}${newOpt('Новая категория')}</select></div>
+    </div>`;
+
+  // --- описание ---
+  const desc = `<div class="f" style="margin-top:2px"><textarea data-k="body" style="min-height:110px" placeholder="Зачем это нужно, что входит, на что влияет">${esc(n.body || '')}</textarea>
+    <label class="cbx" style="margin-top:6px"><input type="checkbox" data-k="draft" ${n.draft ? 'checked' : ''}>черновик — ещё выверить</label></div>`;
+
+  // --- связи: один блок вместо четырёх ---
+  const ins = P.links.filter(l => l.to === n.id);
+  const outs = P.links.filter(l => l.from === n.id);
+  const chip = (l, dir) => {
+    const other = dir === 'in' ? l.from : l.to, o = nodeById(other), t = ltOf(l.type);
+    return `<span class="dchip" title="${esc(t.name)} · ${esc(other)}" style="border-color:${t.color}55;background:${t.color}14;color:var(--ink2)">
+      <span style="color:${t.color};font-weight:800">${dir === 'in' ? '←' : '→'}</span>
+      <span class="nm">${esc(o ? o.name : other)}</span>
+      <i data-depdel="${esc(dir)}|${esc(l.type)}|${esc(other)}" title="убрать связь">×</i></span>`;
+  };
+  const linkBody = `<div class="deps">${ins.map(l => chip(l, 'in')).join('')}${outs.map(l => chip(l, 'out')).join('')}${!ins.length && !outs.length ? '<div class="dempty">Связей пока нет</div>' : ''}</div>
+    <div class="depadd" data-depadd>
+      <div class="frow" style="margin-top:6px">
+        <div class="f" style="margin-top:0"><label>Направление</label>
+          <select data-depdir><option value="in">← держит этот узел</option><option value="out">→ откроется после него</option></select></div>
+        <div class="f" style="margin-top:0"><label>Тип связи</label>
+          <select data-deptype>${P.schema.linkTypes.map(t => `<option value="${esc(t.key)}">${esc(t.name)}</option>`).join('')}</select></div>
+      </div>
+      <input type="text" placeholder="＋ добавить связь: название или id узла" data-depq style="margin-top:6px">
+      <div class="deplist hidden"></div>
+    </div>`;
+
+  // --- свои поля схемы ---
+  let fields = '';
+  let filled = 0;
   P.schema.fields.forEach(f => {
     const v = (n.f || {})[f.key];
-    h += `<div class="f"><label>${esc(f.label)}</label>`;
-    if (f.type === 'select') h += `<select data-f="${esc(f.key)}">${opts(f.options || [], v || '', '— нет —')}${newOpt('Новое значение')}</select>`;
-    else if (f.type === 'longtext') h += `<textarea data-f="${esc(f.key)}">${esc(v || '')}</textarea>`;
-    else if (f.type === 'number') h += `<input type="number" data-f="${esc(f.key)}" value="${esc(v == null ? '' : v)}">`;
-    else if (f.type === 'date') h += `<input type="date" data-f="${esc(f.key)}" value="${esc(v || '')}">`;
-    else if (f.type === 'checkbox') h += `<label class="cbx"><input type="checkbox" data-f="${esc(f.key)}" ${v ? 'checked' : ''}>да</label>`;
+    if (v !== undefined && v !== '' && !(Array.isArray(v) && !v.length)) filled++;
+    fields += `<div class="f"><label>${esc(f.label)}</label>`;
+    if (f.type === 'select') fields += `<select data-f="${esc(f.key)}">${opts(f.options || [], v || '', '— нет —')}${newOpt('Новое значение')}</select>`;
+    else if (f.type === 'longtext') fields += `<textarea data-f="${esc(f.key)}">${esc(v || '')}</textarea>`;
+    else if (f.type === 'number') fields += `<input type="number" data-f="${esc(f.key)}" value="${esc(v == null ? '' : v)}">`;
+    else if (f.type === 'date') fields += `<input type="date" data-f="${esc(f.key)}" value="${esc(v || '')}">`;
+    else if (f.type === 'checkbox') fields += `<label class="cbx"><input type="checkbox" data-f="${esc(f.key)}" ${v ? 'checked' : ''}>да</label>`;
     else if (f.type === 'list') {
-      h += `<div data-list="${esc(f.key)}">${(v || []).map((x, i) => `<div class="lrw"><input type="text" data-li="${i}" value="${esc(x)}"><button class="ib dgr" data-ldel="${i}">×</button></div>`).join('')}</div>
+      fields += `<div data-list="${esc(f.key)}">${(v || []).map((x, i) => `<div class="lrw"><input type="text" data-li="${i}" value="${esc(x)}"><button class="ib dgr" data-ldel="${i}">×</button></div>`).join('')}</div>
         <button class="btn sm" data-ladd="${esc(f.key)}">＋ пункт</button>`;
-    } else h += `<input type="text" data-f="${esc(f.key)}" value="${esc(v || '')}">`;
-    h += `</div>`;
+    } else fields += `<input type="text" data-f="${esc(f.key)}" value="${esc(v || '')}">`;
+    fields += `</div>`;
   });
-  h += `<div class="f"><label>Описание</label><textarea data-k="body" style="min-height:120px">${esc(n.body || '')}</textarea>
-    <label class="cbx" style="margin-top:6px"><input type="checkbox" data-k="draft" ${n.draft ? 'checked' : ''}>черновик — выверить</label></div>`;
-  // Зависимости: чипы выбранного + поиск. Раньше на каждый тип связи рисовался чекбокс
-  // на КАЖДУЮ другую ноду проекта — на 150 узлах это 600 элементов и стена прокрутки.
-  const depChips = (ids, dir, ltKey) => ids.length
-    ? ids.map(id => {
-        const o = nodeById(id);
-        return `<span class="dchip" title="${esc(id)}"><span class="nm">${esc(o ? o.name : id)}</span><i data-depdel="${esc(dir)}|${esc(ltKey)}|${esc(id)}" title="убрать связь">×</i></span>`;
-      }).join('')
-    : '<div class="dempty">— пусто</div>';
-  const depBlock = (lt, dir) => {
-    const ids = dir === 'in'
-      ? P.links.filter(l => l.to === n.id && l.type === lt.key).map(l => l.from)
-      : P.links.filter(l => l.from === n.id && l.type === lt.key).map(l => l.to);
-    const label = dir === 'in' ? `${esc(lt.name)} — что должно быть готово` : `${esc(lt.name)} — что это откроет`;
-    return `<div class="f" style="margin-top:8px"><label>${label}</label>
-      <div class="deps" data-deps="${esc(dir)}|${esc(lt.key)}">${depChips(ids, dir, lt.key)}</div>
-      <div class="depadd" data-depadd="${esc(dir)}|${esc(lt.key)}">
-        <input type="text" placeholder="начните печатать название или id…" data-depq>
-        <div class="deplist hidden"></div>
-      </div></div>`;
-  };
-  h += `<div class="sect">Что держит этот узел</div>`;
-  P.schema.linkTypes.forEach(lt => {h += depBlock(lt, 'in');});
-  h += `<div class="sect">Что откроет этот узел</div>`;
-  P.schema.linkTypes.forEach(lt => {h += depBlock(lt, 'out');});
-  h += `<div class="sect">Вехи и блокеры (${(n.checks || []).length})</div><div id="chkList">`;
+  if (!P.schema.fields.length) fields = '<div class="ihint">Своих полей в проекте нет. Завести их можно в «Схеме проекта».</div>';
+
+  // --- вехи ---
+  let checks = '<div id="chkList">';
   (n.checks || []).forEach((c, i) => {
-    h += `<div class="crow" data-ci="${i}">
+    checks += `<div class="crow" data-ci="${i}">
       <div class="h"><span style="font-size:10px;font-weight:800;color:var(--muted);width:14px">${i + 1}</span>
         <select class="cellsel" data-c="s" style="border-color:var(--line)">${opts(sts, c.s)}</select>
         <label class="cbx" style="font-size:11.5px"><input type="checkbox" data-c="b" ${c.b ? 'checked' : ''}>блокер</label>
@@ -1475,12 +1506,31 @@ function editForm(n) {
       <input type="text" data-c="z" value="${esc(c.z || '')}" placeholder="комментарий" style="margin-top:5px;font-size:12px">
     </div>`;
   });
-  h += `</div><button class="btn sm" id="chkAdd">＋ веха</button>`;
-  h += `<div class="sect">Служебное</div>
-    <div class="frow"><div class="f" style="margin-top:0"><label>ID</label><input type="text" id="idf" value="${esc(n.id)}"></div>
-    <div class="f" style="margin-top:0"><label>Позиция на этой странице</label><button class="btn sm" id="unpin" style="width:100%;padding:6px" ${isPinned(n, UI.page) ? '' : 'disabled'}>${isPinned(n, UI.page) ? '📌 закреплена — открепить' : 'авто'}</button></div></div>
-    <div style="display:flex;gap:8px;margin-top:16px">
+  checks += '</div><button class="btn sm" id="chkAdd">＋ веха</button>';
+
+  // --- редкое и служебное ---
+  const more = `<div class="frow" style="margin-top:2px">
+      <div class="f" style="margin-top:0"><label>Тип узла</label><select data-k="type">${opts(tys, n.type)}${newOpt('Новый тип')}</select></div>
+      <div class="f" style="margin-top:0"><label>Колонка на холсте</label><select data-k="lane">${opts(lanes.map((l, i) => [i, i + ' — ' + l]), n.lane == null ? '' : n.lane, 'авто · сейчас ' + g.layer[n.id])}${curPage().kind === 'canvas' ? newOpt('Новая колонка') : ''}</select></div>
+    </div>
+    <div class="frow">
+      <div class="f"><label>Идентификатор</label><input type="text" id="idf" value="${esc(n.id)}"></div>
+      <div class="f"><label>Позиция на странице</label><button class="btn sm" id="unpin" style="width:100%;padding:6px" ${isPinned(n, UI.page) ? '' : 'disabled'}>${isPinned(n, UI.page) ? '📌 открепить' : 'авто'}</button></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px">
       <button class="btn" id="dupN">Дублировать</button><button class="btn dgr" id="delN">Удалить узел</button></div>`;
+
+  const h =
+    sect('main', 'Главное', 0, main) +
+    sect('desc', 'Описание', 0, desc) +
+    sect('links', 'Связи', ins.length + outs.length, linkBody,
+      '<b>←</b> — что должно быть готово до этого узла. <b>→</b> — что откроется, когда он будет готов.') +
+    sect('fields', 'Свои поля', filled || 0, fields) +
+    sect('checks', 'Вехи и блокеры', (n.checks || []).length, checks,
+      'Шаги внутри узла. Отмеченные «блокер» считаются в бейдже ⚠ на карточке.') +
+    sect('more', 'Тип, колонка, служебное', 0, more,
+      'Колонка на холсте — номер этапа. «Авто» означает, что номер считается по зависимостям.');
+
   $('ib').innerHTML = h;
   wireEdit(n);
 }
@@ -1520,6 +1570,17 @@ function wireEdit(n) {
   qsa('[data-ladd]', B).forEach(el => el.onclick = () => {
     snapNow(); const k = el.dataset.ladd; n.f = n.f || {}; n.f[k] = n.f[k] || []; n.f[k].push(''); save(); openNode(n.id);
   });
+  // --- сворачивание разделов ---
+  qsa('[data-sect]', B).forEach(head => head.onclick = () => {
+    const key = head.dataset.sect;
+    UI.sects = UI.sects || {};
+    UI.sects[key] = !sectOpen(key);
+    head.classList.toggle('closed', !UI.sects[key]);
+    const bodyEl = qs(`[data-sbody="${key}"]`, B);
+    if (bodyEl) bodyEl.classList.toggle('hidden', !UI.sects[key]);
+    saveSects();
+  });
+
   // --- зависимости: удаление чипом и добавление поиском ---
   const relink = (dir, type, other, add) => {
     // dir: 'in' — other → n, 'out' — n → other
@@ -1535,10 +1596,16 @@ function wireEdit(n) {
       return false;
     }
     save(); renderPage(); openNode(n.id, true);
-    // форма пересобрана — возвращаем курсор в то же поле поиска, иначе подряд
-    // несколько связей не добавить: после первой фокус улетал в никуда
-    const back = qs(`[data-depadd="${dir}|${type}"] [data-depq]`, $('ib'));
-    if (back) back.focus();
+    // форма пересобрана — возвращаем курсор в поле поиска и восстанавливаем выбор
+    // направления и типа, иначе подряд несколько связей не добавить
+    const box2 = qs('[data-depadd]', $('ib'));
+    if (box2) {
+      const d2 = qs('[data-depdir]', box2), t2 = qs('[data-deptype]', box2);
+      if (d2) d2.value = dir;
+      if (t2) t2.value = type;
+      const back = qs('[data-depq]', box2);
+      if (back) back.focus();
+    }
     return true;
   };
   qsa('[data-depdel]', B).forEach(el => el.onclick = () => {
@@ -1549,15 +1616,22 @@ function wireEdit(n) {
   // и её область видимости сюда не дотягивается
   const others = P.nodes.filter(x => x.id !== n.id);
   qsa('[data-depadd]', B).forEach(box => {
-    const [dir, type] = box.dataset.depadd.split('|');
+    // направление и тип берутся из селекторов рядом, а не из четырёх отдельных блоков:
+    // раньше на каждый тип связи × каждое направление рисовалось своё поле поиска
+    const dirSel = qs('[data-depdir]', box), typeSel = qs('[data-deptype]', box);
     const inp = qs('[data-depq]', box), list = qs('.deplist', box);
-    const linked = new Set(dir === 'in'
-      ? P.links.filter(l => l.to === n.id && l.type === type).map(l => l.from)
-      : P.links.filter(l => l.from === n.id && l.type === type).map(l => l.to));
+    const cur = () => ({dir: dirSel.value, type: typeSel.value});
+    const linkedNow = () => {
+      const {dir, type} = cur();
+      return new Set(dir === 'in'
+        ? P.links.filter(l => l.to === n.id && l.type === type).map(l => l.from)
+        : P.links.filter(l => l.from === n.id && l.type === type).map(l => l.to));
+    };
     let idx = -1, shown = [];
     const close = () => {list.classList.add('hidden'); idx = -1; shown = [];};
     const paint = () => {
       const q = inp.value.trim().toLowerCase();
+      const linked = linkedNow();
       shown = others
         .filter(o => !linked.has(o.id))
         .filter(o => !q || o.name.toLowerCase().includes(q) || o.id.toLowerCase().includes(q)
@@ -1571,6 +1645,7 @@ function wireEdit(n) {
           <span class="nm">${esc(o.name)}</span><span class="id">${esc(o.id)}</span></div>`).join('');
         qsa('[data-pick]', list).forEach(d => d.onmousedown = ev => {
           ev.preventDefault();
+          const {dir, type} = cur();
           if (relink(dir, type, d.dataset.pick, true)) close();
         });
       }
@@ -1587,6 +1662,7 @@ function wireEdit(n) {
       else if (ev.key === 'Enter') {
         ev.preventDefault();
         const pick = shown[idx >= 0 ? idx : 0];
+        const {dir, type} = cur();
         if (pick && relink(dir, type, pick.id, true)) close();
       }
     };
@@ -3507,7 +3583,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, META, NH, NW, PADX, PADY, ROWGAP, SCHEMA_PALETTE, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, _pageNodes, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, scheduleFileSave, scheduleViewSave, schemaKey, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
+Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, META, NH, NW, PADX, PADY, ROWGAP, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, _pageNodes, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, '_g', {get: () => _g, set: v => {_g = v;}, configurable: true});

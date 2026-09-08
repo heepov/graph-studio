@@ -7,7 +7,8 @@
     "build": "node scripts/gen-bridge.mjs && vite build && node scripts/pack-viewer.mjs dist",
     "preview": "vite preview",
     "test": "node test/smoke.js && node test/legacy.js",
-    "bridge": "node scripts/gen-bridge.mjs"
+    "bridge": "node scripts/gen-bridge.mjs",
+    "verify": "bash scripts/verify.sh"
   },
   "devDependencies": {
     "vite": "^7.1.5"
