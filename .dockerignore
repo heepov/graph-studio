@@ -5,8 +5,10 @@ docs
 test
 deploy
 *.md
-!app/**
 .DS_Store
 **/.DS_Store
 start.command
 docker-compose.yml
+node_modules
+dist
+chrome-prof*

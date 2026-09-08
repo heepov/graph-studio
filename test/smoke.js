@@ -182,11 +182,13 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       }
 
       // --- VIEWER: ссылка коллеге ------------------------------------------
-      // viewer весит сотни КБ — разбираем его внутри страницы и наружу отдаём только выжимку
+      // viewer весит сотни КБ — разбираем его внутри страницы и наружу отдаём только выжимку.
+      // exportViewer() стал асинхронным: шаблон тянется через fetch('viewer-template.html'),
+      // потому что после перехода на сборку снимок собственного DOM больше не самодостаточен.
       const viewer = await c.eval(`(async () => {
         let blob = null; const orig = URL.createObjectURL;
         URL.createObjectURL = b => { blob = b; return orig.call(URL, b); };
-        try { exportViewer(); } finally { URL.createObjectURL = orig; }
+        try { await exportViewer(); } finally { URL.createObjectURL = orig; }
         if (!blob) return null;
         const content = await blob.text();
         const marker = '<script id="seed" type="application/json">';

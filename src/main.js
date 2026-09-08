@@ -1,452 +1,11 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Graph Studio</title>
-<link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#3355d1">
-<meta name="mobile-web-app-capable" content="yes">
-<!-- apple-* оставлен для старых iOS Safari: стандартный тег там ещё не понимается -->
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Graph Studio">
-<link rel="icon" type="image/svg+xml" href="icon.svg">
-<link rel="apple-touch-icon" href="icon.svg">
-<style>
-:root{
-  --ink:#15181f; --ink2:#525a6b; --muted:#8b91a1; --line:#e4e7ef; --line2:#eef0f6;
-  --bg:#f6f7fa; --card:#fff; --accent:#3355d1; --accent-bg:#eef1fc; --accent-br:#d3dcf7;
-  --red:#b3261e; --red-bg:#fdecea; --red-br:#f0c7c2;
-  --amber:#8a5d00; --amber-bg:#fff5da; --amber-br:#ecd8a0;
-  --green:#136c33; --green-bg:#e4f3e8; --green-br:#b9dfc4;
-  --grey:#5f6673; --grey-bg:#eef0f4; --grey-br:#dbdfe8;
-  --sh1:0 1px 2px rgba(16,20,32,.06); --sh2:0 4px 14px rgba(16,20,32,.10); --sh3:0 16px 46px rgba(16,20,32,.20);
-  --side:236px;
-}
-*{box-sizing:border-box}
-html,body{margin:0;height:100%;overflow:hidden}
-body{font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;background:var(--bg);color:var(--ink);font-size:13.5px;line-height:1.45;-webkit-font-smoothing:antialiased}
-button,input,select,textarea{font-family:inherit}
-.hidden{display:none!important}
-::-webkit-scrollbar{width:10px;height:10px}
-::-webkit-scrollbar-thumb{background:#d3d7e2;border-radius:6px;border:2px solid transparent;background-clip:padding-box}
-::-webkit-scrollbar-thumb:hover{background:#bcc2d1;background-clip:padding-box}
-::-webkit-scrollbar-track{background:transparent}
-
-/* ============ каркас ============ */
-#app{display:flex;height:100vh}
-#side{width:var(--side);min-width:var(--side);background:#fbfbfd;border-right:1px solid var(--line);display:flex;flex-direction:column}
-#main{flex:1;min-width:0;display:flex;flex-direction:column}
-#topbar{height:46px;min-height:46px;border-bottom:1px solid var(--line);background:#fff;display:flex;align-items:center;gap:8px;padding:0 12px}
-#pagebar{min-height:40px;border-bottom:1px solid var(--line);background:#fff;display:flex;align-items:center;gap:7px;padding:5px 12px;flex-wrap:wrap}
-#view{flex:1;min-height:0;position:relative;overflow:hidden}
-.scroller{position:absolute;inset:0;overflow:auto;padding:18px 22px 60px}
-
-/* ============ сайдбар ============ */
-.brand{padding:12px 12px 8px;display:flex;align-items:center;gap:8px}
-.brand .logo{width:24px;height:24px;border-radius:7px;background:linear-gradient(135deg,#3355d1,#7b3fd1);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:13px}
-.brand .nm{font-weight:750;font-size:14px;letter-spacing:-.2px}
-#projBtn{margin:0 8px 8px;padding:7px 9px;border:1px solid var(--line);background:#fff;border-radius:9px;cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;width:calc(100% - 16px)}
-#projBtn:hover{border-color:#c8cede;box-shadow:var(--sh1)}
-#projBtn .pn{font-weight:700;font-size:12.8px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#projBtn .cnt{font-size:10.5px;color:var(--muted)}
-.sidecap{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:#a6acbb;padding:10px 14px 4px;display:flex;align-items:center}
-.sidecap .add{margin-left:auto;cursor:pointer;font-size:14px;color:var(--muted);line-height:1;padding:0 3px;border-radius:4px}
-.sidecap .add:hover{background:#eceff6;color:var(--ink)}
-#pageList{flex:1;overflow:auto;padding:0 8px 10px}
-.pgi{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:12.8px;color:var(--ink2);user-select:none}
-.pgi:hover{background:#eff1f7}
-.pgi.on{background:var(--accent-bg);color:var(--accent);font-weight:650}
-.pgi .ic{width:15px;text-align:center;font-size:12px;opacity:.85}
-.pgi .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pgi .mo{opacity:0;font-size:13px;color:var(--muted);padding:0 2px;border-radius:4px}
-.pgi:hover .mo{opacity:1}
-.pgi .mo:hover{background:#e2e6f0;color:var(--ink)}
-.pgi.drop{box-shadow:inset 0 -2px 0 var(--accent)}
-#sidefoot{border-top:1px solid var(--line);padding:6px 8px 8px}
-#sidefoot .pgi{font-size:12.4px}
-#saveState{font-size:10.6px;color:var(--muted);padding:4px 8px 0;line-height:1.35}
-
-/* ============ кнопки и чипы ============ */
-.btn{font-size:12.2px;font-weight:600;padding:5px 10px;border-radius:7px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--ink2);white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
-.btn:hover{background:#f3f5fa;color:var(--ink);border-color:#d8dde9}
-.btn.pri{background:var(--accent);border-color:transparent;color:#fff}
-.btn.pri:hover{background:#2843b5;color:#fff}
-.btn.act{background:var(--accent-bg);border-color:var(--accent-br);color:var(--accent)}
-.btn.dgr{color:var(--red);border-color:var(--red-br)}
-.btn.dgr:hover{background:var(--red-bg)}
-.btn[disabled]{opacity:.38;cursor:default;pointer-events:none}
-.btn.sm{font-size:11.4px;padding:3px 8px}
-.btn.ico{padding:5px 7px}
-.chip{font-size:11.6px;font-weight:600;padding:3px 10px;border-radius:13px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--ink2);user-select:none;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
-.chip:hover{background:#f3f5fa}
-.chip.on{color:#fff;border-color:transparent;background:#3d4657}
-.chip .dt{width:7px;height:7px;border-radius:50%;display:inline-block}
-.sep{width:1px;height:20px;background:var(--line);margin:0 3px}
-.spacer{flex:1}
-.hint{font-size:11.6px;color:var(--muted)}
-.kbd{font:600 10.5px ui-monospace,Menlo,monospace;background:#eef0f6;border:1px solid #dfe3ec;border-bottom-width:2px;border-radius:4px;padding:1px 4px;color:var(--ink2)}
-
-/* ============ меню ============ */
-.menu{position:relative;display:inline-block}
-.mlist{display:none;position:absolute;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:var(--sh2);padding:5px;min-width:230px;z-index:120}
-.menu.open>.mlist{display:block}
-.mlist.right{right:0;top:calc(100% + 5px)} .mlist.left{left:0;top:calc(100% + 5px)}
-.mi{padding:6px 9px;font-size:12.4px;border-radius:6px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:8px;color:var(--ink2)}
-.mi:hover{background:#f1f3f9;color:var(--ink)}
-.mi small{display:block;color:var(--muted);font-size:10.4px;font-weight:400}
-.mi .k{margin-left:auto;font-size:10px;color:var(--muted)}
-.mi.dgr{color:var(--red)} .mi.dgr:hover{background:var(--red-bg)}
-.mlist hr{border:none;border-top:1px solid var(--line2);margin:4px 2px}
-.mlist .cap{font-size:9.6px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#a6acbb;padding:6px 9px 3px}
-
-/* ============ холст ============ */
-#cv{position:absolute;inset:0;overflow:hidden;background:
-  radial-gradient(circle at 1px 1px,#dfe3ec 1px,transparent 0) 0 0/22px 22px, #fbfcfe;cursor:default}
-#cv.pan{cursor:grab} #cv.panning{cursor:grabbing} #cv.linking{cursor:crosshair}
-#scene{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
-#edges{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
-#edges path.hit{stroke-width:14;stroke:transparent;fill:none;pointer-events:stroke;cursor:pointer}
-.lanebg{position:absolute;border-left:1px dashed #dfe3ec;pointer-events:none}
-.lanecap{position:absolute;font-size:10.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#aeb4c3;pointer-events:none;white-space:nowrap}
-.nd{position:absolute;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 11px 8px 13px;
-   box-shadow:var(--sh1);user-select:none;cursor:grab}
-.nd:hover{box-shadow:var(--sh2);border-color:#ccd3e3}
-.nd .bar{position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:9px 0 0 9px}
-.nd.shp-pill .bar{border-radius:22px 0 0 22px}
-.nd .nt{font-size:12.4px;font-weight:700;line-height:1.26;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;padding-right:46px}
-.nd .ns{font-size:10.5px;color:var(--muted);line-height:1.3;margin-top:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.nd .bdg{position:absolute;right:7px;top:7px;display:flex;gap:3px}
-.nd .b{font-size:9.4px;font-weight:800;border-radius:9px;padding:1px 6px;line-height:1.5}
-.b.blk{background:var(--red-bg);color:var(--red);border:1px solid var(--red-br)}
-.b.wt{background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-br)}
-.b.pin{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-br)}
-.nd.shp-pill{border-radius:22px;background:#fffdf6;border-color:var(--amber-br)}
-.nd.shp-di{border-radius:10px;background:#f7f4ff;border-color:#ded3f6}
-.nd.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-br),var(--sh2)}
-.nd.dim{opacity:.2}
-.nd.anc{box-shadow:0 0 0 2px var(--red-br),var(--sh1)}
-.nd.dsc{box-shadow:0 0 0 2px var(--green-br),var(--sh1)}
-.nd.drag{cursor:grabbing;z-index:20;box-shadow:var(--sh3)}
-.nd .dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:1px}
-.nd .nte{outline:none;cursor:text}
-.port{position:absolute;width:13px;height:13px;border-radius:50%;background:#fff;border:2px solid var(--accent);
-  opacity:0;transition:opacity .1s;cursor:crosshair;z-index:22}
-.nd:hover .port,.port.live{opacity:1}
-.port:hover{transform:scale(1.35)}
-.port.r{right:-7px;top:50%;margin-top:-6.5px} .port.l{left:-7px;top:50%;margin-top:-6.5px}
-.port.t{top:-7px;left:50%;margin-left:-6.5px} .port.b{bottom:-7px;left:50%;margin-left:-6.5px}
-.nd.droptgt{box-shadow:0 0 0 3px var(--accent)}
-.fr{position:absolute;border:1.5px solid #d7dbe6;border-radius:12px;background:rgba(255,255,255,.42)}
-.fr.lane{border-style:dashed;background:rgba(240,242,248,.5)}
-.fr .fh{position:absolute;top:-21px;left:0;font-size:11px;font-weight:750;color:#767d8f;background:transparent;
-  padding:1px 5px;border-radius:5px;cursor:grab;white-space:nowrap;user-select:none}
-.fr .fh:hover{background:#eceff6}
-.fr.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-br)}
-.fr .rs{position:absolute;right:-5px;bottom:-5px;width:12px;height:12px;border:1.5px solid var(--accent);background:#fff;border-radius:3px;cursor:nwse-resize;opacity:0}
-.fr:hover .rs,.fr.sel .rs{opacity:1}
-.stk{position:absolute;background:#fff8c8;border:1px solid #eadf9a;border-radius:8px;padding:8px 10px;font-size:12px;
-  line-height:1.4;box-shadow:var(--sh1);cursor:grab;white-space:pre-wrap;overflow:hidden}
-.stk.sel{box-shadow:0 0 0 2px var(--accent-br),var(--sh1);border-color:var(--accent)}
-.stk .rs{position:absolute;right:-5px;bottom:-5px;width:12px;height:12px;border:1.5px solid var(--accent);background:#fff;border-radius:3px;cursor:nwse-resize;opacity:0}
-.stk:hover .rs,.stk.sel .rs{opacity:1}
-.stk .txt{outline:none;min-height:16px}
-.fr{pointer-events:none}
-.fr .fh,.fr .rs{pointer-events:auto}
-#marq{position:absolute;border:1px solid var(--accent);background:rgba(51,85,209,.09);pointer-events:none;display:none;z-index:60}
-#mini{position:absolute;right:12px;bottom:12px;width:190px;height:126px;background:rgba(255,255,255,.93);border:1px solid var(--line);
-  border-radius:9px;box-shadow:var(--sh1);z-index:30;cursor:pointer}
-#zoombar{position:absolute;left:12px;bottom:12px;z-index:30;display:flex;gap:5px;background:rgba(255,255,255,.93);
-  border:1px solid var(--line);border-radius:9px;padding:4px;box-shadow:var(--sh1);align-items:center}
-#cvintro{background:#fff;border-bottom:1px solid var(--line);border-left:3px solid var(--accent);padding:7px 14px;font-size:12.2px;color:var(--ink2);line-height:1.45;position:relative}
-#cvintro b{color:var(--ink)}
-#cvintro .x{position:absolute;right:8px;top:5px;cursor:pointer;color:var(--muted);font-size:14px;padding:0 5px;border-radius:5px}
-#cvintro .x:hover{background:#eef0f6}
-#cvstack{position:absolute;inset:0;display:flex;flex-direction:column}
-#cvhost{position:relative;flex:1;min-height:0}
-#ctx{position:fixed;z-index:200;display:none}
-#ctx.open{display:block}
-#ctx .mlist{display:block;position:static}
-
-/* ============ таблица ============ */
-.tblwrap{background:#fff;border:1px solid var(--line);border-radius:11px;overflow:auto;box-shadow:var(--sh1)}
-table.grid{border-collapse:separate;border-spacing:0;width:100%;font-size:12.6px}
-table.grid th{position:sticky;top:0;z-index:5;background:#fbfbfd;text-align:left;font-size:10.2px;text-transform:uppercase;
-  letter-spacing:.4px;color:var(--muted);font-weight:750;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;cursor:pointer;user-select:none}
-table.grid th:hover{color:var(--ink)}
-table.grid th .ar{opacity:.5;font-size:9px}
-table.grid td{padding:5px 10px;border-bottom:1px solid var(--line2);vertical-align:middle}
-table.grid tr:hover td{background:#fafbfe}
-table.grid tr.selrow td{background:var(--accent-bg)}
-table.grid td.nm{font-weight:650}
-table.grid .grouphd td{background:#f2f4fa;font-weight:750;font-size:11.4px;color:var(--ink2);padding:6px 10px;position:sticky;top:29px}
-.cellin{border:1px solid transparent;background:transparent;border-radius:5px;padding:2px 5px;font-size:12.5px;width:100%;color:inherit;font-weight:inherit}
-.cellin:hover{border-color:var(--line);background:#fff}
-.cellin:focus{border-color:var(--accent);background:#fff;outline:none;box-shadow:0 0 0 2px var(--accent-bg)}
-select.cellsel{border:1px solid transparent;background:transparent;font-size:11.6px;padding:2px 4px;border-radius:5px;font-weight:650;cursor:pointer;max-width:100%}
-select.cellsel:hover{border-color:var(--line);background:#fff}
-.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:11px;white-space:nowrap}
-.pill i{width:7px;height:7px;border-radius:50%;display:inline-block}
-.catdot{width:4px;height:14px;border-radius:2px;display:inline-block;vertical-align:-2px;margin-right:7px}
-#bulk{position:absolute;left:50%;bottom:22px;transform:translateX(-50%) translateY(30px);background:#1b1f2a;color:#fff;border-radius:11px;
-  padding:8px 12px;display:flex;gap:8px;align-items:center;box-shadow:var(--sh3);z-index:40;opacity:0;transition:.18s;pointer-events:none;flex-wrap:wrap;max-width:92%}
-#bulk.on{opacity:1;transform:translateX(-50%);pointer-events:auto}
-#bulk .btn{background:#2c3242;border-color:#3b4254;color:#dfe3ee}
-#bulk .btn:hover{background:#39405280;color:#fff}
-#bulk select{background:#2c3242;border:1px solid #3b4254;color:#dfe3ee;border-radius:7px;padding:4px 7px;font-size:12px}
-
-/* ============ канбан ============ */
-.kb{display:flex;gap:12px;align-items:flex-start;height:100%;overflow-x:auto;padding:4px 2px 20px}
-.kbcol{min-width:262px;width:262px;background:#f1f3f8;border-radius:11px;padding:8px;display:flex;flex-direction:column;max-height:100%}
-.kbcol.over{background:var(--accent-bg);outline:2px dashed var(--accent-br)}
-.kbh{display:flex;align-items:center;gap:7px;font-size:12.2px;font-weight:750;padding:2px 4px 8px;color:var(--ink2)}
-.kbh .n{margin-left:auto;font-size:11px;color:var(--muted);font-weight:600}
-.kbl{overflow-y:auto;display:flex;flex-direction:column;gap:6px;min-height:34px;padding-bottom:2px}
-.kc{background:#fff;border:1px solid var(--line);border-radius:9px;padding:8px 10px 8px 12px;position:relative;cursor:grab;box-shadow:var(--sh1)}
-.kc:hover{box-shadow:var(--sh2)}
-.kc.drag{opacity:.45}
-.kc .bar{position:absolute;left:0;top:0;bottom:0;width:3.5px;border-radius:9px 0 0 9px}
-.kc .t{font-size:12.3px;font-weight:650;line-height:1.3}
-.kc .s{font-size:10.6px;color:var(--muted);margin-top:2px}
-.kc .m{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;align-items:center}
-
-/* ============ дашборд ============ */
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin-bottom:16px}
-.tile{background:#fff;border:1px solid var(--line);border-radius:11px;padding:11px 14px;box-shadow:var(--sh1)}
-.tile .n{font-size:22px;font-weight:760;line-height:1.15;letter-spacing:-.5px}
-.tile .l{font-size:10.6px;color:var(--muted);margin-top:2px}
-.card{background:#fff;border:1px solid var(--line);border-radius:11px;padding:14px 16px;margin-bottom:14px;box-shadow:var(--sh1)}
-.card h3{margin:0 0 10px;font-size:13.5px;font-weight:750}
-.cards2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;align-items:start}
-.barrow{display:flex;align-items:center;gap:9px;padding:4px 0;font-size:12.4px}
-.barrow .lb{flex:0 0 44%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
-.barrow .lb:hover{color:var(--accent)}
-.barrow .bw{flex:1;height:8px;background:#eef0f6;border-radius:5px;overflow:hidden}
-.barrow .bw i{display:block;height:100%;border-radius:5px}
-.barrow .vv{width:34px;text-align:right;font-weight:700;font-size:11.6px}
-.lrow{display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px solid var(--line2);font-size:12.5px}
-.lrow:last-child{border:none}
-.lrow .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
-.lrow .t:hover{color:var(--accent)}
-.intro{background:#fff;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:9px;padding:10px 14px;
-  font-size:12.6px;color:var(--ink2);margin-bottom:14px;box-shadow:var(--sh1)}
-.intro b{color:var(--ink)}
-
-/* ============ инспектор ============ */
-#insp{width:0;min-width:0;background:#fff;border-left:1px solid var(--line);display:flex;flex-direction:column;transition:width .16s}
-#insp.open{width:430px;min-width:430px}
-#insp>*{min-width:430px}
-#ih{padding:11px 16px 0;border-bottom:1px solid var(--line);position:relative}
-#ih h3{margin:0;font-size:15px;font-weight:750;padding-right:30px;line-height:1.3}
-#iclose{position:absolute;right:11px;top:11px;border:none;background:#f0f2f7;border-radius:6px;width:25px;height:25px;cursor:pointer;color:var(--ink2);font-size:14px}
-#iclose:hover{background:#e4e8f1}
-#imeta{font-size:11.6px;color:var(--ink2);margin-top:5px}
-#itabs{display:flex;gap:2px;margin-top:9px}
-#itabs .t{font-size:12px;font-weight:650;padding:5px 10px;border-radius:7px 7px 0 0;cursor:pointer;color:var(--ink2);border:1px solid transparent;border-bottom:none;margin-bottom:-1px}
-#itabs .t.on{background:#fff;border-color:var(--line);color:var(--accent)}
-#ib{padding:10px 16px 40px;overflow:auto;flex:1}
-.sect{font-size:10.2px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:16px 0 6px}
-.kv{font-size:12.2px;color:var(--ink2);margin-top:5px}
-.kv b{color:var(--ink)}
-.body{font-size:12.9px;line-height:1.55;background:#f7f9fd;border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:10px 13px;white-space:pre-wrap}
-.tag{display:inline-block;font-size:11px;font-weight:650;color:var(--accent);background:var(--accent-bg);border:1px solid var(--accent-br);
-  border-radius:11px;padding:2px 9px;margin:3px 4px 0 0;cursor:pointer}
-.tag:hover{background:#e2e8fa}
-.chk{border-bottom:1px solid var(--line2);padding:7px 0}
-.chk:last-child{border:none}
-.chk.blk{background:#fef7f6;margin:0 -8px;padding:7px 8px;border-radius:6px;border-bottom:none}
-.chk .t{font-weight:650;font-size:12.4px}
-.chk .z{font-size:11.6px;color:var(--ink2);margin-top:2px}
-.draft{display:inline-block;font-size:9.4px;font-weight:800;color:var(--amber);background:var(--amber-bg);border:1px solid var(--amber-br);
-  border-radius:9px;padding:1px 7px;margin-left:6px;letter-spacing:0;text-transform:none}
-
-/* ============ формы ============ */
-.f{margin-top:10px}
-.f>label,.flab{display:block;font-size:10.2px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:3px}
-input[type=text],input[type=number],input[type=date],select,textarea{width:100%;font-size:12.8px;color:var(--ink);border:1px solid var(--line);
-  border-radius:7px;padding:6px 9px;background:#fff;outline:none}
-input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
-textarea{resize:vertical;min-height:70px;line-height:1.5}
-.frow{display:flex;gap:9px}.frow>.f{flex:1;min-width:0}
-.cbx{display:inline-flex;align-items:center;gap:6px;font-size:12.4px;color:var(--ink2);cursor:pointer;user-select:none}
-.cbx input{width:15px;height:15px;accent-color:var(--accent)}
-.picker{border:1px solid var(--line);border-radius:8px;padding:5px;max-height:180px;overflow:auto;background:#fcfcfe}
-.pk{display:flex;align-items:center;gap:7px;padding:3px 5px;border-radius:5px;font-size:12.2px;cursor:pointer}
-.pk:hover{background:var(--accent-bg)}
-.pk input{accent-color:var(--accent)}
-.pk .id{font-size:9.6px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;margin-left:auto}
-.lrw{display:flex;gap:6px;align-items:center;margin-bottom:5px}
-.ib{border:1px solid var(--line);background:#fff;border-radius:6px;width:26px;height:26px;min-width:26px;cursor:pointer;color:var(--ink2);font-size:12px;line-height:1;display:inline-flex;align-items:center;justify-content:center}
-.ib:hover{background:#f2f4fa;color:var(--ink)}
-.ib.dgr:hover{background:var(--red-bg);color:var(--red);border-color:var(--red-br)}
-.crow{border:1px solid var(--line);border-radius:8px;padding:7px;margin-bottom:6px;background:#fcfcfe}
-.crow .h{display:flex;gap:6px;align-items:center;margin-bottom:5px}
-.swatch{width:26px;height:26px;padding:1px;border:1px solid var(--line);border-radius:6px;cursor:pointer;background:#fff}
-
-/* ============ модалка, оверлеи ============ */
-#modal{position:fixed;inset:0;background:rgba(16,20,32,.45);z-index:300;display:none;align-items:center;justify-content:center;padding:24px}
-#modal.open{display:flex}
-#mbox{background:#fff;border-radius:14px;max-width:680px;width:100%;max-height:88vh;overflow:auto;padding:20px 22px;box-shadow:var(--sh3)}
-#mbox h3{margin:0 0 10px;font-size:17px;font-weight:750}
-.mfoot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
-#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(18px);background:#1b1f2a;color:#fff;font-size:12.6px;
-  padding:9px 16px;border-radius:9px;z-index:400;opacity:0;transition:.2s;pointer-events:none;max-width:70vw;box-shadow:var(--sh3)}
-#toast.on{opacity:1;transform:translateX(-50%)}
-#pal{position:fixed;inset:0;background:rgba(16,20,32,.35);z-index:310;display:none;justify-content:center;padding-top:12vh}
-#pal.open{display:flex}
-#palbox{background:#fff;border-radius:13px;width:min(620px,92vw);height:fit-content;max-height:70vh;box-shadow:var(--sh3);overflow:hidden;display:flex;flex-direction:column}
-#palin{border:none;border-bottom:1px solid var(--line);border-radius:0;padding:13px 16px;font-size:14.5px}
-#palin:focus{box-shadow:none;border-color:var(--line)}
-#pallist{overflow:auto;padding:6px}
-.pr{padding:7px 11px;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:9px;font-size:12.8px}
-.pr.on{background:var(--accent-bg)}
-.pr .s{color:var(--muted);font-size:11px;margin-left:auto}
-#projects{position:fixed;inset:0;background:var(--bg);z-index:250;overflow:auto;display:none}
-#projects.open{display:block}
-.pwrap{max-width:1080px;margin:0 auto;padding:52px 26px 60px}
-.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:14px}
-.pcard{background:#fff;border:1px solid var(--line);border-radius:13px;padding:15px 16px;cursor:pointer;box-shadow:var(--sh1);position:relative;transition:.13s}
-.pcard:hover{box-shadow:var(--sh2);transform:translateY(-1px);border-color:#ccd3e3}
-.pcard .t{font-size:14.5px;font-weight:750;margin-bottom:3px}
-.pcard .d{font-size:12px;color:var(--ink2);min-height:34px;line-height:1.4}
-.pcard .m{font-size:10.8px;color:var(--muted);margin-top:9px;display:flex;gap:9px;align-items:center}
-.pcard .x{position:absolute;right:9px;top:9px;opacity:0;font-size:14px;color:var(--muted);cursor:pointer;padding:2px 5px;border-radius:5px}
-.pcard:hover .x{opacity:1} .pcard .x:hover{background:var(--red-bg);color:var(--red)}
-.pcard.new{border-style:dashed;display:flex;align-items:center;justify-content:center;flex-direction:column;color:var(--accent);min-height:118px;background:#fdfdff}
-.pcard.new .t{color:var(--accent)}
-body.viewer .noview{display:none!important}
-
-/* ============ тёмная тема ============ */
-body.dark{
-  --ink:#e7eaf3; --ink2:#a7afc2; --muted:#7b8397; --line:#2b3140; --line2:#232936;
-  --bg:#0e1117; --card:#171b24; --accent:#6b8bff; --accent-bg:#1b2338; --accent-br:#374468;
-  --red:#ef8b82; --red-bg:#39221f; --red-br:#5d332e;
-  --amber:#e5b24d; --amber-bg:#382c14; --amber-br:#5a4620;
-  --green:#5cc27f; --green-bg:#173423; --green-br:#265039;
-  --grey:#9aa2b3; --grey-bg:#232936; --grey-br:#333a49;
-  --sh1:0 1px 2px rgba(0,0,0,.4); --sh2:0 4px 14px rgba(0,0,0,.5); --sh3:0 16px 46px rgba(0,0,0,.6);
-  color-scheme:dark;
-}
-body.dark{--side-bg:#12151d;--surf2:#1e232e;--hov:#222836}
-body.dark #side{background:var(--side-bg)}
-body.dark #topbar,body.dark #pagebar,body.dark #cvintro{background:var(--card)}
-body.dark #projBtn,body.dark .btn,body.dark .chip,body.dark .mlist,body.dark .nd,body.dark .port,
-body.dark .fr .rs,body.dark .stk .rs,body.dark .tblwrap,body.dark .kc,body.dark .tile,body.dark .card,
-body.dark .intro,body.dark #insp,body.dark input[type=text],body.dark input[type=number],
-body.dark input[type=date],body.dark select,body.dark textarea,body.dark .ib,body.dark .swatch,
-body.dark #mbox,body.dark #palbox,body.dark .pcard,body.dark .body{background:var(--card)}
-body.dark .btn:hover,body.dark .chip:hover,body.dark .mi:hover,body.dark .cellin:hover,
-body.dark select.cellsel:hover,body.dark .cellin:focus,body.dark .ib:hover,body.dark #iclose,
-body.dark .pgi:hover,body.dark .sidecap .add:hover,body.dark .pgi .mo:hover,body.dark #cvintro .x:hover,
-body.dark table.grid tr:hover td,body.dark #iclose:hover{background:var(--surf2)}
-body.dark .btn:hover{border-color:var(--accent-br)}
-body.dark .btn.pri,body.dark .btn.pri:hover{color:#fff}
-body.dark .chip.on{background:#3d4657;color:#fff}
-body.dark #itabs .t.on{background:var(--card)}
-body.dark table.grid th{background:var(--surf2)}
-body.dark table.grid .grouphd td{background:var(--surf2)}
-body.dark .kbcol{background:var(--surf2)}
-body.dark .barrow .bw,body.dark .kbd{background:var(--surf2)}
-body.dark .kbd{border-color:var(--line)}
-body.dark #cv{background:radial-gradient(circle at 1px 1px,#2a3140 1px,transparent 0) 0 0/22px 22px,#0d1017}
-body.dark .lanebg{border-left-color:#2a3140}
-body.dark .lanecap{color:#5c6478}
-body.dark .nd.shp-pill{background:#211d0f;border-color:var(--amber-br)}
-body.dark .nd.shp-di{background:#1e1830;border-color:#3a2f57}
-body.dark .nd:hover{border-color:#3d465a}
-body.dark .fr{border-color:#39414f;background:rgba(255,255,255,.04)}
-body.dark .fr.lane{background:rgba(120,130,150,.06)}
-body.dark .fr .fh{color:#8b93a6}
-body.dark .fr .fh:hover{background:var(--surf2)}
-body.dark .stk{background:#3a3320;border-color:#5a4f2a;color:#f0ead0}
-body.dark #mini,body.dark #zoombar{background:rgba(23,27,36,.92)}
-body.dark .cellin:focus{box-shadow:0 0 0 2px var(--accent-br)}
-body.dark ::-webkit-scrollbar-thumb{background:#39414f;background-clip:padding-box}
-body.dark ::-webkit-scrollbar-thumb:hover{background:#4a5364;background-clip:padding-box}
-body.dark .pcard:hover,body.dark #projBtn:hover,body.dark .nd:hover{border-color:#3d465a}
-body.dark .pcard.new{background:var(--surf2)}
-body.dark .chk.blk{background:var(--red-bg)}
-body.dark input:focus,body.dark select:focus,body.dark textarea:focus{box-shadow:0 0 0 3px var(--accent-bg)}
-body.dark .picker,body.dark .crow{background:var(--surf2)}
-</style>
-</head>
-<body>
-
-<div id="app">
-  <div id="side">
-    <div class="brand"><div class="logo">G</div><div class="nm">Graph Studio</div></div>
-    <button id="projBtn"><span class="pn">—</span><span class="cnt">▾</span></button>
-    <div class="sidecap">Страницы <span class="add noview" id="addPage" title="Новая страница">＋</span></div>
-    <div id="pageList"></div>
-    <div id="sidefoot">
-      <div class="pgi noview" id="navSchema"><span class="ic">⚙</span><span class="nm">Схема проекта</span></div>
-      <div class="pgi noview hidden" id="navInstall"><span class="ic">⤓</span><span class="nm">Установить приложение</span></div>
-      <div class="pgi" id="navExport"><span class="ic">↓</span><span class="nm">Экспорт и импорт</span></div>
-      <div class="pgi" id="navTheme"><span class="ic">◐</span><span class="nm">Тёмная тема</span></div>
-      <div class="pgi" id="navHelp"><span class="ic">?</span><span class="nm">Справка</span></div>
-      <div id="saveState"></div>
-    </div>
-  </div>
-
-  <div id="main">
-    <div id="topbar">
-      <span id="pgTitle" style="font-weight:750;font-size:14px"></span>
-      <span id="pgSub" class="hint"></span>
-      <span class="spacer"></span>
-      <button class="btn ico noview" id="bUndo" title="Отменить · Ctrl+Z">↶</button>
-      <button class="btn ico noview" id="bRedo" title="Вернуть · Ctrl+Shift+Z">↷</button>
-      <button class="btn" id="bFind" title="Быстрый поиск · Ctrl+K">🔍 Поиск</button>
-      <button class="btn pri noview" id="bAdd">＋ Узел</button>
-    </div>
-    <div id="pagebar"></div>
-    <div id="view"></div>
-  </div>
-
-  <div id="insp">
-    <div id="ih">
-      <button id="iclose">×</button><h3 id="ititle"></h3><div id="imeta"></div>
-      <div id="itabs"><div class="t on" data-i="card">Карточка</div><div class="t noview" data-i="edit">Правка</div></div>
-    </div>
-    <div id="ib"></div>
-  </div>
-</div>
-
-<div id="projects"><div class="pwrap">
-  <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
-    <div class="brand" style="padding:0"><div class="logo">G</div><div class="nm" style="font-size:20px">Graph Studio</div></div>
-    <span class="spacer"></span>
-    <button class="btn pri hidden" id="pInstall">⤓ Установить приложение</button>
-    <button class="btn hidden" id="pVault">📁 Папка хранилища</button>
-    <button class="btn" id="pOpenFile">Открыть файл…</button>
-    <button class="btn" id="pImport">Импорт JSON</button>
-    <button class="btn" id="pBackup">Бэкап всего</button>
-    <button class="btn" id="pClose">Закрыть</button>
-  </div>
-  <div class="hint" id="vaultStatus" style="margin-bottom:22px">Редактор графов зависимостей, роадмапов и любых схем «что чем заблокировано». Проекты хранятся в этом браузере (IndexedDB).</div>
-  <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:0 0 10px">Проекты</h3>
-  <div class="pgrid" id="pList"></div>
-  <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:30px 0 10px">Создать из шаблона</h3>
-  <div class="pgrid" id="tList"></div>
-  <div id="trashSect" class="hidden">
-    <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:30px 0 10px">Удалённые</h3>
-    <div class="pgrid" id="dList"></div>
-  </div>
-</div></div>
-
-<div id="modal"><div id="mbox"></div></div>
-<div id="pal"><div id="palbox"><input id="palin" type="text" placeholder="Найти узел, страницу или команду…"><div id="pallist"></div></div></div>
-<div id="ctx"><div class="mlist"></div></div>
-<div id="toast"></div>
-<input type="file" id="fpick" style="display:none">
-
-<script id="seed" type="application/json">{"id":"demo","name":"Демо · запуск маркетплейса","desc":"Учебный проект: что чем заблокировано на пути к запуску. Данные вымышленные — чтобы посмотреть, как инструмент устроен. Удалите его или создайте свой.","created":"2026-08-03","updated":"2026-08-03","schema":{"nodeTypes":[{"key":"stage","name":"Этап / продукт","shape":"rect"},{"key":"gate","name":"Гейт / блокировка","shape":"pill"}],"statuses":[{"key":"done","name":"готово","color":"#18a558"},{"key":"green","name":"работает","color":"#136c33"},{"key":"amber","name":"в работе","color":"#8a5d00"},{"key":"red","name":"заблокировано","color":"#b3261e"},{"key":"grey","name":"discovery","color":"#5f6673"},{"key":"na","name":"статус не проставлен","color":"#a8aebd"}],"categories":[{"key":"PLAT","name":"Платформа","color":"#2f6fed"},{"key":"PAY","name":"Платежи","color":"#0f8f6a"},{"key":"LOG","name":"Логистика","color":"#d2740c"},{"key":"LEG","name":"Юридика","color":"#b08900"},{"key":"MKT","name":"Маркетинг","color":"#8b46c9"},{"key":"OPS","name":"Операции и поддержка","color":"#6b7280"}],"linkTypes":[{"key":"hard","name":"Жёсткая блокировка","color":"#9aa1b2","style":"solid","blocking":1},{"key":"soft","name":"Мягкая связь","color":"#c9a227","style":"dashed","blocking":0}],"fields":[{"key":"board","label":"Доска","type":"select","options":["Продукт","Платежи"],"card":0},{"key":"wave","label":"Волна","type":"select","options":["Wave 1","Wave 2","Wave 3","Wave 4","Wave 5"],"card":1},{"key":"gate","label":"Гейт на вход","type":"text","card":0},{"key":"note","label":"Контекст и нюансы","type":"longtext","card":0},{"key":"contains","label":"Что входит в этап","type":"list","card":0}]},"nodes":[{"id":"LEG_ENT","name":"Юрлицо и оферта маркетплейса","sub":"рамка: на каких условиях работаем","type":"gate","status":"amber","cat":"LEG","body":"Юридическая рамка площадки: кто продавец по сделке, кто принимает оплату, чья ответственность за товар. От неё зависят договор с продавцом и вся платёжная схема — поэтому это первый гейт, а не задача параллельного трека.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 1","gate":"Оферта согласована юристами","note":"Агентская схема против схемы «маркетплейс = продавец»: вторая проще для клиента, но требует своей лицензии и меняет налогообложение."},"checks":[{"t":"Выбрать схему работы (агентская / собственная)","s":"amber","b":1,"z":"Определяет всё дальше по цепочке"},{"t":"Согласовать оферту для покупателей","s":"red","b":0,"z":""},{"t":"Согласовать договор с продавцами","s":"red","b":0,"z":""}]},{"id":"LEG_PD","name":"Обработка персональных данных","sub":"уведомление, политика, согласия","type":"gate","status":"done","cat":"LEG","body":"Уведомление регулятора, политика обработки ПДн, тексты согласий в формах регистрации. Без этого нельзя запускать регистрацию пользователей.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 1"},"checks":[{"t":"Подать уведомление","s":"done","b":0,"z":""},{"t":"Опубликовать политику","s":"done","b":0,"z":""}]},{"id":"PLAT_INFRA","name":"Инфраструктура и окружения","sub":"dev / stage / prod, CI","type":"stage","status":"green","cat":"PLAT","body":"Три окружения, автодеплой, мониторинг и алерты. Фундамент, на который встаёт всё остальное.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 1","contains":["Окружения dev/stage/prod","CI/CD","Мониторинг и алерты","Бэкапы"]},"checks":[]},{"id":"PLAT_ACC","name":"Аккаунты и роли","sub":"покупатель, продавец, оператор","type":"stage","status":"amber","cat":"PLAT","body":"Регистрация, вход, восстановление доступа, роли и права. Роль оператора нужна поддержке, роль продавца — онбордингу.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 1"},"checks":[]},{"id":"PLAT_CAT","name":"Каталог и карточка товара","sub":"категории, атрибуты, медиа","type":"stage","status":"amber","cat":"PLAT","body":"Дерево категорий, атрибуты товара, загрузка фото, модерация карточек. Ядро витрины: от него зависят поиск, корзина и промо.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 1","contains":["Дерево категорий","Атрибуты и фильтры","Загрузка медиа","Модерация"]},"checks":[]},{"id":"LEG_OFR","name":"Договор с продавцом","sub":"условия, комиссии, штрафы","type":"stage","status":"red","cat":"LEG","body":"Электронное подписание договора при онбординге, тарифная сетка комиссий, ответственность за качество и сроки.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 2"},"checks":[]},{"id":"SEL_ONB","name":"Онбординг продавца","sub":"заявка → проверка → витрина","type":"stage","status":"red","cat":"OPS","body":"Путь продавца от заявки до первого товара на витрине: анкета, проверка документов, подписание договора, доступ в кабинет.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 2","gate":"Договор с продавцом готов"},"checks":[{"t":"Форма заявки и анкета","s":"amber","b":0,"z":""},{"t":"Проверка документов","s":"red","b":1,"z":"Упирается в KYC на платёжном треке"},{"t":"Кабинет продавца","s":"red","b":0,"z":""}]},{"id":"SEARCH","name":"Поиск и фильтры","sub":"релевантность, фасеты","type":"stage","status":"grey","cat":"PLAT","body":"Полнотекстовый поиск, фасетные фильтры по атрибутам, сортировки. Качество поиска напрямую влияет на конверсию.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 2"},"checks":[]},{"id":"CART","name":"Корзина и оформление","sub":"чекаут в один экран","type":"stage","status":"amber","cat":"PLAT","body":"Корзина с товарами разных продавцов, выбор доставки и оплаты, оформление заказа.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 2"},"checks":[]},{"id":"PAY_ACQ","name":"Приём платежей","sub":"эквайринг подключён","type":"gate","status":"red","cat":"PAY","body":"Гейт: работающий приём оплаты картами. Детали трека развёрнуты на отдельной доске «Платежи».","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 2","gate":"Договор с эквайером подписан"},"checks":[]},{"id":"ORD","name":"Заказы и статусы","sub":"жизненный цикл заказа","type":"stage","status":"red","cat":"OPS","body":"Модель заказа, статусы, уведомления покупателю и продавцу, история. Точка, от которой расходятся логистика, поддержка и аналитика.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 3"},"checks":[]},{"id":"PAY_SPLIT","name":"Расчёты с продавцами","sub":"сплит и выплаты","type":"stage","status":"red","cat":"PAY","body":"Разделение платежа между площадкой и продавцами, реестр выплат, отчётность. Развёрнуто на доске «Платежи».","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 3"},"checks":[]},{"id":"LOG_INT","name":"Интеграция со службами доставки","sub":"тарифы, заявки, ярлыки","type":"stage","status":"grey","cat":"LOG","body":"Расчёт стоимости доставки, создание заявки, печать ярлыков, забор от продавца.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 3","contains":["Расчёт тарифов","Создание заявки","Ярлыки","Забор от продавца"]},"checks":[]},{"id":"OPS_SUP","name":"Поддержка и споры","sub":"тикеты, регламенты, SLA","type":"stage","status":"grey","cat":"OPS","body":"Приём обращений, регламент разбора спора между покупателем и продавцом, SLA на ответ.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 3"},"checks":[]},{"id":"LOG_TRK","name":"Трекинг доставки","sub":"статус посылки у покупателя","type":"stage","status":"grey","cat":"LOG","body":"Подтягивание статусов от служб доставки и показ покупателю. Снимает заметную часть обращений в поддержку.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 4"},"checks":[]},{"id":"RET","name":"Возвраты","sub":"заявка, приём, деньги обратно","type":"stage","status":"grey","cat":"OPS","body":"Заявка на возврат, приём товара, возврат денег покупателю и корректировка расчётов с продавцом.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 4","gate":"Рефанды работают на платёжном треке"},"checks":[]},{"id":"MKT_PROMO","name":"Промо и скидки","sub":"купоны, акции, баннеры","type":"stage","status":"grey","cat":"MKT","body":"Механики скидок: купоны, акции категории, баннеры на витрине. Не блокирует запуск, но заметно влияет на первые продажи.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 4"},"checks":[]},{"id":"MKT_SEO","name":"SEO и посадочные","sub":"индексация витрины","type":"stage","status":"grey","cat":"MKT","body":"Человекочитаемые адреса, микроразметка, посадочные под категории. Даёт органический трафик, но эффект накопительный.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 4"},"checks":[]},{"id":"PILOT","name":"Пилот в одном городе","sub":"ограниченный запуск","type":"stage","status":"grey","cat":"OPS","body":"Запуск на ограниченной географии и небольшом пуле продавцов: проверяем весь путь заказа целиком, а не по частям.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 5","gate":"Полный путь заказа проходит без ручных костылей"},"checks":[{"t":"Набрать 20 продавцов","s":"grey","b":0,"z":""},{"t":"Пройти 100 заказов end-to-end","s":"grey","b":1,"z":"Главный критерий готовности"},{"t":"Собрать обратную связь","s":"grey","b":0,"z":""}]},{"id":"LAUNCH","name":"Публичный запуск","sub":"снятие ограничений","type":"stage","status":"grey","cat":"MKT","body":"Открытие площадки для всех: снятие географических ограничений, рекламная кампания, масштабирование поддержки.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Продукт","wave":"Wave 5"},"checks":[]},{"id":"PB_ACQ","name":"Договор с эквайером","sub":"выбор провайдера, условия","type":"gate","status":"amber","cat":"PAY","body":"Выбор платёжного провайдера и подписание договора. Ставка комиссии и поддержка сплита определяют схему расчётов дальше.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Платежи","wave":"Wave 1"},"checks":[]},{"id":"PB_KYC","name":"Проверка продавцов","sub":"документы, бенефициары","type":"gate","status":"red","cat":"LEG","body":"Проверка продавца перед выплатами: документы, бенефициары, счёт. Без неё платёжный провайдер не разрешит выплаты.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Платежи","wave":"Wave 1"},"checks":[]},{"id":"PB_API","name":"Интеграция платёжного API","sub":"оплата, вебхуки, идемпотентность","type":"stage","status":"red","cat":"PAY","body":"Приём оплаты, обработка вебхуков, идемпотентность повторных запросов, сверка статусов.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Платежи","wave":"Wave 2","note":"Вебхуки приходят повторно и не по порядку — обработчик обязан быть идемпотентным, иначе двойные списания в отчётности."},"checks":[]},{"id":"PB_FISCAL","name":"Фискализация чеков","sub":"онлайн-касса","type":"stage","status":"red","cat":"LEG","body":"Пробитие чеков при оплате и возврате, отправка покупателю. Обязательное требование, откладывать нельзя.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Платежи","wave":"Wave 2"},"checks":[]},{"id":"PB_SPLIT","name":"Сплит по заказу","sub":"деление между продавцами","type":"stage","status":"red","cat":"PAY","body":"Разделение одного платежа между несколькими продавцами и комиссией площадки в момент оплаты.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Платежи","wave":"Wave 2"},"checks":[]},{"id":"PB_HOLD","name":"Холдирование до доставки","sub":"деньги придерживаются","type":"stage","status":"grey","cat":"PAY","body":"Деньги придерживаются до подтверждения доставки — защита покупателя и рычаг в спорах.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Платежи","wave":"Wave 3"},"checks":[]},{"id":"PB_PAYOUT","name":"Реестр выплат","sub":"расписание, статусы","type":"stage","status":"grey","cat":"PAY","body":"Формирование реестра выплат продавцам, расписание, статусы и повторы неудачных выплат.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Платежи","wave":"Wave 3"},"checks":[]},{"id":"PB_FRAUD","name":"Антифрод","sub":"правила и лимиты","type":"stage","status":"grey","cat":"OPS","body":"Правила и лимиты на подозрительные операции. Не блокирует запуск, но без него растут потери на возвратных платежах.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Платежи","wave":"Wave 3"},"checks":[]},{"id":"PB_REFUND","name":"Рефанды","sub":"полные и частичные","type":"stage","status":"grey","cat":"PAY","body":"Полный и частичный возврат средств, корректировка выплаты продавцу, чек возврата.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Платежи","wave":"Wave 3"},"checks":[]},{"id":"PB_RECON","name":"Сверка и отчётность","sub":"три источника сходятся","type":"stage","status":"grey","cat":"PAY","body":"Ежедневная сверка: заказы, выписка провайдера, реестр выплат. Расхождения ловятся автоматически, а не в конце месяца.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Платежи","wave":"Wave 4","gate":"Выплаты и фискализация работают"},"checks":[]},{"id":"PB_SUB","name":"Подписки продавцов","sub":"тарифные планы","type":"stage","status":"grey","cat":"PAY","body":"Платные тарифные планы для продавцов вместо только комиссии с оборота.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Платежи","wave":"Wave 4"},"checks":[]},{"id":"PB_MULTI","name":"Мультивалютность","sub":"приём в разных валютах","type":"stage","status":"grey","cat":"PAY","body":"Приём оплаты в нескольких валютах и пересчёт при выплатах. Нужно только при выходе за пределы одного рынка.","draft":0,"lane":null,"x":null,"y":null,"pinned":0,"f":{"board":"Платежи","wave":"Wave 4"},"checks":[]}],"links":[{"id":"l_0","from":"LEG_PD","to":"PLAT_ACC","type":"hard"},{"id":"l_1","from":"PLAT_INFRA","to":"PLAT_ACC","type":"hard"},{"id":"l_2","from":"PLAT_INFRA","to":"PLAT_CAT","type":"hard"},{"id":"l_3","from":"LEG_ENT","to":"LEG_OFR","type":"hard"},{"id":"l_4","from":"PLAT_ACC","to":"SEL_ONB","type":"hard"},{"id":"l_5","from":"LEG_OFR","to":"SEL_ONB","type":"hard"},{"id":"l_6","from":"PLAT_CAT","to":"SEARCH","type":"hard"},{"id":"l_7","from":"PLAT_CAT","to":"CART","type":"hard"},{"id":"l_8","from":"LEG_ENT","to":"PAY_ACQ","type":"hard"},{"id":"l_9","from":"CART","to":"ORD","type":"hard"},{"id":"l_10","from":"PAY_ACQ","to":"ORD","type":"hard"},{"id":"l_11","from":"PAY_ACQ","to":"PAY_SPLIT","type":"hard"},{"id":"l_12","from":"SEL_ONB","to":"PAY_SPLIT","type":"hard"},{"id":"l_13","from":"ORD","to":"LOG_INT","type":"hard"},{"id":"l_14","from":"ORD","to":"OPS_SUP","type":"hard"},{"id":"l_15","from":"LOG_INT","to":"LOG_TRK","type":"hard"},{"id":"l_16","from":"PAY_SPLIT","to":"RET","type":"hard"},{"id":"l_17","from":"OPS_SUP","to":"RET","type":"hard"},{"id":"l_18","from":"ORD","to":"MKT_PROMO","type":"soft"},{"id":"l_19","from":"SEARCH","to":"MKT_SEO","type":"soft"},{"id":"l_20","from":"LOG_TRK","to":"PILOT","type":"hard"},{"id":"l_21","from":"RET","to":"PILOT","type":"hard"},{"id":"l_22","from":"SEL_ONB","to":"PILOT","type":"hard"},{"id":"l_23","from":"PILOT","to":"LAUNCH","type":"hard"},{"id":"l_24","from":"MKT_SEO","to":"LAUNCH","type":"soft"},{"id":"l_25","from":"MKT_PROMO","to":"LAUNCH","type":"soft"},{"id":"l_26","from":"PB_ACQ","to":"PB_API","type":"hard"},{"id":"l_27","from":"PB_API","to":"PB_SPLIT","type":"hard"},{"id":"l_28","from":"PB_KYC","to":"PB_SPLIT","type":"hard"},{"id":"l_29","from":"PB_API","to":"PB_FISCAL","type":"hard"},{"id":"l_30","from":"PB_SPLIT","to":"PB_HOLD","type":"hard"},{"id":"l_31","from":"PB_SPLIT","to":"PB_PAYOUT","type":"hard"},{"id":"l_32","from":"PB_KYC","to":"PB_PAYOUT","type":"hard"},{"id":"l_33","from":"PB_HOLD","to":"PB_REFUND","type":"hard"},{"id":"l_34","from":"PB_FISCAL","to":"PB_REFUND","type":"hard"},{"id":"l_35","from":"PB_API","to":"PB_FRAUD","type":"soft"},{"id":"l_36","from":"PB_PAYOUT","to":"PB_RECON","type":"hard"},{"id":"l_37","from":"PB_FISCAL","to":"PB_RECON","type":"hard"},{"id":"l_38","from":"PB_RECON","to":"PB_SUB","type":"soft"},{"id":"l_39","from":"PB_RECON","to":"PB_MULTI","type":"hard"}],"frames":[],"notes":[],"pages":[{"id":"p_dash","name":"Обзор","kind":"dash","filter":{"q":"","cats":[],"statuses":[],"types":[],"f":{}}},{"id":"p_main","name":"Продуктовый план","kind":"canvas","filter":{"q":"","cats":[],"statuses":[],"types":[],"f":{"board":["Продукт"]}},"canvas":{"layout":"auto","lanes":["блокировки","этап 1","этап 2","этап 3","этап 4","этап 5","этап 6","этап 7"],"intro":"<b>Демо-проект: запуск маркетплейса.</b> Колонка — глубина зависимости, а не календарь: видно, в каком порядке всё физически может поехать. Наведите на узел — красным подсветится то, что его держит, зелёным — что он откроет. Свой проект можно создать с нуля или импортировать JSON."}},{"id":"p_pay","name":"Платежи","kind":"canvas","filter":{"q":"","cats":[],"statuses":[],"types":[],"f":{"board":["Платежи"]}},"canvas":{"layout":"auto","lanes":["блокировки","Wave 1","Wave 2","Wave 3","Wave 4"],"intro":"<b>Платёжный трек развёрнут.</b> На верхней карте он свёрнут в два узла — здесь видно, из чего они состоят и что чем держится."}},{"id":"p_tbl","name":"Все узлы","kind":"table","filter":{"q":"","cats":[],"statuses":[],"types":[],"f":{}},"table":{"cols":["name","f.board","cat","type","status","step","weight","checks"],"sort":"step","group":""}},{"id":"p_brd","name":"Канбан по статусам","kind":"board","filter":{"q":"","cats":[],"statuses":[],"types":[],"f":{}},"board":{"groupBy":"status"}},{"id":"p_blk","name":"Блокеры","kind":"table","filter":{"q":"","cats":[],"statuses":[],"types":[],"f":{},"blockersOnly":1},"table":{"cols":["name","cat","status","weight","checks"],"sort":"weight","group":""}}]}</script>
-<script id="cfg">window.VIEWER=false;</script>
-<script>
 /* ==========================================================================
    GRAPH STUDIO — редактор графов зависимостей, роадмапов и схем
    Один файл. Проекты в IndexedDB. Экспорт/импорт JSON, CSV, Markdown, viewer.
    ========================================================================== */
-const TEMPLATE = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+// TEMPLATE (снимок собственного исходника через document.documentElement.outerHTML)
+// убран: после перехода на сборку он ссылался бы на внешние /assets/*.js и *.css,
+// а не содержал бы их. Просмотрщик теперь берётся из dist/viewer-template.html,
+// который собирается scripts/pack-viewer.mjs. См. exportViewer().
 const SEED = JSON.parse(document.getElementById('seed').textContent);
 const VIEWER = !!window.VIEWER;
 // FSA (File System Access) — доступно в Chrome/Edge в secure context (http(s)/localhost), не на file:// и не в viewer.
@@ -2652,11 +2211,21 @@ function exportMd() {
   });
   dl(fname('md'), o, 'text/markdown');
 }
-function exportViewer() {
+async function exportViewer() {
+  let tpl;
+  try {
+    const r = await fetch(new URL('viewer-template.html', location.href));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    tpl = await r.text();
+  } catch (e) {
+    // в режиме разработки (vite dev) шаблона нет — он появляется только после сборки
+    toast('Просмотрщик собирается только в собранной версии: ' + e.message);
+    return;
+  }
   const marker = '<script id="seed" type="application/json">';
-  const i = TEMPLATE.indexOf(marker), j = TEMPLATE.indexOf('<' + '/script>', i);
+  const i = tpl.indexOf(marker), j = tpl.indexOf('<' + '/script>', i);
   if (i < 0 || j < 0) {toast('Не найден блок данных'); return;}
-  let out = TEMPLATE.slice(0, i + marker.length) + JSON.stringify(P) + TEMPLATE.slice(j);
+  let out = tpl.slice(0, i + marker.length) + JSON.stringify(P) + tpl.slice(j);
   out = out.replace('window.VIEWER=false;', 'window.VIEWER=true;');
   dl(fname('viewer.html'), out, 'text/html');
   toast('viewer.html собран — только просмотр');
@@ -3603,6 +3172,39 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 // Побочный эффект, который надо знать: без воркера установка как PWA может перестать
 // предлагаться. Офлайн-режим всё равно уходит — сервер становится единственным хранилищем.
 
+/* ============ МОСТ В WINDOW ============
+   Сборка прячет объявления в область модуля, а тесты (test/smoke.js, test/legacy.js)
+   и отладка из консоли обращаются к ним как к глобальным — так этот код и писался.
+   Мост ставится ДО boot(), чтобы состояние было видно снаружи с первой миллисекунды.
+
+   Переприсваиваемые переменные отдаются геттерами: простое присваивание положило бы
+   в window копию, и после openProject() снаружи был бы виден предыдущий проект.
+
+   Список сгенерирован разбором объявлений верхнего уровня. Если разносить файл
+   по модулям — мост придётся пересобрать, иначе тесты молча потеряют половину API. */
+Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, KIND, META, NH, NW, PADX, PADY, ROWGAP, SCHEMA_PALETTE, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, _pageNodes, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgePath, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, isLegacy, isPinned, jumpToNode, kindName, layoutPage, linkById, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveProjectToFile, scheduleFileSave, scheduleViewSave, schemaKey, seedFreePositions, selArr, selectLink, setNpos, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
+Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
+Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
+Object.defineProperty(window, '_g', {get: () => _g, set: v => {_g = v;}, configurable: true});
+Object.defineProperty(window, '_uid', {get: () => _uid, set: v => {_uid = v;}, configurable: true});
+Object.defineProperty(window, '_writeLock', {get: () => _writeLock, set: v => {_writeLock = v;}, configurable: true});
+Object.defineProperty(window, 'cvNodes', {get: () => cvNodes, set: v => {cvNodes = v;}, configurable: true});
+Object.defineProperty(window, 'cvPos', {get: () => cvPos, set: v => {cvPos = v;}, configurable: true});
+Object.defineProperty(window, 'deferredInstall', {get: () => deferredInstall, set: v => {deferredInstall = v;}, configurable: true});
+Object.defineProperty(window, 'drag', {get: () => drag, set: v => {drag = v;}, configurable: true});
+Object.defineProperty(window, 'fileSaveT', {get: () => fileSaveT, set: v => {fileSaveT = v;}, configurable: true});
+Object.defineProperty(window, 'idb', {get: () => idb, set: v => {idb = v;}, configurable: true});
+Object.defineProperty(window, 'laneInfo', {get: () => laneInfo, set: v => {laneInfo = v;}, configurable: true});
+Object.defineProperty(window, 'palIdx', {get: () => palIdx, set: v => {palIdx = v;}, configurable: true});
+Object.defineProperty(window, 'palItems', {get: () => palItems, set: v => {palItems = v;}, configurable: true});
+Object.defineProperty(window, 'pasteShift', {get: () => pasteShift, set: v => {pasteShift = v;}, configurable: true});
+Object.defineProperty(window, 'saveT', {get: () => saveT, set: v => {saveT = v;}, configurable: true});
+Object.defineProperty(window, 'snapArmed', {get: () => snapArmed, set: v => {snapArmed = v;}, configurable: true});
+Object.defineProperty(window, 'snapT', {get: () => snapT, set: v => {snapT = v;}, configurable: true});
+Object.defineProperty(window, 'staleT', {get: () => staleT, set: v => {staleT = v;}, configurable: true});
+Object.defineProperty(window, 'toastT', {get: () => toastT, set: v => {toastT = v;}, configurable: true});
+Object.defineProperty(window, 'viewSaveT', {get: () => viewSaveT, set: v => {viewSaveT = v;}, configurable: true});
+
 (async function boot() {
   if (VIEWER) {
     document.body.classList.add('viewer');
@@ -3647,6 +3249,3 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
   } catch (e) {}
 })();
 
-</script>
-</body>
-</html>
