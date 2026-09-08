@@ -1324,13 +1324,30 @@ function editForm(n) {
   });
   h += `<div class="f"><label>Описание</label><textarea data-k="body" style="min-height:120px">${esc(n.body || '')}</textarea>
     <label class="cbx" style="margin-top:6px"><input type="checkbox" data-k="draft" ${n.draft ? 'checked' : ''}>черновик — выверить</label></div>`;
-  h += `<div class="sect">Зависимости</div>`;
-  P.schema.linkTypes.forEach(lt => {
-    const cur = P.links.filter(l => l.to === n.id && l.type === lt.key).map(l => l.from);
-    h += `<div class="f" style="margin-top:6px"><label>${esc(lt.name)} — что должно быть готово</label>
-      <div class="picker">${others.map(o => `<label class="pk"><input type="checkbox" data-dep="${esc(lt.key)}|${esc(o.id)}" ${cur.includes(o.id) ? 'checked' : ''}>
-        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(o.name)}</span><span class="id">${esc(o.id)}</span></label>`).join('') || '<div class="kv">Других узлов нет.</div>'}</div></div>`;
-  });
+  // Зависимости: чипы выбранного + поиск. Раньше на каждый тип связи рисовался чекбокс
+  // на КАЖДУЮ другую ноду проекта — на 150 узлах это 600 элементов и стена прокрутки.
+  const depChips = (ids, dir, ltKey) => ids.length
+    ? ids.map(id => {
+        const o = nodeById(id);
+        return `<span class="dchip" title="${esc(id)}"><span class="nm">${esc(o ? o.name : id)}</span><i data-depdel="${esc(dir)}|${esc(ltKey)}|${esc(id)}" title="убрать связь">×</i></span>`;
+      }).join('')
+    : '<div class="dempty">— пусто</div>';
+  const depBlock = (lt, dir) => {
+    const ids = dir === 'in'
+      ? P.links.filter(l => l.to === n.id && l.type === lt.key).map(l => l.from)
+      : P.links.filter(l => l.from === n.id && l.type === lt.key).map(l => l.to);
+    const label = dir === 'in' ? `${esc(lt.name)} — что должно быть готово` : `${esc(lt.name)} — что это откроет`;
+    return `<div class="f" style="margin-top:8px"><label>${label}</label>
+      <div class="deps" data-deps="${esc(dir)}|${esc(lt.key)}">${depChips(ids, dir, lt.key)}</div>
+      <div class="depadd" data-depadd="${esc(dir)}|${esc(lt.key)}">
+        <input type="text" placeholder="начните печатать название или id…" data-depq>
+        <div class="deplist hidden"></div>
+      </div></div>`;
+  };
+  h += `<div class="sect">Что держит этот узел</div>`;
+  P.schema.linkTypes.forEach(lt => {h += depBlock(lt, 'in');});
+  h += `<div class="sect">Что откроет этот узел</div>`;
+  P.schema.linkTypes.forEach(lt => {h += depBlock(lt, 'out');});
   h += `<div class="sect">Вехи и блокеры (${(n.checks || []).length})</div><div id="chkList">`;
   (n.checks || []).forEach((c, i) => {
     h += `<div class="crow" data-ci="${i}">
@@ -1388,14 +1405,76 @@ function wireEdit(n) {
   qsa('[data-ladd]', B).forEach(el => el.onclick = () => {
     snapNow(); const k = el.dataset.ladd; n.f = n.f || {}; n.f[k] = n.f[k] || []; n.f[k].push(''); save(); openNode(n.id);
   });
-  qsa('[data-dep]', B).forEach(el => el.onchange = () => {
-    const [type, from] = el.dataset.dep.split('|');
+  // --- зависимости: удаление чипом и добавление поиском ---
+  const relink = (dir, type, other, add) => {
+    // dir: 'in' — other → n, 'out' — n → other
+    const from = dir === 'in' ? other : n.id, to = dir === 'in' ? n.id : other;
     snapNow();
-    P.links = P.links.filter(l => !(l.to === n.id && l.from === from));
-    if (el.checked) P.links.push({id: uid('l'), from, to: n.id, type});
+    const before = P.links;
+    P.links = P.links.filter(l => !(l.from === from && l.to === to && l.type === type));
+    if (add) P.links.push({id: uid('l'), from, to, type});
     gInval();
-    if (hasCycle()) {P.links = P.links.filter(l => !(l.to === n.id && l.from === from)); gInval(); toast('Отклонено: цикл зависимостей');}
-    save(); renderPage(); openNode(n.id);
+    if (hasCycle()) {
+      P.links = before; gInval();
+      toast('Отклонено: получился бы цикл зависимостей');
+      return false;
+    }
+    save(); renderPage(); openNode(n.id, true);
+    // форма пересобрана — возвращаем курсор в то же поле поиска, иначе подряд
+    // несколько связей не добавить: после первой фокус улетал в никуда
+    const back = qs(`[data-depadd="${dir}|${type}"] [data-depq]`, $('ib'));
+    if (back) back.focus();
+    return true;
+  };
+  qsa('[data-depdel]', B).forEach(el => el.onclick = () => {
+    const [dir, type, other] = el.dataset.depdel.split('|');
+    relink(dir, type, other, false);
+  });
+  // others считается здесь заново: editForm() и wireEdit() — разные функции,
+  // и её область видимости сюда не дотягивается
+  const others = P.nodes.filter(x => x.id !== n.id);
+  qsa('[data-depadd]', B).forEach(box => {
+    const [dir, type] = box.dataset.depadd.split('|');
+    const inp = qs('[data-depq]', box), list = qs('.deplist', box);
+    const linked = new Set(dir === 'in'
+      ? P.links.filter(l => l.to === n.id && l.type === type).map(l => l.from)
+      : P.links.filter(l => l.from === n.id && l.type === type).map(l => l.to));
+    let idx = -1, shown = [];
+    const close = () => {list.classList.add('hidden'); idx = -1; shown = [];};
+    const paint = () => {
+      const q = inp.value.trim().toLowerCase();
+      shown = others
+        .filter(o => !linked.has(o.id))
+        .filter(o => !q || o.name.toLowerCase().includes(q) || o.id.toLowerCase().includes(q)
+                       || (o.sub || '').toLowerCase().includes(q))
+        .slice(0, 12);
+      if (!shown.length) {
+        list.innerHTML = `<div class="di" style="cursor:default;color:var(--muted)">${q ? 'ничего не нашлось' : 'все узлы уже связаны'}</div>`;
+      } else {
+        list.innerHTML = shown.map((o, i) => `<div class="di${i === idx ? ' on' : ''}" data-pick="${esc(o.id)}">
+          <span class="dt" style="width:7px;height:7px;border-radius:50%;background:${catOf(o.cat).color}"></span>
+          <span class="nm">${esc(o.name)}</span><span class="id">${esc(o.id)}</span></div>`).join('');
+        qsa('[data-pick]', list).forEach(d => d.onmousedown = ev => {
+          ev.preventDefault();
+          if (relink(dir, type, d.dataset.pick, true)) close();
+        });
+      }
+      list.classList.remove('hidden');
+    };
+    inp.oninput = paint;
+    inp.onfocus = paint;
+    inp.onblur = () => setTimeout(close, 120);
+    inp.onkeydown = ev => {
+      if (ev.key === 'Escape') {close(); inp.blur(); return;}
+      if (!shown.length) return;
+      if (ev.key === 'ArrowDown') {ev.preventDefault(); idx = Math.min(idx + 1, shown.length - 1); paint();}
+      else if (ev.key === 'ArrowUp') {ev.preventDefault(); idx = Math.max(idx - 1, 0); paint();}
+      else if (ev.key === 'Enter') {
+        ev.preventDefault();
+        const pick = shown[idx >= 0 ? idx : 0];
+        if (pick && relink(dir, type, pick.id, true)) close();
+      }
+    };
   });
   qsa('.crow', B).forEach(row => {
     const i = +row.dataset.ci;

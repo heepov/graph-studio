@@ -232,6 +232,10 @@ select.cellsel:hover{border-color:var(--line);background:#fff}
 #insp.open{transform:none;visibility:visible}
 /* миникарта живёт в правом нижнем углу — уводим её из-под открытой панели */
 body.inspopen #mini{right:calc(var(--insp-w) + 12px)}
+/* панель массовых действий центрируется по окну — сдвигаем её на половину ширины
+   инспектора, иначе правые кнопки («Удалить», «Снять») уезжают под панель */
+body.inspopen #bulk{transform:translateX(calc(-50% - var(--insp-w) / 2)) translateY(30px)}
+body.inspopen #bulk.on{transform:translateX(calc(-50% - var(--insp-w) / 2))}
 /* ручка ширины: тянется влево, ширина запоминается в meta вместе с темой */
 #inspGrip{position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:2}
 #inspGrip:hover,body.inspdrag #inspGrip{background:var(--accent-br)}
@@ -275,6 +279,27 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
 .pk:hover{background:var(--accent-bg)}
 .pk input{accent-color:var(--accent)}
 .pk .id{font-size:9.6px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;margin-left:auto}
+/* Зависимости: чипы выбранного + поиск.
+   Раньше на каждый тип связи рисовался чекбокс на КАЖДУЮ другую ноду проекта —
+   4 типа × 150 узлов давали 600 DOM-элементов и бесконечную прокрутку. */
+.deps{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
+.dchip{font-size:11.4px;font-weight:600;padding:3px 5px 3px 9px;border-radius:12px;
+  border:1px solid var(--accent-br);background:var(--accent-bg);color:var(--accent);
+  display:inline-flex;align-items:center;gap:4px;max-width:100%}
+.dchip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px}
+.dchip i{font-style:normal;cursor:pointer;opacity:.55;padding:0 3px;border-radius:7px;font-size:13px;line-height:1}
+.dchip i:hover{opacity:1;background:#fff;color:var(--red)}
+.dempty{font-size:11.5px;color:var(--muted);padding:2px 0}
+.depadd{position:relative;margin-top:5px}
+.depadd input{width:100%}
+.deplist{position:absolute;left:0;right:0;top:100%;z-index:5;margin-top:3px;background:#fff;
+  border:1px solid var(--line);border-radius:9px;box-shadow:var(--sh2);max-height:210px;overflow:auto;padding:4px}
+.deplist .di{display:flex;align-items:center;gap:7px;padding:5px 7px;border-radius:6px;font-size:12.2px;cursor:pointer}
+.deplist .di:hover,.deplist .di.on{background:var(--accent-bg)}
+.deplist .di .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.deplist .di .id{font-size:9.6px;color:var(--muted);font-family:ui-monospace,Menlo,monospace}
+body.dark .deplist{background:var(--card)}
+body.dark .dchip i:hover{background:var(--surf2)}
 .lrw{display:flex;gap:6px;align-items:center;margin-bottom:5px}
 .ib{border:1px solid var(--line);background:#fff;border-radius:6px;width:26px;height:26px;min-width:26px;cursor:pointer;color:var(--ink2);font-size:12px;line-height:1;display:inline-flex;align-items:center;justify-content:center}
 .ib:hover{background:#f2f4fa;color:var(--ink)}

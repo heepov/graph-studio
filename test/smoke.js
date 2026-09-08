@@ -186,6 +186,80 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
                    : bad('Enter не открыл панель');
       }
 
+      // --- зависимости: поиск вместо стены чекбоксов -------------------------
+      const deps = await c.eval(`(() => {
+        const pg = P.pages.find(p => p.kind === 'canvas');
+        UI.page = pg.id; renderPages(); renderPage();
+        const g = G();
+        // ищем пару, где связь y → x не создаёт цикл и ещё не существует
+        let x = null, y = null;
+        outer: for (const a of P.nodes) for (const b of P.nodes) {
+          if (a.id === b.id) continue;
+          if (P.links.some(l => l.from === b.id && l.to === a.id)) continue;
+          if (g.DESC[a.id] && g.DESC[a.id].has(b.id)) continue;
+          x = a; y = b; break outer;
+        }
+        if (!x) return {err: 'не нашлось подходящей пары'};
+        UI.iTab = 'edit'; openNode(x.id);
+        const ib = document.getElementById('ib');
+        const before = {
+          checkboxes: ib.querySelectorAll('[data-dep]').length,
+          searches: ib.querySelectorAll('[data-depq]').length,
+          links: P.links.length
+        };
+        const box = ib.querySelector('[data-depadd^="in|"]');
+        const inp = box.querySelector('[data-depq]');
+        inp.value = y.name.slice(0, 6); inp.oninput();
+        const opt = box.querySelector('[data-pick="' + CSS.escape(y.id) + '"]')
+                 || box.querySelector('[data-pick]');
+        const pickedId = opt && opt.dataset.pick;
+        if (opt) opt.onmousedown(new MouseEvent('mousedown', {cancelable: true}));
+        const added = P.links.length - before.links;
+        const chips = document.getElementById('ib').querySelectorAll('[data-depdel]').length;
+        // теперь убираем чипом
+        const del = document.getElementById('ib').querySelector('[data-depdel]');
+        if (del) del.onclick();
+        const afterDel = P.links.length;
+        return {...before, pickedId, added, chips, afterDel, x: x.id, y: y.id};
+      })()`);
+      if (deps.err) bad('зависимости: ' + deps.err);
+      else {
+        deps.checkboxes === 0
+          ? ok('зависимости: стены чекбоксов больше нет')
+          : bad('зависимости: чекбоксы остались', 'штук: ' + deps.checkboxes);
+        deps.searches > 0
+          ? ok('зависимости: есть поиск по узлам', 'полей поиска: ' + deps.searches)
+          : bad('зависимости: поиск не отрисован');
+        deps.added === 1
+          ? ok('зависимости: связь добавляется из поиска', deps.y + ' → ' + deps.x)
+          : bad('зависимости: связь не добавилась', JSON.stringify(deps));
+        deps.chips > 0
+          ? ok('зависимости: выбранное показано чипами', 'чипов: ' + deps.chips)
+          : bad('зависимости: чипы не отрисованы', JSON.stringify(deps));
+        deps.afterDel === deps.links
+          ? ok('зависимости: чип удаляет связь')
+          : bad('зависимости: удаление чипом не сработало', JSON.stringify(deps));
+      }
+
+      // --- цикл по-прежнему отклоняется --------------------------------------
+      const cyc = await c.eval(`(() => {
+        const l = P.links[0]; if (!l) return {err: 'нет связей'};
+        const before = P.links.length;
+        UI.iTab = 'edit'; openNode(l.from);          // пробуем добавить l.to как то, что держит l.from
+        const box = document.getElementById('ib').querySelector('[data-depadd^="in|"]');
+        const inp = box.querySelector('[data-depq]');
+        const target = nodeById(l.to);
+        inp.value = target.name.slice(0, 6); inp.oninput();
+        const opt = box.querySelector('[data-pick="' + CSS.escape(l.to) + '"]');
+        if (opt) opt.onmousedown(new MouseEvent('mousedown', {cancelable: true}));
+        return {before, after: P.links.length, offered: !!opt};
+      })()`);
+      if (cyc.err) bad('цикл: ' + cyc.err);
+      else if (!cyc.offered) ok('цикл: узел-потомок даже не предлагается в поиске');
+      else cyc.after === cyc.before
+        ? ok('цикл: связь, создающая цикл, отклонена')
+        : bad('цикл: связь с циклом прошла', JSON.stringify(cyc));
+
       // --- ЭКСПОРТ: что реально уезжает в файл ------------------------------
       // dl объявлен как const — подменить нельзя; перехватываем на уровне Blob/createObjectURL
       const exported = await c.eval(`(async () => {
