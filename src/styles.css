@@ -7,6 +7,7 @@
   --grey:#5f6673; --grey-bg:#eef0f4; --grey-br:#dbdfe8;
   --sh1:0 1px 2px rgba(16,20,32,.06); --sh2:0 4px 14px rgba(16,20,32,.10); --sh3:0 16px 46px rgba(16,20,32,.20);
   --side:236px;
+  --insp-w:380px;
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden}
@@ -19,7 +20,8 @@ button,input,select,textarea{font-family:inherit}
 ::-webkit-scrollbar-track{background:transparent}
 
 /* ============ каркас ============ */
-#app{display:flex;height:100vh}
+/* position:relative — точка отсчёта для инспектора-оверлея */
+#app{display:flex;height:100vh;position:relative}
 #side{width:var(--side);min-width:var(--side);background:#fbfbfd;border-right:1px solid var(--line);display:flex;flex-direction:column}
 #main{flex:1;min-width:0;display:flex;flex-direction:column}
 #topbar{height:46px;min-height:46px;border-bottom:1px solid var(--line);background:#fff;display:flex;align-items:center;gap:8px;padding:0 12px}
@@ -139,7 +141,7 @@ button,input,select,textarea{font-family:inherit}
 .fr{pointer-events:none}
 .fr .fh,.fr .rs{pointer-events:auto}
 #marq{position:absolute;border:1px solid var(--accent);background:rgba(51,85,209,.09);pointer-events:none;display:none;z-index:60}
-#mini{position:absolute;right:12px;bottom:12px;width:190px;height:126px;background:rgba(255,255,255,.93);border:1px solid var(--line);
+#mini{position:absolute;right:12px;bottom:12px;transition:right .16s;width:190px;height:126px;background:rgba(255,255,255,.93);border:1px solid var(--line);
   border-radius:9px;box-shadow:var(--sh1);z-index:30;cursor:pointer}
 #zoombar{position:absolute;left:12px;bottom:12px;z-index:30;display:flex;gap:5px;background:rgba(255,255,255,.93);
   border:1px solid var(--line);border-radius:9px;padding:4px;box-shadow:var(--sh1);align-items:center}
@@ -218,9 +220,22 @@ select.cellsel:hover{border-color:var(--line);background:#fff}
 .intro b{color:var(--ink)}
 
 /* ============ инспектор ============ */
-#insp{width:0;min-width:0;background:#fff;border-left:1px solid var(--line);display:flex;flex-direction:column;transition:width .16s}
-#insp.open{width:430px;min-width:430px}
-#insp>*{min-width:430px}
+/* Инспектор — ОВЕРЛЕЙ, а не флекс-сосед #main.
+   Раньше открытие анимировало width: 0 → 430px: 160 мс подряд релэйаутился холст
+   и перерисовывались все .nd, а cvRect() всё это время возвращал разную ширину,
+   из-за чего toWorld/zoomAt/fitAll/drawMini врали и мир визуально уезжал.
+   Оверлей ширину #cv не меняет вообще, поэтому и ResizeObserver не нужен.
+   z-index: выше миникарты и панели действий (30/40), ниже меню и модалок (200/300). */
+#insp{position:absolute;top:0;right:0;bottom:0;width:var(--insp-w);
+  background:#fff;border-left:1px solid var(--line);display:flex;flex-direction:column;
+  transform:translateX(100%);transition:transform .16s;z-index:45;box-shadow:var(--sh3);visibility:hidden}
+#insp.open{transform:none;visibility:visible}
+/* миникарта живёт в правом нижнем углу — уводим её из-под открытой панели */
+body.inspopen #mini{right:calc(var(--insp-w) + 12px)}
+/* ручка ширины: тянется влево, ширина запоминается в meta вместе с темой */
+#inspGrip{position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:2}
+#inspGrip:hover,body.inspdrag #inspGrip{background:var(--accent-br)}
+body.inspdrag{cursor:col-resize;user-select:none}
 #ih{padding:11px 16px 0;border-bottom:1px solid var(--line);position:relative}
 #ih h3{margin:0;font-size:15px;font-weight:750;padding-right:30px;line-height:1.3}
 #iclose{position:absolute;right:11px;top:11px;border:none;background:#f0f2f7;border-radius:6px;width:25px;height:25px;cursor:pointer;color:var(--ink2);font-size:14px}

@@ -142,6 +142,50 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
         ? ok('легаси-камера из page.view читается', JSON.stringify(legacy))
         : bad('легаси-камера из page.view не подхватилась', JSON.stringify(legacy));
 
+      // --- инспектор: оверлей, а не флекс-сосед ------------------------------
+      // Раньше открытие панели анимировало width: 0 → 430px и отжимало холст:
+      // cvRect() менялся, toWorld/fitAll/drawMini врали, мир уезжал на 430 px.
+      await c.eval('(closeInsp(), true)');
+      const insp = await c.eval(`(async () => {
+        const before = Math.round(cvRect().width);
+        openNode('${box.id}');
+        await new Promise(r => setTimeout(r, 260));   // дождаться transition .16s
+        const after = Math.round(cvRect().width);
+        const open = document.getElementById('insp').classList.contains('open');
+        const w = Math.round(document.getElementById('insp').getBoundingClientRect().width);
+        return {before, after, open, w, kind: UI.inspKind};
+      })()`);
+      (insp.open && insp.before === insp.after)
+        ? ok('инспектор не отжимает холст', `ширина #cv ${insp.before} px до и после, панель ${insp.w} px`)
+        : bad('инспектор меняет ширину холста', JSON.stringify(insp));
+      insp.kind === 'node' ? ok('UI.inspKind знает, что показывает панель') : bad('UI.inspKind не выставлен', JSON.stringify(insp));
+
+      // --- клик по узлу больше не распахивает панель --------------------------
+      await c.eval('(closeInsp(), setSel([]), true)');
+      const el2 = await c.eval(`(() => {
+        const el = document.querySelector('.nd[data-n="${box.id}"]');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)};
+      })()`);
+      if (!el2) bad('узел для клика не найден');
+      else {
+        await c.mouse('mousePressed', el2.x, el2.y);
+        await c.mouse('mouseReleased', el2.x, el2.y);
+        await sleep(250);
+        const afterClick = await c.eval(`({open: document.getElementById('insp').classList.contains('open'), sel: UI.sel.size})`);
+        (!afterClick.open && afterClick.sel === 1)
+          ? ok('клик по узлу выделяет, но не открывает панель')
+          : bad('клик по узлу всё ещё открывает панель', JSON.stringify(afterClick));
+        // ...а Enter открывает
+        await c.send('Input.dispatchKeyEvent', {type: 'rawKeyDown', windowsVirtualKeyCode: 13, key: 'Enter', code: 'Enter'});
+        await c.send('Input.dispatchKeyEvent', {type: 'keyUp', windowsVirtualKeyCode: 13, key: 'Enter', code: 'Enter'});
+        await sleep(250);
+        const afterEnter = await c.eval(`document.getElementById('insp').classList.contains('open')`);
+        afterEnter ? ok('Enter открывает панель для выделенного узла')
+                   : bad('Enter не открыл панель');
+      }
+
       // --- ЭКСПОРТ: что реально уезжает в файл ------------------------------
       // dl объявлен как const — подменить нельзя; перехватываем на уровне Blob/createObjectURL
       const exported = await c.eval(`(async () => {

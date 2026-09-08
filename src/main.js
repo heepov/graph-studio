@@ -101,6 +101,10 @@ let P = null;                 // активный проект
 let PROJECTS = [];            // [{id,name,desc,updated,nodes,links}]
 const UI = {
   page: null, sel: new Set(), selNotes: new Set(), selFrames: new Set(), selLink: null, insp: null, iTab: 'card',
+  // чем занят инспектор: 'node' | 'link' | 'frame' | null. Раньше openLink/openFrame
+  // ставили UI.insp = null, и по одному этому полю нельзя было понять, открыт ли он вообще —
+  // из-за чего undo() и edit() «теряли» инспектор связи и области.
+  inspKind: null, inspRef: null,
   view: {}, hover: null, linkType: null, spaceDown: false, dirty: false, lastSave: null
 };
 const undoS = [], redoS = [];
@@ -311,6 +315,16 @@ function view() {
   return UI.view[id];
 }
 const cvRect = () => $('cv').getBoundingClientRect();
+// Ширина инспектора, когда он открыт. Оверлей не меняет размер #cv, поэтому
+// камеру надо считать по ВИДИМОЙ части, иначе выбранный узел уезжает под панель.
+function inspW() {
+  const el = $('insp');
+  return el && el.classList.contains('open') ? el.getBoundingClientRect().width : 0;
+}
+function visibleRect() {
+  const r = cvRect(), w = Math.min(inspW(), Math.max(0, r.width - 200));
+  return {left: r.left, top: r.top, width: r.width - w, height: r.height};
+}
 function toWorld(cx, cy) {const v = view(), r = cvRect(); return {x: (cx - r.left - v.x) / v.k, y: (cy - r.top - v.y) / v.k};}
 function applyView() {
   const v = view(), s = $('scene');
@@ -613,7 +627,7 @@ function fitAll() {
   const items = cvNodes.map(n => ({...cvPos[n.id], w: n.w || NW, h: n.h || NH}));
   (P.frames || []).forEach(f => items.push(f));
   if (!items.length) {const v = view(); v.x = 40; v.y = 40; v.k = 1; applyView(); return;}
-  const r = cvRect();
+  const r = visibleRect();
   const x0 = Math.min(...items.map(i => i.x)), y0 = Math.min(...items.map(i => i.y));
   const x1 = Math.max(...items.map(i => i.x + i.w)), y1 = Math.max(...items.map(i => i.y + i.h));
   const v = view();
@@ -624,7 +638,7 @@ function fitAll() {
 }
 function flyTo(id) {
   const p = cvPos[id]; if (!p) return;
-  const r = cvRect(), v = view();
+  const r = visibleRect(), v = view();
   v.k = Math.max(v.k, .75);
   v.x = r.width / 2 - (p.x + NW / 2) * v.k; v.y = r.height / 2 - (p.y + NH / 2) * v.k;
   applyView();
@@ -725,7 +739,10 @@ function onDown(e) {
       if (UI.sel.has(id)) UI.sel.delete(id); else UI.sel.add(id);
       applyHi(); syncBulk();
     } else if (!UI.sel.has(id)) setSel([id]);
-    openNode(id);
+    // Панель больше не вылезает на каждый mousedown — раньше она открывалась даже
+    // когда узел просто тащат. Если она уже открыта, показываем в ней выбранный узел;
+    // открыть закрытую — Enter, двойной клик по карточке в меню или контекстное меню.
+    if (UI.insp || UI.inspKind) openNode(id);
     if (VIEWER) return;
     startMove(e); e.preventDefault(); return;
   }
@@ -924,8 +941,8 @@ function addNode(at) {
   toast('Узел создан');
 }
 function centerWorld() {
-  const r = cvRect ? cvRect() : {width: 800, height: 600, left: 0, top: 0};
   if (!$('cv')) return {x: 100, y: 100};
+  const r = visibleRect();
   return toWorld(r.left + r.width / 2 - NW / 2, r.top + r.height / 2 - NH / 2);
 }
 function addFrame(kind) {
@@ -1133,7 +1150,8 @@ document.addEventListener('mousedown', e => {if (!e.target.closest('#ctx')) hide
    ИНСПЕКТОР
    ========================================================================== */
 function closeInsp() {
-  UI.insp = null; $('insp').classList.remove('open');
+  UI.insp = null; UI.inspKind = null; UI.inspRef = null;
+  $('insp').classList.remove('open'); document.body.classList.remove('inspopen');
   if (curPage() && curPage().kind === 'canvas') applyHi();
 }
 $('iclose').onclick = () => {closeInsp(); setSel([]);};
@@ -1142,13 +1160,47 @@ $('itabs').addEventListener('click', e => {
   UI.iTab = t.dataset.i;
   if (UI.insp) openNode(UI.insp);
 });
-function inspOpen() { $('insp').classList.add('open'); }
+function inspOpen() { $('insp').classList.add('open'); document.body.classList.add('inspopen'); }
+// Ширина инспектора — настройка человека, а не проекта: хранится в meta рядом с темой,
+// а не в P, иначе уехала бы в экспорт и в выгруженный просмотрщик.
+const INSP_MIN = 300, INSP_MAX = 720;
+function applyInspW(px) {
+  document.documentElement.style.setProperty('--insp-w', clamp(Math.round(px), INSP_MIN, INSP_MAX) + 'px');
+}
+async function loadInspW() {
+  try {
+    const rec = await dbGet(META, 'ui');
+    if (rec && rec.v && rec.v.inspW) applyInspW(rec.v.inspW);
+  } catch (e) {}
+}
+function saveInspW(px) {
+  if (VIEWER) return;
+  dbGet(META, 'ui').catch(() => null).then(rec => {
+    const v = Object.assign({}, (rec && rec.v) || {}, {inspW: clamp(Math.round(px), INSP_MIN, INSP_MAX)});
+    dbPut(META, {k: 'ui', v}).catch(() => {});
+  });
+}
+(function wireInspGrip() {
+  const grip = $('inspGrip'); if (!grip) return;
+  grip.addEventListener('mousedown', e => {
+    e.preventDefault(); e.stopPropagation();
+    const startX = e.clientX, startW = $('insp').getBoundingClientRect().width;
+    document.body.classList.add('inspdrag');
+    const move = ev => applyInspW(startW + (startX - ev.clientX));
+    const up = () => {
+      document.body.classList.remove('inspdrag');
+      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
+      saveInspW($('insp').getBoundingClientRect().width);
+    };
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+  });
+})();
 const pillOf = s => {const x = statusOf(s); return `<span class="pill" style="color:${x.color};background:${x.color}18"><i style="background:${x.color}"></i>${esc(x.name)}</span>`;};
 
 function openNode(id, keepScroll) {
   const n = nodeById(id); if (!n) return;
   const sc = keepScroll ? $('ib').scrollTop : 0;
-  UI.insp = id;
+  UI.insp = id; UI.inspKind = 'node'; UI.inspRef = null;
   const g = G();
   $('ititle').textContent = n.name;
   const st = stepOf(n);
@@ -1401,7 +1453,7 @@ function jumpToNode(id) {
 /* ---------- инспектор связи и области ---------- */
 function openLink(lid) {
   const l = linkById(lid); if (!l) return;
-  UI.insp = null;
+  UI.insp = null; UI.inspKind = 'link'; UI.inspRef = lid;
   $('ititle').textContent = 'Связь';
   $('imeta').innerHTML = `<b>${esc(nodeById(l.from).name)}</b> → <b>${esc(nodeById(l.to).name)}</b>`;
   qsa('#itabs .t').forEach(t => t.classList.remove('on'));
@@ -1422,7 +1474,7 @@ function openLink(lid) {
   $('ldel').onclick = () => {UI.selLink = lid; deleteSelection();};
 }
 function openFrame(f) {
-  UI.insp = null;
+  UI.insp = null; UI.inspKind = 'frame'; UI.inspRef = f.id;
   $('ititle').textContent = f.kind === 'lane' ? 'Дорожка' : 'Область';
   $('imeta').innerHTML = `${f.w}×${f.h}`;
   qsa('#itabs .t').forEach(t => t.classList.remove('on'));
@@ -1510,6 +1562,13 @@ document.addEventListener('keydown', e => {
   if (mod && e.key.toLowerCase() === 'g') {e.preventDefault(); if (UI.sel.size) addFrame('frame'); return;}
   if (e.key === 'Delete' || e.key === 'Backspace') {e.preventDefault(); deleteSelection(); return;}
   if (e.key === 'n' && curPage().kind === 'canvas') {addNode(); return;}
+  // Панель больше не открывается сама по клику (см. onDown), поэтому нужен явный способ.
+  if (e.key === 'Enter' && UI.sel.size === 1) {
+    e.preventDefault();
+    const only = [...UI.sel][0];
+    if (UI.insp === only) closeInsp(); else openNode(only);
+    return;
+  }
   if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && UI.sel.size && curPage().kind === 'canvas') {
     e.preventDefault();
     const d = e.shiftKey ? 1 : GRID;
@@ -3180,9 +3239,9 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
    Переприсваиваемые переменные отдаются геттерами: простое присваивание положило бы
    в window копию, и после openProject() снаружи был бы виден предыдущий проект.
 
-   Список сгенерирован разбором объявлений верхнего уровня. Если разносить файл
-   по модулям — мост придётся пересобрать, иначе тесты молча потеряют половину API. */
-Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, KIND, META, NH, NW, PADX, PADY, ROWGAP, SCHEMA_PALETTE, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, _pageNodes, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgePath, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, isLegacy, isPinned, jumpToNode, kindName, layoutPage, linkById, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveProjectToFile, scheduleFileSave, scheduleViewSave, schemaKey, seedFreePositions, selArr, selectLink, setNpos, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
+   Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
+   добавили функцию верхнего уровня, перегенерируйте. */
+Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, INSP_MAX, INSP_MIN, KIND, META, NH, NW, PADX, PADY, ROWGAP, SCHEMA_PALETTE, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, _pageNodes, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgePath, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isLegacy, isPinned, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, scheduleFileSave, scheduleViewSave, schemaKey, seedFreePositions, selArr, selectLink, setNpos, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, '_g', {get: () => _g, set: v => {_g = v;}, configurable: true});
@@ -3217,6 +3276,7 @@ Object.defineProperty(window, 'viewSaveT', {get: () => viewSaveT, set: v => {vie
   }
   try { idb = await openDB(); } catch (e) { alert('Не удалось открыть локальную базу: ' + e.message); return; }
   try { const th = await dbGet(META, 'theme'); if (th && th.v === 'dark') applyTheme(true); } catch (e) {}
+  await loadInspW();
   // Папка хранилища: если доступ уже выдан (без запроса) — подтянуть файлы из неё.
   try {
     const v = await getVault();
