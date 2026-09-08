@@ -713,6 +713,12 @@ function paintNotes() {
 function applyHi() {
   const focus = UI.hover || (UI.sel.size === 1 ? [...UI.sel][0] : null);
   const g = G();
+  // Режимы «критический путь» и «доступное сейчас» — акцент, а не фильтр:
+  // остальные узлы остаются на месте, но гаснут.
+  const pg = curPage(), cv = (pg && pg.canvas) || {};
+  const accent = pg && pg.kind === 'canvas' && (cv.crit || cv.ready)
+    ? (cv.crit ? id => g.crit.has(id) : id => (g.par[id] || []).length === 0)
+    : null;
   qsa('.stk').forEach(e => e.classList.toggle('sel', UI.selNotes.has(e.dataset.t)));
   qsa('.fr').forEach(e => e.classList.toggle('sel', UI.selFrames.has(e.dataset.f)));
   qsa('.nd').forEach(e => {
@@ -720,6 +726,14 @@ function applyHi() {
     e.classList.toggle('sel', UI.sel.has(e.dataset.n));
   });
   qsa('#edges .edge').forEach(e => {e.style.opacity = 1; e.style.strokeWidth = 1.6;});
+  if (accent) {
+    qsa('.nd').forEach(e => e.classList.toggle('acc', accent(e.dataset.n)));
+    qsa('.nd').forEach(e => {if (!accent(e.dataset.n)) e.classList.add('dim');});
+    qsa('#edges .edge').forEach(e => {
+      const on = accent(e.dataset.a) && accent(e.dataset.b);
+      e.style.opacity = on ? 1 : .1; e.style.strokeWidth = on ? 2.6 : 1.4;
+    });
+  } else qsa('.nd').forEach(e => e.classList.remove('acc'));
   if (!focus || !nodeById(focus)) return;
   const a = g.ANC[focus] || new Set(), d = g.DESC[focus] || new Set();
   qsa('.nd').forEach(e => {
@@ -1362,6 +1376,16 @@ function toggleSideRail() {
   });
 }
 if ($('sideToggle')) $('sideToggle').onclick = e => {e.stopPropagation(); toggleSideRail();};
+// правая кнопка по названию проекта — переименование и описание
+if ($('projBtn')) $('projBtn').oncontextmenu = e => {
+  if (VIEWER || !P) return;
+  e.preventDefault();
+  showCtx(e.clientX, e.clientY, [
+    ['Переименовать проект…', renameProject],
+    ['—'],
+    ['Список проектов', showProjects],
+  ]);
+};
 // Ширина инспектора — настройка человека, а не проекта: хранится в meta рядом с темой,
 // а не в P, иначе уехала бы в экспорт и в выгруженный просмотрщик.
 const INSP_MIN = 300, INSP_MAX = 720;
@@ -1960,16 +1984,49 @@ document.addEventListener('keyup', e => {
    ПАЛИТРА КОМАНД / ПОИСК
    ========================================================================== */
 let palItems = [], palIdx = 0;
+// Имя проекта задавалось один раз шаблоном и дальше только читалось — проект
+// навсегда оставался «Новым проектом». Ни в одном меню переименования не было.
+function renameProject() {
+  if (!P || VIEWER) return;
+  modal(`<h3>Проект</h3>
+    <div class="f"><label>Название</label><input type="text" id="prn" value="${esc(P.name || '')}"></div>
+    <div class="f"><label>Описание — одна строка для карточки в списке</label>
+      <input type="text" id="prd" value="${esc(P.desc || '')}"></div>
+    <div class="mfoot"><button class="btn" data-a="c">Отмена</button><button class="btn pri" data-a="ok">Сохранить</button></div>`, b => {
+    b.querySelector('[data-a=c]').onclick = closeModal;
+    const go = () => {
+      const nm = $('prn').value.trim();
+      if (!nm) {toast('Название не может быть пустым'); return;}
+      snapNow(); P.name = nm; P.desc = $('prd').value.trim();
+      save(1); refreshProjMeta(); renderPages(); closeModal();
+      document.title = P.name + ' — Graph Studio';
+      toast('Проект переименован', {label: 'Вернуть', run: undo});
+    };
+    b.querySelector('[data-a=ok]').onclick = go;
+    $('prn').onkeydown = e => {if (e.key === 'Enter') go();};
+    setTimeout(() => {$('prn').focus(); $('prn').select();}, 30);
+  });
+}
 function openPalette() {
   palItems = [];
   P.pages.forEach(p => palItems.push({t: p.name, s: 'страница · ' + kindName(p.kind), go: () => gotoPage(p.id)}));
   P.nodes.forEach(n => palItems.push({t: n.name, s: catOf(n.cat).name + ' · ' + statusOf(n.status).name, go: () => jumpToNode(n.id)}));
   if (!VIEWER) {
-    palItems.push({t: 'Новый узел', s: 'команда', go: () => addNode()});
-    palItems.push({t: 'Новая страница', s: 'команда', go: newPage});
-    palItems.push({t: 'Схема проекта', s: 'команда', go: () => showSchema()});
-    palItems.push({t: 'Экспорт и импорт', s: 'команда', go: () => showExport()});
-    palItems.push({t: 'Все проекты', s: 'команда', go: showProjects});
+    // Половина возможностей закопана в модалке «Экспорт и импорт» — проверку проекта
+    // и снимки версий там никто не найдёт. Палитра должна быть единой точкой входа.
+    const cmd = (t, s2, go) => palItems.push({t, s: s2, go});
+    cmd('Новый узел', 'команда · N', () => addNode());
+    cmd('Новая страница', 'команда', newPage);
+    cmd('Переименовать проект', 'команда', renameProject);
+    cmd('Схема проекта', 'команда · типы, статусы, категории, связи', () => showSchema());
+    cmd('Проверить проект', 'команда · битые связи, дубли, циклы', showValidator);
+    cmd('Снимки версий', 'команда · сохранить или восстановить', showSnaps);
+    cmd('Экспорт и импорт', 'команда · JSON, CSV, картинка, просмотрщик', () => showExport());
+    cmd('Все проекты', 'команда', showProjects);
+    cmd('Свернуть боковую панель', 'команда · Ctrl+B', toggleSideRail);
+    cmd('Тёмная или светлая тема', 'команда', toggleTheme);
+    cmd('Справка', 'команда', showHelp);
+    cmd('Показать всё на холсте', 'команда', () => {if (isSpatial(curPage())) fitAll();});
   }
   $('pal').classList.add('open'); $('palin').value = ''; palIdx = 0; palRender('');
   setTimeout(() => $('palin').focus(), 30);
@@ -2134,8 +2191,16 @@ function renderPageBar(pg) {
     });
     $('cCrit').classList.toggle('on', !!pg.canvas.crit);
     $('cReady').classList.toggle('on', !!pg.canvas.ready);
-    $('cCrit').onclick = () => {pg.canvas.crit = !pg.canvas.crit; pg.canvas.ready = false; save(); renderPage(); fitAll();};
-    $('cReady').onclick = () => {pg.canvas.ready = !pg.canvas.ready; pg.canvas.crit = false; save(); renderPage(); fitAll();};
+    // не перерисовываем страницу и не двигаем камеру: это переключение акцента,
+    // а не смена содержимого — раньше здесь был fitAll() и карта прыгала
+    $('cCrit').onclick = () => {
+      pg.canvas.crit = !pg.canvas.crit; pg.canvas.ready = false;
+      save(); $('cCrit').classList.toggle('on', !!pg.canvas.crit); $('cReady').classList.remove('on'); applyHi();
+    };
+    $('cReady').onclick = () => {
+      pg.canvas.ready = !pg.canvas.ready; pg.canvas.crit = false;
+      save(); $('cReady').classList.toggle('on', !!pg.canvas.ready); $('cCrit').classList.remove('on'); applyHi();
+    };
   }
   if (pg.kind === 'space') {
     qsa('#mAddObj .mi').forEach(el => el.onclick = () => {
@@ -2503,16 +2568,11 @@ function renderDash(pg) {
 }
 
 /* ---------- фильтры критического пути на холсте ---------- */
-const _pageNodes = pageNodes;
-pageNodes = function (pg) {
-  let ns = _pageNodes(pg);
-  if (pg.kind === 'canvas' && pg.canvas) {   // критический путь и «доступное сейчас» — про зависимости, на схеме их нет
-    const g = G();
-    if (pg.canvas.crit) ns = ns.filter(n => g.crit.has(n.id));
-    if (pg.canvas.ready) ns = ns.filter(n => (g.par[n.id] || []).length === 0);
-  }
-  return ns;
-};
+// Здесь был monkey-patch поверх pageNodes: при включённом «Критическом пути»
+// он ВЫБРАСЫВАЛ остальные узлы из списка. Человек нажимал «посмотреть критический
+// путь» и видел, как с карты пропало 25 узлов из 32 — единственным следом было
+// «6 из 32 узлов» серым в подзаголовке. Теперь это подсветка, см. applyHi(),
+// а переопределение функции (техдолг №11 из ТЗ) больше не нужно.
 
 
 /* ==========================================================================
@@ -3701,7 +3761,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, _pageNodes, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isKey, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintEmptyHint, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
+Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isKey, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintEmptyHint, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renameProject, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, '_g', {get: () => _g, set: v => {_g = v;}, configurable: true});

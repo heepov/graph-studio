@@ -542,6 +542,44 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       ? ok('тост предлагает вернуть действие')
       : bad('кнопка возврата в тосте не работает', JSON.stringify(tst));
 
+    // --- критический путь подсвечивает, а не прячет -------------------------
+    // Раньше чип фильтровал pageNodes: нажал «посмотреть критический путь» —
+    // и с карты пропало 25 узлов из 32, единственный след «6 из 32» серым.
+    const crit = await c.eval(`(() => {
+      const pg = P.pages.find(p => p.kind === 'canvas');
+      UI.page = pg.id; pg.canvas.crit = false; pg.canvas.ready = false;
+      renderPages(); renderPage();
+      const before = document.querySelectorAll('.nd[data-n]').length;
+      document.getElementById('cCrit').onclick();
+      const after = document.querySelectorAll('.nd[data-n]').length;
+      const acc = document.querySelectorAll('.nd.acc').length;
+      const dim = document.querySelectorAll('.nd.dim').length;
+      document.getElementById('cCrit').onclick();          // выключаем обратно
+      const off = document.querySelectorAll('.nd.acc').length;
+      return {before, after, acc, dim, off, chip: !!document.getElementById('cCrit')};
+    })()`);
+    (crit.before === crit.after && crit.before > 0)
+      ? ok('критический путь никого не прячет', `узлов на холсте: ${crit.after}`)
+      : bad('узлы исчезли при включении критического пути', JSON.stringify(crit));
+    (crit.acc > 0 && crit.dim > 0 && crit.off === 0)
+      ? ok('критический путь выделен, остальное приглушено', `выделено ${crit.acc}, приглушено ${crit.dim}`)
+      : bad('подсветка критического пути не работает', JSON.stringify(crit));
+
+    // --- проект можно переименовать -----------------------------------------
+    const ren = await c.eval(`(() => {
+      const was = P.name;
+      renameProject();
+      const inp = document.getElementById('prn');
+      if (!inp) return {err: 'форма переименования не открылась'};
+      inp.value = 'Переименованный проект';
+      document.querySelector('#mbox [data-a=ok]').click();
+      return {was, now: P.name, meta: (PROJECTS.find(p => p.id === P.id) || {}).name};
+    })()`);
+    if (ren.err) bad('переименование: ' + ren.err);
+    else (ren.now === 'Переименованный проект' && ren.meta === ren.now)
+      ? ok('проект переименовывается', `«${ren.was}» → «${ren.now}»`)
+      : bad('переименование не сработало', JSON.stringify(ren));
+
     // --- пустые состояния холста --------------------------------------------
     const empty = await c.eval(`(() => {
       const out = {};
