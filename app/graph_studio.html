@@ -725,11 +725,27 @@ let drag = null, cvNodes = [], cvPos = {}, laneInfo = [];
 function npos(n, pid) { return (n.p && n.p[pid]) || null; }
 function setNpos(n, pid, x, y) { n.p = n.p || {}; n.p[pid] = {x: Math.round(x), y: Math.round(y)}; }
 function isPinned(n, pid) { return !!(n.p && n.p[pid]); }
+// Камера — личное состояние человека, а не часть документа. Под общим сервером
+// панорамирование одного не должно писать в проект и порождать конфликты и события истории.
+// pg.view остаётся читаемым (старые проекты и импорт), но больше не записывается.
+const viewKey = pid => `gs_view:${(P && P.id) || '-'}:${pid}`;
+function readView(pid) {
+  try {
+    const raw = localStorage.getItem(viewKey(pid));
+    if (raw) {
+      const v = JSON.parse(raw);
+      if (isFinite(v.x) && isFinite(v.y) && isFinite(v.k)) return {x: v.x, y: v.y, k: clamp(v.k, .08, 3), _done: 1};
+    }
+  } catch (e) {}
+  return null;
+}
 function view() {
   const id = UI.page;
   if (!UI.view[id]) {
     const pg = pageById(id), sv = pg && pg.view;
-    if (sv && isFinite(sv.x) && isFinite(sv.y) && isFinite(sv.k)) {
+    const loc = readView(id);
+    if (loc) UI.view[id] = loc;
+    else if (sv && isFinite(sv.x) && isFinite(sv.y) && isFinite(sv.k)) {
       UI.view[id] = {x: sv.x, y: sv.y, k: clamp(sv.k, .08, 3), _done: 1};
     } else UI.view[id] = {x: 40, y: 40, k: 1};
   }
@@ -755,8 +771,7 @@ function persistView(pid) {
   const pg = pageById(pid); if (!pg || pg.kind !== 'canvas') return;
   const v = UI.view[pid]; if (!v) return;
   const nv = {x: Math.round(v.x), y: Math.round(v.y), k: +(+v.k).toFixed(4)};
-  if (pg.view && pg.view.x === nv.x && pg.view.y === nv.y && pg.view.k === nv.k) return;
-  pg.view = nv; save();
+  try {localStorage.setItem(viewKey(pid), JSON.stringify(nv));} catch (e) {}
 }
 function zoomAt(cx, cy, factor) {
   const v = view(), r = cvRect();
@@ -825,6 +840,21 @@ function autoLayout(nodes) {
   const H = PADY + maxRows * (NH + ROWGAP) + 40;
   return {pos, lanes: colX.map((cx, i) => ({x: cx, idx: capIdx[i], h: H}))};
 }
+// Засев позиций для свободной раскладки. Вызывается ТОЛЬКО по явному действию —
+// создание страницы, переключение раскладки. Раньше это делала отрисовка, из-за чего
+// открытие страницы само по себе меняло проект: под общим документом это дало бы
+// конкурирующие записи у всех, кто открыл доску одновременно.
+function seedFreePositions(pg) {
+  if (!pg || pg.kind !== 'canvas' || !pg.canvas || pg.canvas.layout !== 'free') return false;
+  const nodes = pageNodes(pg), auto = autoLayout(nodes);
+  let seeded = false;
+  nodes.forEach(n => {
+    if (npos(n, pg.id)) return;
+    const p = (n.x != null && n.y != null) ? {x: n.x, y: n.y} : (auto.pos[n.id] || {x: 0, y: 0});
+    setNpos(n, pg.id, p.x, p.y); seeded = true;
+  });
+  return seeded;
+}
 function layoutPage(pg, nodes) {
   const auto = autoLayout(nodes);
   const pos = {}, pid = pg.id;
@@ -832,24 +862,22 @@ function layoutPage(pg, nodes) {
     nodes.forEach(n => pos[n.id] = npos(n, pid) || (n.pinned && n.x != null ? {x: n.x, y: n.y} : (auto.pos[n.id] || {x: 0, y: 0})));
     laneInfo = auto.lanes;
   } else {
-    let seeded = false;
+    // Отрисовка НИЧЕГО не пишет в проект: узел без своей позиции просто берёт
+    // расчётную. Засев позиций — явное действие, см. seedFreePositions().
     nodes.forEach(n => {
-      let p = npos(n, pid);
-      if (!p) {
-        p = (n.x != null && n.y != null) ? {x: n.x, y: n.y} : (auto.pos[n.id] || {x: 0, y: 0});
-        setNpos(n, pid, p.x, p.y); seeded = true;
-      }
+      const p = npos(n, pid) ||
+        ((n.x != null && n.y != null) ? {x: n.x, y: n.y} : (auto.pos[n.id] || {x: 0, y: 0}));
       pos[n.id] = {x: p.x, y: p.y};
     });
     laneInfo = [];
-    if (seeded) save();
   }
   return pos;
 }
 
 /* ---------- отрисовка ---------- */
 function renderCanvas(pg) {
-  pg.canvas = pg.canvas || {layout: 'auto', lanes: []};
+  // умолчания проставляет normalize() при загрузке — отрисовка проект не трогает
+  if (!pg.canvas) pg.canvas = {layout: 'auto', lanes: []};
   const nodes = pageNodes(pg);
   cvNodes = nodes;
   $('view').innerHTML = `<div id="cvstack">
@@ -1232,14 +1260,15 @@ window.addEventListener('mousemove', e => {
     return;
   }
   if (drag.mode === 'frameRS') {
-    drag.f.w = Math.max(120, Math.round((drag.w + (e.clientX - drag.sx) / v.k) / GRID) * GRID);
-    drag.f.h = Math.max(90, Math.round((drag.h + (e.clientY - drag.sy) / v.k) / GRID) * GRID);
-    const el = qs(`.fr[data-f="${drag.f.id}"]`); el.style.width = drag.f.w + 'px'; el.style.height = drag.f.h + 'px'; return;
+    // по ходу жеста меняем только DOM; в документ размер уходит на mouseup
+    drag.cw = Math.max(120, Math.round((drag.w + (e.clientX - drag.sx) / v.k) / GRID) * GRID);
+    drag.ch = Math.max(90, Math.round((drag.h + (e.clientY - drag.sy) / v.k) / GRID) * GRID);
+    const el = qs(`.fr[data-f="${drag.f.id}"]`); el.style.width = drag.cw + 'px'; el.style.height = drag.ch + 'px'; return;
   }
   if (drag.mode === 'noteRS') {
-    drag.t.w = Math.max(110, Math.round(drag.w + (e.clientX - drag.sx) / v.k));
-    drag.t.h = Math.max(60, Math.round(drag.h + (e.clientY - drag.sy) / v.k));
-    const el = qs(`.stk[data-t="${drag.t.id}"]`); el.style.width = drag.t.w + 'px'; el.style.height = drag.t.h + 'px'; return;
+    drag.cw = Math.max(110, Math.round(drag.w + (e.clientX - drag.sx) / v.k));
+    drag.ch = Math.max(60, Math.round(drag.h + (e.clientY - drag.sy) / v.k));
+    const el = qs(`.stk[data-t="${drag.t.id}"]`); el.style.width = drag.cw + 'px'; el.style.height = drag.ch + 'px'; return;
   }
 });
 window.addEventListener('mouseup', e => {
@@ -1269,7 +1298,15 @@ window.addEventListener('mouseup', e => {
     }
   }
   if (['frameRS', 'noteRS'].includes(d.mode)) {
-    snapNow(); save(); drawMini();
+    // snapNow() ДО записи: раньше размер менялся прямо в mousemove, поэтому снимок
+    // для undo уже содержал новый размер и отмена ресайза не работала
+    if (d.cw != null) {
+      snapNow();
+      const o = d.mode === 'frameRS' ? d.f : d.t;
+      o.w = d.cw; o.h = d.ch;
+      save();
+    }
+    drawMini();
   }
   drawMini();
 });
@@ -2054,7 +2091,7 @@ function renderPageBar(pg) {
       const l = el.dataset.l;
       if (l === 'reset') {snapNow(); pageNodes(pg).forEach(n => {if (n.p) delete n.p[pg.id]; n.pinned = 0;}); save(); renderPage(); fitAll(); toast('Раскладка пересчитана по зависимостям'); return;}
       if (l === 'lanes') {editLanes(pg); return;}
-      snapNow(); pg.canvas.layout = l; save(); renderPage(); fitAll();
+      snapNow(); pg.canvas.layout = l; seedFreePositions(pg); save(); renderPage(); fitAll();
     });
     qsa('#mAddObj .mi').forEach(el => el.onclick = () => {
       const o = el.dataset.o;
@@ -2431,7 +2468,7 @@ function newPage() {
       if (kind === 'canvas') pg.canvas = {layout: 'free', lanes: ['блокировки', 'этап 1', 'этап 2', 'этап 3', 'этап 4', 'этап 5']};
       if (kind === 'table') pg.table = {cols: ['name', 'cat', 'status', 'step', 'weight', 'checks'], sort: 'name', dir: 1, group: ''};
       if (kind === 'board') pg.board = {groupBy: 'status'};
-      P.pages.push(pg); save(); closeModal(); gotoPage(pg.id);
+      P.pages.push(pg); seedFreePositions(pg); save(); closeModal(); gotoPage(pg.id);
     };
   });
 }
@@ -2813,9 +2850,16 @@ function showExport() {
 }
 $('navExport').onclick = showExport;
 async function backupAll() {
+  // Раньше бэкап молча терял две вещи: проекты из корзины (фильтр !p.deleted)
+  // и снимки версий (store SNAP не выгружался вообще). Перед переездом на сервер
+  // это означало бы тихую потерю данных, поэтому теперь выгружаем всё.
   const all = await dbAll(STORE);
-  dl('graphstudio_backup_' + today() + '.json', JSON.stringify({graphstudio: 1, exported: nowStr(), projects: all.filter(p => !p.deleted)}), 'application/json');
-  toast('Бэкап: проектов ' + all.filter(p => !p.deleted).length);
+  const snaps = (await dbAll(SNAP).catch(() => [])) || [];
+  dl('graphstudio_backup_' + today() + '.json',
+     JSON.stringify({graphstudio: 2, exported: nowStr(), projects: all, snaps}), 'application/json');
+  await dbPut(META, {k: 'lastBackup', v: Date.now()}).catch(() => {});
+  const live = all.filter(p => !p.deleted).length, trash = all.length - live;
+  toast(`Бэкап: проектов ${live}${trash ? ', в корзине ' + trash : ''}, снимков ${snaps.length}`);
 }
 
 /* --- снимки версий (store SNAP) --- */
@@ -3013,13 +3057,42 @@ function normalize(pr) {
     if (p.kind === 'canvas') p.canvas = p.canvas || {layout: 'auto', lanes: []};});
   return pr;
 }
+// Восстановление бэкап-бандла. Общая точка для «Импорт → JSON» и для «Открыть файл»:
+// dbPut идёт по keyPath 'id' и раньше ЗАТИРАЛ проект с тем же id молча, без подтверждения
+// и без возможности отменить.
+async function restoreBundle(d) {
+  const have = await dbAll(STORE);
+  const clash = d.projects.filter(pr => pr.id && have.some(x => x.id === pr.id));
+  const run = async how => {
+    let add = 0, repl = 0, skip = 0;
+    for (const pr of d.projects) {
+      const dup = pr.id && have.some(x => x.id === pr.id);
+      if (dup && how === 'skip') {skip++; continue;}
+      if (dup && how === 'copy') {pr.id = uid('pr'); pr.name = (pr.name || 'Проект') + ' (копия)'; add++;}
+      else if (dup) repl++; else {pr.id = pr.id || uid('pr'); add++;}
+      await dbPut(STORE, normalize(pr));
+    }
+    for (const sn of (d.snaps || [])) {try {await dbPut(SNAP, sn);} catch (e) {}}
+    await loadProjects(); showProjects();
+    toast(`Восстановлено: добавлено ${add}${repl ? ', заменено ' + repl : ''}${skip ? ', пропущено ' + skip : ''}`);
+  };
+  if (!clash.length) return run('copy');
+  modal(`<h3>Проекты уже есть</h3>
+    <div class="kv" style="font-size:13px">Совпадают по идентификатору: <b>${clash.length}</b> из ${d.projects.length}.<br>
+    ${clash.slice(0, 5).map(p => '· ' + esc(p.name || p.id) + ' <span style="color:var(--muted)">(в файле от ' + esc(p.updated || '?') + ')</span>').join('<br>')}
+    ${clash.length > 5 ? '<br>· и ещё ' + (clash.length - 5) : ''}</div>
+    <div class="mfoot"><button class="btn" data-a="skip">Пропустить их</button>
+      <button class="btn dgr" data-a="repl">Заменить</button>
+      <button class="btn pri" data-a="copy">Создать копии</button></div>`, b => {
+    b.querySelector('[data-a=skip]').onclick = () => {closeModal(); run('skip');};
+    b.querySelector('[data-a=repl]').onclick = () => {closeModal(); run('replace');};
+    b.querySelector('[data-a=copy]').onclick = () => {closeModal(); run('copy');};
+  });
+}
 function importJson(mode) {
   pickFile('.json', async txt => {
     let d; try {d = JSON.parse(txt);} catch (e) {toast('Не JSON: ' + e.message); return;}
-    if (d.graphstudio && Array.isArray(d.projects)) {
-      for (const pr of d.projects) {pr.id = pr.id || uid('pr'); await dbPut(STORE, normalize(pr));}
-      await loadProjects(); showProjects(); toast('Восстановлено проектов: ' + d.projects.length); return;
-    }
+    if (d.graphstudio && Array.isArray(d.projects)) { await restoreBundle(d); return; }
     const pr = isLegacy(d) ? fromLegacy(d) : normalize(d);
     if (mode === 'merge') {
       snapNow();
@@ -3145,7 +3218,7 @@ const TPL = [
 ];
 async function loadProjects() {
   const all = await dbAll(STORE);
-  PROJECTS = all.map(p => ({id: p.id, name: p.name, desc: p.desc, updated: p.updated, created: p.created, nodes: p.nodes.length, links: p.links.length, deleted: !!p.deleted, deletedAt: p.deletedAt || null}))
+  PROJECTS = all.map(p => ({id: p.id, name: p.name, desc: p.desc, updated: p.updated, created: p.created, nodes: p.nodes.length, links: p.links.length, deleted: !!p.deleted, deletedAt: p.deletedAt || null, vaultMissing: !!p.vaultMissing}))
     .sort((a, b) => String(b.updated).localeCompare(String(a.updated)));
 }
 async function trashProject(id) {
@@ -3172,7 +3245,7 @@ function showProjects() {
   $('pList').innerHTML = live.map(p => `<div class="pcard" data-p="${esc(p.id)}">
     <span class="x noview" data-del="${esc(p.id)}" title="в корзину">×</span>
     <div class="t">${esc(p.name)}</div><div class="d">${esc(p.desc || '')}</div>
-    <div class="m"><span>${p.nodes} узлов</span><span>${p.links} связей</span><span style="margin-left:auto">${esc(p.updated || '')}</span></div></div>`).join('')
+    <div class="m"><span>${p.nodes} узлов</span><span>${p.links} связей</span>${p.vaultMissing ? '<span style="color:var(--amber)" title="файл в папке-хранилище не найден — проект остался только в браузере">⚠ файл не найден</span>' : ''}<span style="margin-left:auto">${esc(p.updated || '')}</span></div></div>`).join('')
     || '<div class="hint">Пока нет проектов — создай из шаблона ниже.</div>';
   $('tList').innerHTML = TPL.map(t => `<div class="pcard new" data-t="${t.id}">
     <div class="t">＋ ${esc(t.name)}</div><div class="d" style="text-align:center;color:var(--ink2)">${esc(t.desc)}</div></div>`).join('');
@@ -3333,16 +3406,32 @@ async function openProjectFile() {
   try {
     const file = await handle.getFile();
     const d = JSON.parse(await file.text());
-    if (d.graphstudio && Array.isArray(d.projects)) {
-      for (const pr of d.projects) { pr.id = pr.id || uid('pr'); await dbPut(STORE, normalize(pr)); }
-      await loadProjects(); showProjects(); toast('Восстановлено проектов: ' + d.projects.length); return;
-    }
+    if (d.graphstudio && Array.isArray(d.projects)) { await restoreBundle(d); return; }
     const pr = isLegacy(d) ? fromLegacy(d) : normalize(d);
     pr.id = pr.id || uid('pr');
-    await dbPut(STORE, pr);
-    await fhSet(pr.id, handle, file.name);
-    await loadProjects(); await openProject(pr.id);
-    toast('Открыт файл: ' + file.name);
+    // Открытие файла привязывает проект к нему и перезаписывает копию в базе. Это нормально,
+    // пока файл свежее. Если в базе лежит БОЛЕЕ НОВАЯ версия — раньше она затиралась молча.
+    const local = await dbGet(STORE, pr.id).catch(() => null);
+    const stale = local && String(local.updated || '') > String(pr.updated || '');
+    const go = async () => {
+      await dbPut(STORE, pr);
+      await fhSet(pr.id, handle, file.name);
+      await loadProjects(); await openProject(pr.id);
+      toast('Открыт файл: ' + file.name);
+    };
+    if (!stale) return go();
+    modal(`<h3>В базе версия новее</h3>
+      <div class="kv" style="font-size:13px">Проект «${esc(local.name || pr.id)}» уже есть в браузере,
+      и он свежее файла.<br>В базе: <b>${esc(local.updated || '?')}</b> · в файле: <b>${esc(pr.updated || '?')}</b>.</div>
+      <div class="mfoot"><button class="btn" data-a="c">Оставить как есть</button>
+        <button class="btn" data-a="copy">Открыть как копию</button>
+        <button class="btn dgr" data-a="ok">Заменить из файла</button></div>`, b => {
+      b.querySelector('[data-a=c]').onclick = closeModal;
+      b.querySelector('[data-a=copy]').onclick = () => {
+        closeModal(); pr.id = uid('pr'); pr.name = (pr.name || 'Проект') + ' (из файла)'; go();
+      };
+      b.querySelector('[data-a=ok]').onclick = () => {closeModal(); go();};
+    });
   } catch (e) { toast('Не удалось открыть файл: ' + e.message); }
 }
 async function saveProjectToFile(forceNew) {
@@ -3415,7 +3504,14 @@ async function loadVault(dir) {
       newIds.push(pr.id);
     } catch (e) { /* битый/чужой файл — пропускаем */ }
   }
-  for (const id of oldIds) if (!newIds.includes(id)) { await dbDel(STORE, id).catch(() => {}); await fhDel(id); }
+  for (const id of oldIds) if (!newIds.includes(id)) {
+    // Здесь был dbDel: исчез файл в папке — проект молча удалялся из локальной базы.
+    // Хватало переименовать файл или временно сохранить его битым (такие файлы выше
+    // пропускаются молча, в catch), чтобы потерять проект. Теперь помечаем и оставляем.
+    const pr = await dbGet(STORE, id).catch(() => null);
+    if (pr) { pr.vaultMissing = 1; await dbPut(STORE, pr).catch(() => {}); }
+    await fhDel(id);
+  }
   await dbPut(META, {k: 'vault', v: {handle: dir, name: dir.name}});
   await dbPut(META, {k: 'vaultIds', v: newIds});
   return newIds.length;
@@ -3502,9 +3598,10 @@ window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferr
 window.addEventListener('appinstalled', () => { deferredInstall = null; refreshInstallUI(); toast('Graph Studio установлен'); });
 if ($('pInstall')) $('pInstall').onclick = doInstall;
 if ($('navInstall')) $('navInstall').onclick = doInstall;
-if (!VIEWER && 'serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
-}
+// Service worker больше не регистрируется: sw.js теперь kill-switch, см. комментарий в нём.
+// Уже установленные воркеры браузер обновит сам при следующем переходе и они снимутся.
+// Побочный эффект, который надо знать: без воркера установка как PWA может перестать
+// предлагаться. Офлайн-режим всё равно уходит — сервер становится единственным хранилищем.
 
 (async function boot() {
   if (VIEWER) {
@@ -3531,6 +3628,23 @@ if (!VIEWER && 'serviceWorker' in navigator && location.protocol.startsWith('htt
   if (id) await openProject(id); else showProjects();
   const seen = await dbGet(META, 'seen');
   if (!seen) {await dbPut(META, {k: 'seen', v: 1}); setTimeout(showHelp, 600);}
+
+  // IndexedDB по умолчанию best-effort: браузер вправе вытеснить её при нехватке места
+  // или при чистке сайтовых данных. Пока это единственная копия проектов — просим закрепить.
+  try {
+    if (navigator.storage && navigator.storage.persist && !(await navigator.storage.persisted())) {
+      await navigator.storage.persist();
+    }
+  } catch (e) {}
+
+  // Напоминание про резервную копию: данные лежат в одном браузере и больше нигде.
+  try {
+    const lb = await dbGet(META, 'lastBackup');
+    const days = lb && lb.v ? (Date.now() - lb.v) / 864e5 : Infinity;
+    if (live.length && days > 14) {
+      setTimeout(() => toast('Данные есть только в этом браузере. Сделайте копию: Экспорт и импорт → Бэкап всех проектов'), seen ? 1200 : 4000);
+    }
+  } catch (e) {}
 })();
 
 </script>

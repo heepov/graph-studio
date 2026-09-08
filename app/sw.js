@@ -1,41 +1,35 @@
-/* Graph Studio service worker — offline app shell.
-   Bump CACHE version on any change to app-shell files. */
-const CACHE = 'graph-studio-v2';
-const ASSETS = ['graph_studio.html', 'manifest.webmanifest', 'icon.svg'];
+/* Graph Studio service worker — kill-switch.
+
+   Прежний воркер (graph-studio-v2) перехватывал ЛЮБОЙ same-origin GET, кэшировал его
+   навсегда и при сетевой ошибке отдавал HTML-оболочку с кодом 200. С появлением /api/
+   это ломало бы разбор ответов: res.json() падал бы на «Unexpected token '<'»,
+   а реальные сбои сети и сервера маскировались бы под успешный ответ.
+
+   Плюс install делал cache.addAll(['graph_studio.html', ...]). После переезда на сборку
+   этого файла не станет, addAll провалился бы, установка нового воркера не прошла бы —
+   и на машинах людей навсегда остался бы жить старый воркер со старой оболочкой.
+
+   Поэтому здесь нет ни кэша, ни обработчика fetch: воркер снимает сам себя и уходит.
+   Приложение больше его не регистрирует. Браузер сам проверяет sw.js при переходах,
+   поэтому уже установленные воркеры получат эту версию и разрегистрируются.
+   Когда понадобится офлайн снова — новый воркер обязан первой же строкой в fetch
+   пропускать /api/ и /ws мимо себя. */
+
+const wipe = async () => {
+  const keys = await caches.keys();
+  await Promise.all(keys.map(k => caches.delete(k)));
+};
 
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())
-  );
+  e.waitUntil(wipe().then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
-  e.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
+  e.waitUntil((async () => {
+    await wipe();
+    await self.clients.claim();
+    await self.registration.unregister();
+  })());
 });
 
-self.addEventListener('message', e => {
-  if (e.data === 'skipWaiting') self.skipWaiting();
-});
-
-self.addEventListener('fetch', e => {
-  const req = e.request;
-  if (req.method !== 'GET') return;
-  const url = new URL(req.url);
-  if (url.origin !== location.origin) return; // не трогаем сторонние запросы
-  // network-first: онлайн — свежая версия + обновляем кэш; оффлайн — из кэша.
-  e.respondWith(
-    fetch(req)
-      .then(res => {
-        if (res && res.ok) {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
-        }
-        return res;
-      })
-      .catch(() => caches.match(req).then(r => r || caches.match('graph_studio.html')))
-  );
-});
+// Обработчика fetch нет намеренно: запросы идут в сеть напрямую.

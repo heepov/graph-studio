@@ -114,9 +114,33 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       else bad('позиция после drag не изменилась', `before=${JSON.stringify(before)} after=${JSON.stringify(after)}`);
 
       // --- камера страницы -------------------------------------------------
-      const view = await c.eval(`JSON.parse(JSON.stringify(curPage().view || null))`);
-      if (view) ok('камера страницы сохранена в page.view', JSON.stringify(view));
-      else bad('page.view пуст — камера не сохраняется');
+      // Камера — личное состояние человека, а не часть документа: под общим сервером
+      // панорамирование одного не должно писать в проект. Живёт в localStorage.
+      await sleep(1300); // дебаунс persistView — 1 с
+      const view = await c.eval(`(() => {
+        const raw = localStorage.getItem('gs_view:' + P.id + ':' + UI.page);
+        return {loc: raw ? JSON.parse(raw) : null, inDoc: curPage().view || null};
+      })()`);
+      if (view.loc) ok('камера сохранена в localStorage', JSON.stringify(view.loc));
+      else bad('камера не сохранилась в localStorage');
+      if (!view.inDoc) ok('камера НЕ пишется в документ проекта');
+      else bad('камера всё ещё пишется в page.view', JSON.stringify(view.inDoc));
+
+      // Обратная совместимость: у старых проектов и импорта камера лежит в page.view —
+      // её по-прежнему читаем, когда локальной записи нет.
+      const legacy = await c.eval(`(() => {
+        const pid = UI.page, k = 'gs_view:' + P.id + ':' + pid;
+        const saved = localStorage.getItem(k); localStorage.removeItem(k);
+        const pg = pageById(pid), old = pg.view;
+        pg.view = {x: 11, y: 22, k: 0.5}; delete UI.view[pid];
+        const v = JSON.parse(JSON.stringify(view()));
+        pg.view = old; delete UI.view[pid];
+        if (saved) localStorage.setItem(k, saved);
+        return v;
+      })()`);
+      (legacy.x === 11 && legacy.y === 22 && legacy.k === 0.5)
+        ? ok('легаси-камера из page.view читается', JSON.stringify(legacy))
+        : bad('легаси-камера из page.view не подхватилась', JSON.stringify(legacy));
 
       // --- ЭКСПОРТ: что реально уезжает в файл ------------------------------
       // dl объявлен как const — подменить нельзя; перехватываем на уровне Blob/createObjectURL
@@ -134,8 +158,8 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
         posOk ? ok('ЭКСПОРТ содержит позицию узла', `${exported.name}: n.p[${key}]=${JSON.stringify(node.p[key])}`)
               : bad('ЭКСПОРТ потерял позицию узла', JSON.stringify(node && node.p));
         const pageView = parsed.pages.find(p => p.id === key)?.view;
-        pageView ? ok('ЭКСПОРТ содержит камеру страницы', JSON.stringify(pageView))
-                 : bad('ЭКСПОРТ потерял камеру страницы');
+        !pageView ? ok('ЭКСПОРТ не тащит личную камеру в документ')
+                  : bad('ЭКСПОРТ содержит камеру — она должна быть личной', JSON.stringify(pageView));
         const keys = Object.keys(parsed);
         ok('ЭКСПОРТ: состав файла', keys.join(', '));
         const lanesOk = parsed.pages.filter(p => p.kind === 'canvas').every(p => p.canvas && Array.isArray(p.canvas.lanes));
@@ -153,7 +177,8 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
         JSON.stringify(rt.pos) === JSON.stringify(after[key])
           ? ok('ИМПОРТ сохраняет позицию узла', JSON.stringify(rt.pos))
           : bad('ИМПОРТ теряет позицию узла', JSON.stringify(rt));
-        rt.view ? ok('ИМПОРТ сохраняет камеру', JSON.stringify(rt.view)) : bad('ИМПОРТ теряет камеру');
+        !rt.view ? ok('ИМПОРТ: камеры в документе нет, как и ожидается')
+                 : bad('ИМПОРТ принёс камеру в документе', JSON.stringify(rt.view));
       }
 
       // --- VIEWER: ссылка коллеге ------------------------------------------
@@ -197,9 +222,61 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
         : bad('позиция потеряна после перезагрузки', `было ${JSON.stringify(after[key])}, стало ${JSON.stringify(afterReload)}`);
     }
 
+    // --- фаза 0: отрисовка не должна писать в документ ----------------------
+    // Раньше layoutPage() на странице layout:'free' сеял позиции и звал save() прямо
+    // из рендера. Под общим документом это дало бы конкурирующие записи у всех,
+    // кто открыл доску одновременно.
+    const noWrite = await c.eval(`(async () => {
+      const pg = P.pages.find(p => p.kind === 'canvas');
+      UI.page = pg.id;
+      const wasLayout = pg.canvas.layout;
+      pg.canvas.layout = 'free';
+      seedFreePositions(pg);                          // явный засев — разрешённая запись
+      save(1);
+      await new Promise(r => setTimeout(r, 700));     // дать отработать всем сохранениям
+      const puts = [];
+      const orig = IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put = function () { puts.push(this.name); return orig.apply(this, arguments); };
+      renderPage(); renderPage(); renderPage();
+      await new Promise(r => setTimeout(r, 900));     // дебаунс save() — 420 мс
+      IDBObjectStore.prototype.put = orig;
+      pg.canvas.layout = wasLayout;
+      return puts;
+    })()`);
+    noWrite.length === 0
+      ? ok('отрисовка свободного холста не пишет в базу')
+      : bad('отрисовка пишет в базу', noWrite.join(', '));
+
+    // --- фаза 0: бэкап не теряет корзину и снимки ---------------------------
+    // Раньше backupAll() фильтровал !p.deleted и не выгружал store SNAP вообще:
+    // перед переездом на сервер это была тихая потеря данных.
+    const backup = await c.eval(`(async () => {
+      await dbPut(STORE, {id: 'test_trash', name: 'В корзине', desc: '', nodes: [], links: [],
+                          frames: [], notes: [], pages: [], deleted: true, updated: '2026-01-01'});
+      await makeSnap('тестовый снимок');
+      let blob = null; const orig = URL.createObjectURL;
+      URL.createObjectURL = b => { blob = b; return orig.call(URL, b); };
+      try { await backupAll(); } finally { URL.createObjectURL = orig; }
+      const d = blob ? JSON.parse(await blob.text()) : null;
+      await dbDel(STORE, 'test_trash');
+      return d && {ver: d.graphstudio, trash: d.projects.filter(p => p.deleted).length,
+                   snaps: (d.snaps || []).length};
+    })()`);
+    if (!backup) bad('backupAll() ничего не выгрузил');
+    else {
+      backup.trash > 0 ? ok('БЭКАП содержит проекты из корзины', 'в корзине: ' + backup.trash)
+                       : bad('БЭКАП потерял корзину');
+      backup.snaps > 0 ? ok('БЭКАП содержит снимки версий', 'снимков: ' + backup.snaps)
+                       : bad('БЭКАП потерял снимки версий');
+    }
+
     // --- service worker ----------------------------------------------------
+    // Воркера быть не должно: sw.js теперь kill-switch, приложение его не регистрирует.
+    // Прежний воркер отдавал HTML-оболочку с кодом 200 на упавший same-origin GET —
+    // с будущим /api/ это ломало бы разбор ответов.
     const sw = await c.eval(`navigator.serviceWorker.getRegistrations().then(r => r.length)`);
-    sw > 0 ? ok('service worker зарегистрирован') : bad('service worker не зарегистрирован');
+    sw === 0 ? ok('service worker не регистрируется (kill-switch)')
+             : bad('service worker всё ещё зарегистрирован', 'регистраций: ' + sw);
 
     const errs = c.errors.filter(e => !/favicon|manifest/i.test(e));
     errs.length ? bad('исключения в консоли', errs.join(' | ').slice(0, 400)) : ok('исключений в консоли нет');
@@ -215,4 +292,7 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
   const fail = results.filter(r => r[0] === '✗');
   console.log(`\n===== ${results.length - fail.length}/${results.length} пройдено =====`);
   if (fail.length) { console.log('ПРОВАЛЫ:'); fail.forEach(f => console.log(' ✗', f[1], f[2])); process.exit(1); }
+  // Выходим явно: открытый WebSocket до Chrome держит event loop, и без этого
+  // успешный прогон просто не завершается — в CI это выглядит как зависший шаг.
+  process.exit(0);
 })();
