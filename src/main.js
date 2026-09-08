@@ -1276,6 +1276,26 @@ $('itabs').addEventListener('click', e => {
   if (UI.insp) openNode(UI.insp);
 });
 function inspOpen() { $('insp').classList.add('open'); document.body.classList.add('inspopen'); }
+
+// Узкий режим боковой панели. Состояние — настройка человека, живёт в meta рядом
+// с темой и шириной инспектора, а не в проекте.
+function applySideRail(on) {
+  $('app').classList.toggle('siderail', !!on);
+  const b = $('sideToggle');
+  if (b) b.title = on ? 'Развернуть панель (Ctrl+B)' : 'Свернуть панель (Ctrl+B)';
+  // камера считает по видимой ширине холста, а она изменилась
+  if (isSpatial(curPage()) && $('cv')) setTimeout(() => {applyView(); drawMini();}, 180);
+}
+function toggleSideRail() {
+  const on = !$('app').classList.contains('siderail');
+  applySideRail(on);
+  if (VIEWER) return;
+  dbGet(META, 'ui').catch(() => null).then(rec => {
+    const v = Object.assign({}, (rec && rec.v) || {}, {sideRail: on});
+    dbPut(META, {k: 'ui', v}).catch(() => {});
+  });
+}
+if ($('sideToggle')) $('sideToggle').onclick = e => {e.stopPropagation(); toggleSideRail();};
 // Ширина инспектора — настройка человека, а не проекта: хранится в meta рядом с темой,
 // а не в P, иначе уехала бы в экспорт и в выгруженный просмотрщик.
 const INSP_MIN = 300, INSP_MAX = 720;
@@ -1287,6 +1307,7 @@ async function loadInspW() {
     const rec = await dbGet(META, 'ui');
     if (rec && rec.v && rec.v.inspW) applyInspW(rec.v.inspW);
     if (rec && rec.v && rec.v.sects) UI.sects = rec.v.sects;
+    if (rec && rec.v && rec.v.sideRail) applySideRail(true);
   } catch (e) {}
 }
 function saveInspW(px) {
@@ -1829,6 +1850,7 @@ document.addEventListener('keydown', e => {
   if (mod && e.key.toLowerCase() === 'd') {e.preventDefault(); duplicateSelection(); return;}
   if (mod && e.key.toLowerCase() === 'c' && UI.sel.size) {e.preventDefault(); copySelection(); return;}
   if (mod && e.key.toLowerCase() === 'v') {e.preventDefault(); pasteSelection(); return;}
+  if (mod && e.key.toLowerCase() === 'b') {e.preventDefault(); toggleSideRail(); return;}
   if (mod && e.key.toLowerCase() === 'g') {e.preventDefault(); if (UI.sel.size) addFrame('frame'); return;}
   if (e.key === 'Delete' || e.key === 'Backspace') {e.preventDefault(); deleteSelection(); return;}
   if (e.key === 'n' && isSpatial(curPage())) {addNode(); return;}
@@ -1903,7 +1925,7 @@ const kindName = k => (KIND[k] || {n: k}).n;
 
 function renderPages() {
   $('pageList').innerHTML = P.pages.map(p =>
-    `<div class="pgi${p.id === UI.page ? ' on' : ''}" data-p="${p.id}" draggable="${VIEWER ? 'false' : 'true'}">
+    `<div class="pgi${p.id === UI.page ? ' on' : ''}" data-p="${p.id}" title="${esc(p.name)} · ${esc(kindName(p.kind))}" draggable="${VIEWER ? 'false' : 'true'}">
       <span class="ic">${KIND[p.kind] ? KIND[p.kind].i : '•'}</span><span class="nm">${esc(p.name)}</span>
       <span class="mo noview" data-mo="${p.id}">⋯</span></div>`).join('');
   qsa('#pageList .pgi').forEach(el => {
@@ -3583,7 +3605,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, META, NH, NW, PADX, PADY, ROWGAP, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, _pageNodes, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
+Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, META, NH, NW, PADX, PADY, ROWGAP, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, _pageNodes, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, '_g', {get: () => _g, set: v => {_g = v;}, configurable: true});

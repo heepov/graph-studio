@@ -31,6 +31,33 @@ button,input,select,textarea{font-family:inherit}
 
 /* ============ сайдбар ============ */
 .brand{padding:12px 12px 8px;display:flex;align-items:center;gap:8px}
+#sideToggle{margin-left:auto;border:none;background:transparent;color:var(--muted);cursor:pointer;
+  font-size:15px;line-height:1;padding:3px 5px;border-radius:6px}
+#sideToggle:hover{background:#eceff6;color:var(--ink)}
+body.dark #sideToggle:hover{background:var(--hov)}
+
+/* Узкий режим боковой панели: остаются только иконки, навигация по страницам
+   продолжает работать. Полностью прятать панель нельзя — тогда некуда нажать,
+   чтобы переключить страницу или вернуть её обратно. */
+#side{transition:width .16s,min-width .16s}
+#app.siderail #side{width:52px;min-width:52px}
+#app.siderail .brand{padding:12px 0 8px;justify-content:center}
+#app.siderail .brand .nm,
+#app.siderail #projBtn .pn,#app.siderail #projBtn .cnt,
+#app.siderail .pgi .nm,#app.siderail .pgi .mo,
+#app.siderail .sidecap span,#app.siderail #saveState{display:none}
+/* в узком режиме бренд становится колонкой: логотип, под ним кнопка разворота */
+#app.siderail .brand{flex-direction:column;gap:6px;padding:12px 0 6px}
+#app.siderail #sideToggle{margin:0;transform:rotate(180deg)}
+#app.siderail #projBtn{width:36px;margin:0 auto 8px;padding:7px 0;justify-content:center}
+/* подпись «Страницы» — текстовый узел, а не элемент: убираем через font-size,
+   иначе от неё остаётся обрезок, а кнопку «＋» надо сохранить */
+#app.siderail .sidecap{justify-content:center;padding:10px 0 4px;font-size:0}
+#app.siderail .sidecap .add{font-size:14px;margin-left:0}
+#app.siderail #pageList{padding:0 6px 10px}
+#app.siderail .pgi{justify-content:center;padding:8px 0}
+#app.siderail .pgi .ic{width:auto;font-size:14px}
+#app.siderail #sidefoot{padding:6px 6px 8px}
 .brand .logo{width:24px;height:24px;border-radius:7px;background:linear-gradient(135deg,#3355d1,#7b3fd1);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:13px}
 .brand .nm{font-weight:750;font-size:14px;letter-spacing:-.2px}
 #projBtn{margin:0 8px 8px;padding:7px 9px;border:1px solid var(--line);background:#fff;border-radius:9px;cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;width:calc(100% - 16px)}

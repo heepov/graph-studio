@@ -186,6 +186,31 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
                    : bad('Enter не открыл панель');
       }
 
+      // --- боковая панель сворачивается --------------------------------------
+      const side = await c.eval(`(async () => {
+        const w0 = Math.round(document.getElementById('side').getBoundingClientRect().width);
+        const cv0 = Math.round(cvRect().width);
+        toggleSideRail();
+        await new Promise(r => setTimeout(r, 260));
+        const w1 = Math.round(document.getElementById('side').getBoundingClientRect().width);
+        const cv1 = Math.round(cvRect().width);
+        const pagesVisible = document.querySelectorAll('#pageList .pgi').length;
+        const namesHidden = getComputedStyle(document.querySelector('#pageList .pgi .nm')).display === 'none';
+        toggleSideRail();
+        await new Promise(r => setTimeout(r, 260));
+        const w2 = Math.round(document.getElementById('side').getBoundingClientRect().width);
+        return {w0, w1, w2, cv0, cv1, pagesVisible, namesHidden};
+      })()`);
+      (side.w1 < side.w0 && side.w2 === side.w0)
+        ? ok('панель сворачивается и разворачивается', `${side.w0} → ${side.w1} → ${side.w2} px`)
+        : bad('панель не сворачивается', JSON.stringify(side));
+      (side.pagesVisible > 0 && side.namesHidden)
+        ? ok('в узком режиме страницы остаются кликабельными', `строк: ${side.pagesVisible}`)
+        : bad('в узком режиме навигация потерялась', JSON.stringify(side));
+      side.cv1 > side.cv0
+        ? ok('холст получает освободившуюся ширину', `${side.cv0} → ${side.cv1} px`)
+        : bad('холст не расширился', JSON.stringify(side));
+
       // --- зависимости: поиск вместо стены чекбоксов -------------------------
       const deps = await c.eval(`(() => {
         const pg = P.pages.find(p => p.kind === 'canvas');
