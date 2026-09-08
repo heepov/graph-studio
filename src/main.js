@@ -100,7 +100,11 @@ const dbDel = (store, k) => tx(store, 'readwrite', s => s.delete(k));
 let P = null;                 // активный проект
 let PROJECTS = [];            // [{id,name,desc,updated,nodes,links}]
 const UI = {
-  page: null, sel: new Set(), selNotes: new Set(), selFrames: new Set(), selLink: null, insp: null, iTab: 'card',
+  page: null, sel: new Set(), selNotes: new Set(), selFrames: new Set(), selLink: null, insp: null,
+  // открываем сразу в правке: раньше умолчанием была «Карточка», и до любого поля
+  // было два клика — половина жалобы «неудобно редактировать ноды» была про это.
+  // В режиме просмотра вкладка правки скрыта, openNode() сам падает обратно на карточку.
+  iTab: 'edit',
   // чем занят инспектор: 'node' | 'link' | 'frame' | null. Раньше openLink/openFrame
   // ставили UI.insp = null, и по одному этому полю нельзя было понять, открыт ли он вообще —
   // из-за чего undo() и edit() «теряли» инспектор связи и области.
