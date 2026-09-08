@@ -1363,6 +1363,7 @@ document.addEventListener('mousedown', e => {if (!e.target.closest('#ctx')) hide
    ИНСПЕКТОР
    ========================================================================== */
 function closeInsp() {
+  const f = $('ifoot'); if (f) {f.classList.remove('on'); f.innerHTML = '';}
   UI.insp = null; UI.inspKind = null; UI.inspRef = null;
   $('insp').classList.remove('open'); document.body.classList.remove('inspopen');
   if (isSpatial(curPage())) applyHi();
@@ -1456,12 +1457,32 @@ function openNode(id, keepScroll) {
   const g = G();
   $('ititle').textContent = n.name;
   const st = stepOf(n);
-  $('imeta').innerHTML = `${pillOf(n.status)} <b style="color:${catOf(n.cat).color}">${esc(catOf(n.cat).name)}</b> · ${esc(typeOf(n.type).name)}
-    · шаг ${st === 0 ? '0 (без входящих)' : st} · <span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px">${esc(n.id)}</span><br>
-    <b>Разблокирует:</b> ${g.W(id)} узлов · <b>блокеров внутри:</b> ${nBlockers(n)}`;
+  // Шапка была свалкой жаргона: статус, категория, тип, «шаг 3», сырой ID моноширинным
+  // и «блокеров внутри», неотличимое от блокеров-зависимостей. Оставляем то, что
+  // человек читает каждый раз, остальное — во вторую строку мелким.
+  const blk = nBlockers(n);
+  $('imeta').innerHTML = `${pillOf(n.status)} <b style="color:${catOf(n.cat).color}">${esc(catOf(n.cat).name)}</b>
+    <div class="imetrics">
+      <span title="столько узлов ждут этот, прямо или через цепочку">Разблокирует <b>${nOf(g.W(id), NODES)}</b></span>
+      ${blk ? `<span title="пункты внутри узла, отмеченные как блокирующие">Не закрыто внутри: <b>${blk}</b></span>` : ''}
+      <span title="глубина по зависимостям: столько шагов до него от начала">Шаг ${st}</span>
+    </div>`;
   qsa('#itabs .t').forEach(t => t.classList.toggle('on', t.dataset.i === UI.iTab));
   if (UI.iTab === 'edit' && !VIEWER) editForm(n); else cardView(n, g);
+  paintInspFoot(n);
   inspOpen(); $('ib').scrollTop = sc;
+}
+// Кнопки, которые нужны регулярно и должны быть видны всегда, а не в конце
+// прокрутки внутри свёрнутого раздела.
+function paintInspFoot(n) {
+  const f = $('ifoot'); if (!f) return;
+  if (VIEWER || !n) {f.classList.remove('on'); f.innerHTML = ''; return;}
+  f.innerHTML = `<button class="btn" id="fDup">Дублировать</button>
+    <span style="flex:1"></span>
+    <button class="btn dgr" id="fDel">Удалить узел</button>`;
+  f.classList.add('on');
+  $('fDup').onclick = () => {setSel([n.id]); duplicateSelection();};
+  $('fDel').onclick = () => {setSel([n.id]); deleteSelection();};
 }
 function cardView(n, g) {
   const ups = g.par[n.id] || [], dns = g.kids[n.id] || [];
@@ -1544,7 +1565,9 @@ function createLane(n) {
 }
 // Состояние свёрнутости разделов инспектора. Хранится в meta вместе с шириной панели:
 // это настройка человека, а не проекта.
-const SECT_DEFAULT = {main: 1, desc: 1, links: 1, fields: 0, checks: 0, more: 0};
+// Свои поля открыты по умолчанию: в реальном проекте это «Доска», «Волна», «Гейт» —
+// ровно то, чем продакт пользуется каждый день, а свёрнутыми они были не видны.
+const SECT_DEFAULT = {main: 1, desc: 1, links: 1, fields: 1, checks: 0, more: 0};
 function sectOpen(key) {
   const v = (UI.sects || {})[key];
   return v === undefined ? !!SECT_DEFAULT[key] : !!v;
@@ -1581,7 +1604,9 @@ function editForm(n) {
     <div class="frow">
       <div class="f"><label>Статус</label><select data-k="status">${opts(sts, n.status)}${newOpt('Новый статус')}</select></div>
       <div class="f"><label>Категория</label><select data-k="cat">${opts(cats, n.cat)}${newOpt('Новая категория')}</select></div>
-    </div>`;
+    </div>
+    <div class="f"><label>Тип узла — задаёт форму карточки на холсте</label>
+      <select data-k="type">${opts(tys, n.type)}${newOpt('Новый тип')}</select></div>`;
 
   // --- описание ---
   const desc = `<div class="f" style="margin-top:2px"><textarea data-k="body" style="min-height:110px" placeholder="Зачем это нужно, что входит, на что влияет">${esc(n.body || '')}</textarea>
@@ -1646,26 +1671,23 @@ function editForm(n) {
 
   // --- редкое и служебное ---
   const more = `<div class="frow" style="margin-top:2px">
-      <div class="f" style="margin-top:0"><label>Тип узла</label><select data-k="type">${opts(tys, n.type)}${newOpt('Новый тип')}</select></div>
-      <div class="f" style="margin-top:0"><label>Колонка на холсте</label><select data-k="lane">${opts(lanes.map((l, i) => [i, i + ' — ' + l]), n.lane == null ? '' : n.lane, 'авто · сейчас ' + g.layer[n.id])}${curPage().kind === 'canvas' ? newOpt('Новая колонка') : ''}</select></div>
+      <div class="f" style="margin-top:0"><label>Шаг на холсте</label><select data-k="lane">${opts(lanes.map((l, i) => [i, i + ' — ' + l]), n.lane == null ? '' : n.lane, 'авто · сейчас ' + g.layer[n.id])}${curPage().kind === 'canvas' ? newOpt('Новый шаг') : ''}</select></div>
+      <div class="f" style="margin-top:0"><label>Позиция на странице</label><button class="btn sm" id="unpin" style="width:100%;padding:6px" ${isPinned(n, UI.page) ? '' : 'disabled'}>${isPinned(n, UI.page) ? '📌 открепить' : 'авто'}</button></div>
     </div>
-    <div class="frow">
-      <div class="f"><label>Идентификатор</label><input type="text" id="idf" value="${esc(n.id)}"></div>
-      <div class="f"><label>Позиция на странице</label><button class="btn sm" id="unpin" style="width:100%;padding:6px" ${isPinned(n, UI.page) ? '' : 'disabled'}>${isPinned(n, UI.page) ? '📌 открепить' : 'авто'}</button></div>
-    </div>
-    <div style="display:flex;gap:8px;margin-top:14px">
-      <button class="btn" id="dupN">Дублировать</button><button class="btn dgr" id="delN">Удалить узел</button></div>`;
+    <div class="f"><label>Идентификатор — им узел упоминается в экспорте и импорте</label>
+      <input type="text" id="idf" value="${esc(n.id)}"></div>`;
 
   const h =
     sect('main', 'Главное', 0, main) +
     sect('desc', 'Описание', 0, desc) +
     sect('links', 'Связи', ins.length + outs.length, linkBody,
       '<b>←</b> — что должно быть готово до этого узла. <b>→</b> — что откроется, когда он будет готов.') +
-    sect('fields', 'Свои поля', filled || 0, fields) +
-    sect('checks', 'Вехи и блокеры', (n.checks || []).length, checks,
-      'Шаги внутри узла. Отмеченные «блокер» считаются в бейдже ⚠ на карточке.') +
-    sect('more', 'Тип, колонка, служебное', 0, more,
-      'Колонка на холсте — номер этапа. «Авто» означает, что номер считается по зависимостям.');
+    sect('fields', 'Свои поля', P.schema.fields.length ? `${filled} / ${P.schema.fields.length}` : 0, fields) +
+    sect('checks', 'Пункты внутри узла', (n.checks || []).length, checks,
+      'Что нужно сделать внутри самого узла. Отмеченные «блокер» показываются бейджем ⚠ на карточке — ' +
+      'это не то же самое, что зависимости от других узлов.') +
+    sect('more', 'Положение на холсте', 0, more,
+      'Шаг — глубина по зависимостям. «Авто» значит, что он считается сам: столько шагов до узла от начала.');
 
   $('ib').innerHTML = h;
   wireEdit(n);
@@ -1831,8 +1853,7 @@ function wireEdit(n) {
     if (UI.sel.has(old)) {UI.sel.delete(old); UI.sel.add(v);}
     gInval(); save(); renderPage(); openNode(v); toast('ID изменён, связи обновлены');
   };
-  $('dupN').onclick = () => {setSel([n.id]); duplicateSelection();};
-  $('delN').onclick = () => {setSel([n.id]); deleteSelection();};
+  // «Дублировать» и «Удалить» переехали в постоянный футер панели — см. paintInspFoot()
 }
 function paintNodesSafe() { if (isSpatial(curPage()) && $('lyNodes')) {paintNodes(); paintEdges();} }
 let staleT = null;
@@ -2117,7 +2138,9 @@ function renderPage() {
   UI.page = pg.id;
   $('pgTitle').textContent = pg.name;
   const ns = pageNodes(pg);
-  $('pgSub').textContent = `${kindName(pg.kind)} · ${ns.length} из ${nOf(P.nodes.length, NODES)}`;
+  // «из 32 узлов», а не «из 32 узла»: после предлога «из» нужен родительный падеж,
+  // а nOf() даёт форму, согласованную с числительным в именительном
+  $('pgSub').textContent = `${kindName(pg.kind)} · ${ns.length} из ${P.nodes.length} узлов`;
   renderPageBar(pg);
   const old = $('bulk'); if (old) old.remove();
   if (isSpatial(pg)) renderCanvas(pg);
@@ -3790,7 +3813,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, emptyBlock, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isKey, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintEmptyHint, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renameProject, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
+Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, emptyBlock, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isKey, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renameProject, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, '_g', {get: () => _g, set: v => {_g = v;}, configurable: true});
