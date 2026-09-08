@@ -279,7 +279,19 @@ function matchFilter(n, flt) {
   }
   return true;
 }
-function pageNodes(pg) { return P.nodes.filter(n => matchFilter(n, pg.filter)); }
+// Две пространственные страницы с общим движком камеры, но разным смыслом:
+//   canvas — «в каком порядке это физически может поехать»: колонка = глубина зависимости,
+//            видны все узлы проекта, прошедшие фильтр, раскладку считает граф;
+//   space  — «как это устроено»: свободная схема, на ней лежит только то, что положили,
+//            позиции и размеры руками.
+// Механика холста (камера, перетаскивание, копипаст, клавиши) общая — её и разводит isSpatial.
+const isSpatial = pg => !!pg && (pg.kind === 'canvas' || pg.kind === 'space');
+function pageNodes(pg) {
+  // на свободной схеме присутствие узла = наличие его позиции для этой страницы.
+  // Иначе на неё вываливались бы все узлы проекта кучей, чего от доски никто не ждёт.
+  if (pg.kind === 'space') return P.nodes.filter(n => npos(n, pg.id) && matchFilter(n, pg.filter));
+  return P.nodes.filter(n => matchFilter(n, pg.filter));
+}
 
 
 /* ==========================================================================
@@ -292,6 +304,17 @@ let drag = null, cvNodes = [], cvPos = {}, laneInfo = [];
 function npos(n, pid) { return (n.p && n.p[pid]) || null; }
 function setNpos(n, pid, x, y) { n.p = n.p || {}; n.p[pid] = {x: Math.round(x), y: Math.round(y)}; }
 function isPinned(n, pid) { return !!(n.p && n.p[pid]); }
+// Размер узла. Хранится ПО СТРАНИЦАМ, в n.p[pid].w/h — рядом с позицией.
+// В корень ноды (n.w/n.h) не пишем: это повторило бы техдолг n.x/n.y, когда размер
+// один на все страницы. Легаси n.w/n.h читаем как запасной вариант.
+function nsize(n, pid) {
+  const p = (n.p || {})[pid] || {};
+  return {w: p.w || n.w || NW, h: p.h || n.h || NH};
+}
+function setNsize(n, pid, w, h) {
+  n.p = n.p || {}; n.p[pid] = n.p[pid] || {x: 0, y: 0};
+  n.p[pid].w = Math.round(w); n.p[pid].h = Math.round(h);
+}
 // Камера — личное состояние человека, а не часть документа. Под общим сервером
 // панорамирование одного не должно писать в проект и порождать конфликты и события истории.
 // pg.view остаётся читаемым (старые проекты и импорт), но больше не записывается.
@@ -330,10 +353,21 @@ function visibleRect() {
   return {left: r.left, top: r.top, width: r.width - w, height: r.height};
 }
 function toWorld(cx, cy) {const v = view(), r = cvRect(); return {x: (cx - r.left - v.x) / v.k, y: (cy - r.top - v.y) / v.k};}
+const GRIDBG = 22;   // шаг точечной сетки в мировых координатах
 function applyView() {
   const v = view(), s = $('scene');
   if (s) s.style.transform = `translate(${v.x}px,${v.y}px) scale(${v.k})`;
   const z = $('zval'); if (z) z.textContent = Math.round(v.k * 100) + '%';
+  // Сетка нарисована фоном на #cv, а #cv камерой не двигается — раньше точки стояли
+  // намертво и при панораме «плыли» относительно узлов. Двигаем и масштабируем фон сами.
+  const cv = $('cv');
+  if (cv) {
+    let step = GRIDBG * v.k;
+    while (step > 0 && step < 11) step *= 2;      // на мелком зуме точки сливались бы в кашу
+    while (step > 90) step /= 2;                  // на крупном — расползались бы
+    cv.style.backgroundSize = `${step}px ${step}px, auto`;
+    cv.style.backgroundPosition = `${v.x % step}px ${v.y % step}px, 0 0`;
+  }
   drawMini();
   scheduleViewSave(UI.page);
 }
@@ -345,7 +379,7 @@ function scheduleViewSave(pid) {
 }
 function persistView(pid) {
   if (VIEWER || !P) return;
-  const pg = pageById(pid); if (!pg || pg.kind !== 'canvas') return;
+  const pg = pageById(pid); if (!isSpatial(pg)) return;
   const v = UI.view[pid]; if (!v) return;
   const nv = {x: Math.round(v.x), y: Math.round(v.y), k: +(+v.k).toFixed(4)};
   try {localStorage.setItem(viewKey(pid), JSON.stringify(nv));} catch (e) {}
@@ -433,9 +467,17 @@ function seedFreePositions(pg) {
   return seeded;
 }
 function layoutPage(pg, nodes) {
+  const pid = pg.id;
+  if (pg.kind === 'space') {
+    // никакой авто-раскладки: узел стоит там, где его положили
+    const pos = {};
+    nodes.forEach(n => {const p = npos(n, pid); if (p) pos[n.id] = {x: p.x, y: p.y};});
+    laneInfo = [];
+    return pos;
+  }
   const auto = autoLayout(nodes);
-  const pos = {}, pid = pg.id;
-  if (pg.canvas.layout === 'auto') {
+  const pos = {};
+  if ((pg.canvas || {}).layout === 'auto') {
     nodes.forEach(n => pos[n.id] = npos(n, pid) || (n.pinned && n.x != null ? {x: n.x, y: n.y} : (auto.pos[n.id] || {x: 0, y: 0})));
     laneInfo = auto.lanes;
   } else {
@@ -454,11 +496,14 @@ function layoutPage(pg, nodes) {
 /* ---------- отрисовка ---------- */
 function renderCanvas(pg) {
   // умолчания проставляет normalize() при загрузке — отрисовка проект не трогает
-  if (!pg.canvas) pg.canvas = {layout: 'auto', lanes: []};
+  const space = pg.kind === 'space';
+  if (!space && !pg.canvas) pg.canvas = {layout: 'auto', lanes: []};
+  if (space && !pg.space) pg.space = {};
+  const cfg = space ? pg.space : pg.canvas;   // общая часть: пояснение над холстом
   const nodes = pageNodes(pg);
   cvNodes = nodes;
   $('view').innerHTML = `<div id="cvstack">
-    ${pg.canvas.intro && !pg.canvas.introOff ? `<div id="cvintro">${pg.canvas.intro}<span class="x" id="introX" title="скрыть">×</span></div>` : ''}
+    ${cfg.intro && !cfg.introOff ? `<div id="cvintro">${cfg.intro}<span class="x" id="introX" title="скрыть">×</span></div>` : ''}
     <div id="cvhost"><div id="cv">
     <div id="scene">
       <div id="lyFrames"></div>
@@ -476,7 +521,7 @@ function renderCanvas(pg) {
     <canvas id="mini" width="380" height="252"></canvas>
   </div></div></div>`;
   const ix = $('introX');
-  if (ix) ix.onclick = () => {pg.canvas.introOff = 1; save(); renderPage();};
+  if (ix) ix.onclick = () => {cfg.introOff = 1; save(); renderPage();};
   cvPos = layoutPage(pg, nodes);
   paintFrames(); paintNodes(); paintEdges(); paintNotes();
   applyView();
@@ -491,9 +536,12 @@ function nodeHTML(n) {
   const g = G(), w = g.W(n.id), blk = nBlockers(n), st = statusOf(n.status), ty = typeOf(n.type);
   const shape = ty.shape === 'pill' ? ' shp-pill' : ty.shape === 'diamond' ? ' shp-di' : '';
   const p = cvPos[n.id] || {x: 0, y: 0};
-  const wd = n.w || NW, ht = n.h || NH;
+  const _sz = nsize(n, curPage().id), wd = _sz.w, ht = _sz.h;
   const badges = [];
-  if (isPinned(n, curPage().id) && curPage().canvas.layout === 'auto') badges.push('<span class="b pin" title="позиция закреплена вручную">📌</span>');
+  // curPage().canvas на странице-схеме отсутствует: без проверки здесь TypeError
+  // и холст не рисуется вообще
+  const _cvcfg = curPage().canvas;
+  if (_cvcfg && _cvcfg.layout === 'auto' && isPinned(n, curPage().id)) badges.push('<span class="b pin" title="позиция закреплена вручную">📌</span>');
   if (blk) badges.push(`<span class="b blk" title="блокеров внутри">⚠${blk}</span>`);
   if (w >= 3) badges.push(`<span class="b wt" title="разблокирует узлов">${w}</span>`);
   const subBits = [];
@@ -505,6 +553,7 @@ function nodeHTML(n) {
     <div class="ns">${subBits.join(' ')} ${esc(n.sub || '')}</div>
     <div class="port l" data-port="l"></div><div class="port r" data-port="r"></div>
     <div class="port t" data-port="t"></div><div class="port b" data-port="b"></div>
+    ${curPage().kind === 'space' && !VIEWER ? '<div class="rs" title="потянуть, чтобы изменить размер"></div>' : ''}
   </div>`;
 }
 function paintNodes() {
@@ -514,7 +563,8 @@ function paintNodes() {
 function paintLanes() {
   const pg = curPage();
   qsa('.lanebg,.lanecap').forEach(e => e.remove());
-  if (pg.canvas.layout !== 'auto' || !laneInfo.length) return;
+  // колонки — принадлежность холста-зависимостей; на схеме pg.canvas вообще нет
+  if (!pg.canvas || pg.canvas.layout !== 'auto' || !laneInfo.length) return;
   const H = Math.max(...Object.values(cvPos).map(p => p.y), 200) + 200;
   const fr = document.createDocumentFragment();
   laneInfo.forEach((l, i) => {
@@ -524,19 +574,50 @@ function paintLanes() {
     }
     const c = document.createElement('div'); c.className = 'lanecap';
     c.style.cssText = `left:${l.x}px;top:26px`;
-    c.textContent = (pg.canvas.lanes || [])[l.idx] || (l.idx === 0 ? 'блокировки' : 'этап ' + l.idx);
+    c.textContent = ((pg.canvas || {}).lanes || [])[l.idx] || (l.idx === 0 ? 'блокировки' : 'этап ' + l.idx);
     fr.appendChild(c);
   });
   $('lyNodes').appendChild(fr);
 }
+// Стрелка на ХОЛСТЕ-ЗАВИСИМОСТЯХ: всегда правый край источника → левый край цели.
+// Это не небрежность, а смысл: колонка = глубина зависимости, и поток слева направо
+// читается как «сначала это, потом то». Менять здесь нечего.
 function edgePath(a, b, aw, ah, bw, bh) {
   const x1 = a.x + aw, y1 = a.y + ah / 2, x2 = b.x, y2 = b.y + bh / 2;
   if (x2 > x1 + 10) {const m = (x1 + x2) / 2; return `M${x1},${y1} C${m},${y1} ${m},${y2} ${x2},${y2}`;}
   const off = Math.max(70, Math.abs(y2 - y1) / 2 + 50);
   return `M${x1},${y1} C${x1 + off},${y1 + off} ${x2 - off},${y2 + off} ${x2},${y2}`;
 }
+// Стрелка на СВОБОДНОЙ СХЕМЕ: сторона выбирается по взаимному расположению узлов.
+// Здесь порядок «слева направо» ничего не значит, а жёсткое правило правый→левый
+// заставляло дальние связи заворачивать петлёй вокруг узла.
+function edgePathAuto(a, b, aw, ah, bw, bh) {
+  const acx = a.x + aw / 2, acy = a.y + ah / 2;
+  const bcx = b.x + bw / 2, bcy = b.y + bh / 2;
+  const dx = bcx - acx, dy = bcy - acy;
+  let p1, p2, c1, c2;
+  const pull = Math.max(40, Math.min(160, (Math.abs(dx) + Math.abs(dy)) / 2.5));
+  if (Math.abs(dx) >= Math.abs(dy)) {                      // расходятся по горизонтали
+    const right = dx > 0;
+    p1 = {x: right ? a.x + aw : a.x, y: acy};
+    p2 = {x: right ? b.x : b.x + bw, y: bcy};
+    c1 = {x: p1.x + (right ? pull : -pull), y: p1.y};
+    c2 = {x: p2.x + (right ? -pull : pull), y: p2.y};
+  } else {                                                 // по вертикали
+    const down = dy > 0;
+    p1 = {x: acx, y: down ? a.y + ah : a.y};
+    p2 = {x: bcx, y: down ? b.y : b.y + bh};
+    c1 = {x: p1.x, y: p1.y + (down ? pull : -pull)};
+    c2 = {x: p2.x, y: p2.y + (down ? -pull : pull)};
+  }
+  return `M${p1.x},${p1.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${p2.x},${p2.y}`;
+}
+// какую геометрию использовать для страницы
+const edgeFor = pg => (pg && pg.kind === 'space') ? edgePathAuto : edgePath;
 function paintEdges() {
   const svg = $('edges'); if (!svg) return;
+  const pid = UI.page;                       // размеры узлов хранятся по страницам
+  const ep = edgeFor(curPage());
   const vis = new Set(cvNodes.map(n => n.id));
   const mk = {}; P.schema.linkTypes.forEach(t => mk[t.key] = 'mk' + t.key.replace(/\W/g, ''));
   let defs = P.schema.linkTypes.map(t =>
@@ -547,7 +628,8 @@ function paintEdges() {
     const a = cvPos[l.from], b = cvPos[l.to]; if (!a || !b) return;
     const na = nodeById(l.from), nb = nodeById(l.to);
     const t = ltOf(l.type);
-    const d = edgePath(a, b, na.w || NW, na.h || NH, nb.w || NW, nb.h || NH);
+    const sa = nsize(na, pid), sb = nsize(nb, pid);
+    const d = ep(a, b, sa.w, sa.h, sb.w, sb.h);
     const dash = t.style === 'dashed' ? 'stroke-dasharray="6,5"' : t.style === 'dotted' ? 'stroke-dasharray="2,4"' : '';
     h += `<path class="hit" data-l="${l.id}" d="${d}"/>`;
     h += `<path class="edge" data-l="${l.id}" data-a="${l.from}" data-b="${l.to}" d="${d}" fill="none" stroke="${t.color}" stroke-width="1.6" ${dash} marker-end="url(#${mk[l.type] || mk[P.schema.linkTypes[0].key]})"/>`;
@@ -610,7 +692,7 @@ function drawMini() {
   const c = $('mini'); if (!c || !cvNodes.length) return;
   const ctx = c.getContext('2d'), W = c.width, H = c.height;
   ctx.clearRect(0, 0, W, H);
-  const items = cvNodes.map(n => ({...cvPos[n.id], w: n.w || NW, h: n.h || NH, c: catOf(n.cat).color}));
+  const items = cvNodes.map(n => ({...cvPos[n.id], ...nsize(n, UI.page), c: catOf(n.cat).color}));
   (P.frames || []).forEach(f => items.push({x: f.x, y: f.y, w: f.w, h: f.h, c: null}));
   if (!items.length) return;
   const x0 = Math.min(...items.map(i => i.x)) - 60, y0 = Math.min(...items.map(i => i.y)) - 60;
@@ -628,7 +710,7 @@ function drawMini() {
   ctx.strokeRect((-v.x / v.k - x0) * k, (-v.y / v.k - y0) * k, (r.width / v.k) * k, (r.height / v.k) * k);
 }
 function fitAll() {
-  const items = cvNodes.map(n => ({...cvPos[n.id], w: n.w || NW, h: n.h || NH}));
+  const items = cvNodes.map(n => ({...cvPos[n.id], ...nsize(n, UI.page)}));
   (P.frames || []).forEach(f => items.push(f));
   if (!items.length) {const v = view(); v.x = 40; v.y = 40; v.k = 1; applyView(); return;}
   const r = visibleRect();
@@ -707,7 +789,8 @@ function startMove(e) {
   UI.selFrames.forEach(fid => {
     const f = (P.frames || []).find(x => x.id === fid); if (!f) return;
     cvNodes.forEach(n => {const p = cvPos[n.id]; if (!p) return;
-      if (p.x >= f.x - 4 && p.y >= f.y - 4 && p.x + (n.w || NW) <= f.x + f.w + 4 && p.y + (n.h || NH) <= f.y + f.h + 4) movN.add(n.id);});
+      const sz = nsize(n, UI.page);
+      if (p.x >= f.x - 4 && p.y >= f.y - 4 && p.x + sz.w <= f.x + f.w + 4 && p.y + sz.h <= f.y + f.h + 4) movN.add(n.id);});
   });
   const nodeIds = [...movN].filter(i => cvPos[i]);
   drag = {mode: 'move', sx: e.clientX, sy: e.clientY, moved: false,
@@ -736,6 +819,18 @@ function onDown(e) {
     drag = {mode: 'link', from, side: port.dataset.port};
     $('tmpLink').style.display = ''; cv.classList.add('linking');
     e.preventDefault(); return;
+  }
+  // Ресайз узла — только на схеме: на холсте-зависимостях раскладку считает граф
+  // из констант NW/NH, и разные размеры узлов её сломали бы.
+  // Проверка идёт ДО ветки .nd, иначе узел просто начнёт перетаскиваться.
+  const nrs = e.target.closest('.nd .rs');
+  if (nrs && !VIEWER) {
+    const rn = nodeById(nrs.closest('.nd').dataset.n);
+    if (rn) {
+      const sz = nsize(rn, curPage().id);
+      drag = {mode: 'nodeRS', n: rn, sx: e.clientX, sy: e.clientY, w: sz.w, h: sz.h};
+      e.preventDefault(); return;
+    }
   }
   if (nd) {
     const id = nd.dataset.n;
@@ -811,7 +906,8 @@ window.addEventListener('mousemove', e => {
   if (drag.mode === 'link') {
     const a = cvPos[drag.from], n = nodeById(drag.from);
     const w = toWorld(e.clientX, e.clientY);
-    const x1 = a.x + (n.w || NW), y1 = a.y + (n.h || NH) / 2;
+    const sz = nsize(n, UI.page);
+    const x1 = a.x + sz.w, y1 = a.y + sz.h / 2;
     $('tmpLink').setAttribute('d', `M${x1},${y1} L${w.x},${w.y}`);
     const el = document.elementFromPoint(e.clientX, e.clientY);
     const tgt = el && el.closest && el.closest('.nd');
@@ -826,7 +922,8 @@ window.addEventListener('mousemove', e => {
     const w2 = toWorld(e.clientX, e.clientY);
     const bx = [Math.min(drag.wx, w2.x), Math.max(drag.wx, w2.x)], by = [Math.min(drag.wy, w2.y), Math.max(drag.wy, w2.y)];
     const hits = cvNodes.filter(n => {
-      const p = cvPos[n.id]; return p.x < bx[1] && p.x + (n.w || NW) > bx[0] && p.y < by[1] && p.y + (n.h || NH) > by[0];
+      const p = cvPos[n.id], sz = nsize(n, UI.page);
+      return p.x < bx[1] && p.x + sz.w > bx[0] && p.y < by[1] && p.y + sz.h > by[0];
     }).map(n => n.id);
     setSel(hits, drag.add); // очищает selNotes/selFrames, если !add
     (P.notes || []).forEach(t => {
@@ -837,6 +934,14 @@ window.addEventListener('mousemove', e => {
       if (f.x < bx[1] && f.x + f.w > bx[0] && f.y < by[1] && f.y + f.h > by[0]) UI.selFrames.add(f.id);
     });
     applyHi(); syncBulk();
+    return;
+  }
+  if (drag.mode === 'nodeRS') {
+    // по ходу жеста меняем только DOM; в документ размер уходит на mouseup
+    drag.cw = Math.max(120, Math.round((drag.w + (e.clientX - drag.sx) / v.k) / GRID) * GRID);
+    drag.ch = Math.max(56, Math.round((drag.h + (e.clientY - drag.sy) / v.k) / GRID) * GRID);
+    const el = qs(`.nd[data-n="${CSS.escape(drag.n.id)}"]`);
+    if (el) {el.style.width = drag.cw + 'px'; el.style.height = drag.ch + 'px';}
     return;
   }
   if (drag.mode === 'frameRS') {
@@ -876,6 +981,11 @@ window.addEventListener('mouseup', e => {
       const alt = types.find(t2 => t2.key !== def);
       addLink(d.from, tgt.dataset.n, e.shiftKey && alt ? alt.key : def);
     }
+  }
+  if (d.mode === 'nodeRS' && d.cw != null) {
+    snapNow();
+    setNsize(d.n, curPage().id, d.cw, d.ch);
+    save(); paintNodes(); paintEdges(); drawMini(); applyHi();
   }
   if (['frameRS', 'noteRS'].includes(d.mode)) {
     // snapNow() ДО записи: раньше размер менялся прямо в mousemove, поэтому снимок
@@ -932,7 +1042,7 @@ function addNode(at) {
     status: (P.schema.statuses.find(s => s.key === 'na') || P.schema.statuses[P.schema.statuses.length - 1]).key,
     cat: (P.schema.categories[0] || {key: ''}).key, body: '', draft: 0, lane: null,
     x: null, y: null, p: {}, f: {}, checks: []};
-  if (pg.kind === 'canvas') setNpos(n, pg.id, Math.round(p.x / GRID) * GRID, Math.round(p.y / GRID) * GRID);
+  if (isSpatial(pg)) setNpos(n, pg.id, Math.round(p.x / GRID) * GRID, Math.round(p.y / GRID) * GRID);
   // наследуем значения фильтра страницы, чтобы узел не пропал из вида
   const flt = pg.filter || {};
   if (flt.cats && flt.cats.length) n.cat = flt.cats[0];
@@ -941,7 +1051,7 @@ function addNode(at) {
   if (flt.f) for (const k in flt.f) if (flt.f[k] && flt.f[k].length) n.f[k] = flt.f[k][0];
   P.nodes.push(n); gInval(); save();
   renderPage(); setSel([n.id]); UI.iTab = 'edit'; openNode(n.id);
-  if (pg.kind === 'canvas') {const el = qs(`.nd[data-n="${CSS.escape(n.id)}"]`); if (el) el.scrollIntoView({block: 'center', inline: 'center'});}
+  if (isSpatial(pg)) {const el = qs(`.nd[data-n="${CSS.escape(n.id)}"]`); if (el) el.scrollIntoView({block: 'center', inline: 'center'});}
   toast('Узел создан');
 }
 function centerWorld() {
@@ -958,8 +1068,8 @@ function addFrame(kind) {
   if (sel.length) {
     const xs = sel.map(n => cvPos[n.id].x), ys = sel.map(n => cvPos[n.id].y);
     f.x = Math.min(...xs) - 26; f.y = Math.min(...ys) - 26;
-    f.w = Math.max(...sel.map(n => cvPos[n.id].x + (n.w || NW))) - f.x + 26;
-    f.h = Math.max(...sel.map(n => cvPos[n.id].y + (n.h || NH))) - f.y + 26;
+    f.w = Math.max(...sel.map(n => cvPos[n.id].x + nsize(n, UI.page).w)) - f.x + 26;
+    f.h = Math.max(...sel.map(n => cvPos[n.id].y + nsize(n, UI.page).h)) - f.y + 26;
   }
   P.frames = P.frames || []; P.frames.push(f); save(); renderPage(); openFrame(f);
 }
@@ -1002,7 +1112,7 @@ function duplicateSelection() {
   arr.forEach(n => {
     const c = clone(n); c.id = uid('n'); c.name = n.name + ' (копия)';
     const bp = cvPos[n.id] || {x: 40, y: 40};
-    c.p = {}; if (curPage().kind === 'canvas') setNpos(c, curPage().id, bp.x + 26, bp.y + 26);
+    c.p = {}; if (isSpatial(curPage())) setNpos(c, curPage().id, bp.x + 26, bp.y + 26);
     map[n.id] = c.id; P.nodes.push(c);
   });
   P.links.slice().forEach(l => {
@@ -1021,7 +1131,7 @@ function copySelection() {
   arr.forEach(n => {usedStatus.add(n.status); usedCat.add(n.cat); usedType.add(n.type); Object.keys(n.f || {}).forEach(k => usedField.add(k));});
   links.forEach(l => usedLink.add(l.type));
   const pick = (list, set) => (list || []).filter(x => set.has(x.key));
-  const pid = curPage().kind === 'canvas' ? curPage().id : null;
+  const pid = isSpatial(curPage()) ? curPage().id : null;
   let minx = Infinity, miny = Infinity;
   const posMap = {};
   if (pid) arr.forEach(n => {const p = (typeof cvPos !== 'undefined' && cvPos[n.id]) || (n.p && n.p[pid]); if (p) {posMap[n.id] = p; minx = Math.min(minx, p.x); miny = Math.min(miny, p.y);}});
@@ -1045,7 +1155,7 @@ function pasteSelection() {
   ['statuses', 'categories', 'nodeTypes', 'linkTypes', 'fields'].forEach(k => {
     ((buf.schema && buf.schema[k]) || []).forEach(it => {if (!P.schema[k].some(x => x.key === it.key)) P.schema[k].push(clone(it));});
   });
-  const pg = curPage(), canvas = pg.kind === 'canvas';
+  const pg = curPage(), canvas = isSpatial(pg);
   const anchor = canvas ? centerWorld() : null;
   pasteShift = (pasteShift + 1) % 6;
   const off = 24 + pasteShift * 16;
@@ -1065,7 +1175,7 @@ function pasteSelection() {
 function alignSel(how) {
   const arr = selArr(); if (arr.length < 2) return;
   snapNow();
-  const ps = arr.map(n => ({n, p: cvPos[n.id], w: n.w || NW, h: n.h || NH}));
+  const ps = arr.map(n => ({n, p: cvPos[n.id], ...nsize(n, UI.page)}));
   if (how === 'l') {const v = Math.min(...ps.map(x => x.p.x)); ps.forEach(x => x.p.x = v);}
   if (how === 'r') {const v = Math.max(...ps.map(x => x.p.x + x.w)); ps.forEach(x => x.p.x = v - x.w);}
   if (how === 'cx') {const v = ps.reduce((a, x) => a + x.p.x + x.w / 2, 0) / ps.length; ps.forEach(x => x.p.x = Math.round(v - x.w / 2));}
@@ -1100,7 +1210,8 @@ function ctxMenu(e) {
       items.push(['Категория ▸', null, P.schema.categories.map(s => [s.name, () => bulkSet('cat', s.key)])]);
       items.push(['—']);
       items.push(['Дублировать', duplicateSelection, null, 'Ctrl+D']);
-      if (curPage().canvas.layout === 'auto')
+      // на схеме pg.canvas отсутствует — без проверки здесь TypeError и меню не открывается
+      if ((curPage().canvas || {}).layout === 'auto')
         items.push([n.pinned ? 'Открепить позицию' : 'Закрепить позицию', () => {
           snapNow(); selArr().forEach(x => x.pinned = n.pinned ? 0 : 1); save(); renderPage();
         }]);
@@ -1156,7 +1267,7 @@ document.addEventListener('mousedown', e => {if (!e.target.closest('#ctx')) hide
 function closeInsp() {
   UI.insp = null; UI.inspKind = null; UI.inspRef = null;
   $('insp').classList.remove('open'); document.body.classList.remove('inspopen');
-  if (curPage() && curPage().kind === 'canvas') applyHi();
+  if (isSpatial(curPage())) applyHi();
 }
 $('iclose').onclick = () => {closeInsp(); setSel([]);};
 $('itabs').addEventListener('click', e => {
@@ -1239,7 +1350,7 @@ function cardView(n, g) {
   const gc = $('goCanvas'); if (gc) gc.onclick = () => jumpToNode(n.id);
 }
 $('ib').addEventListener('click', e => {
-  const g = e.target.closest('[data-go]'); if (g) {openNode(g.dataset.go); if (curPage().kind === 'canvas') {setSel([g.dataset.go]); flyTo(g.dataset.go);}}
+  const g = e.target.closest('[data-go]'); if (g) {openNode(g.dataset.go); if (isSpatial(curPage())) {setSel([g.dataset.go]); flyTo(g.dataset.go);}}
 });
 const SCHEMA_PALETTE = ['#3355d1', '#0f8f6a', '#8b46c9', '#d2740c', '#b3261e', '#136c33', '#2f6fed', '#8a5d00', '#0e7490', '#9d174d', '#6b7280', '#b08900', '#4338ca', '#c2410c', '#18a558'];
 function nextColor(list) {
@@ -1511,7 +1622,7 @@ function wireEdit(n) {
   $('dupN').onclick = () => {setSel([n.id]); duplicateSelection();};
   $('delN').onclick = () => {setSel([n.id]); deleteSelection();};
 }
-function paintNodesSafe() { if (curPage().kind === 'canvas' && $('lyNodes')) {paintNodes(); paintEdges();} }
+function paintNodesSafe() { if (isSpatial(curPage()) && $('lyNodes')) {paintNodes(); paintEdges();} }
 let staleT = null;
 function stalePages() {
   const pg = curPage();
@@ -1530,7 +1641,7 @@ function jumpToNode(id) {
   const n = nodeById(id); if (!n) return;
   const pg = P.pages.find(p => p.kind === 'canvas' && matchFilter(n, p.filter));
   if (pg && pg.id !== UI.page) {gotoPage(pg.id); setTimeout(() => {setSel([id]); flyTo(id); openNode(id);}, 60); return;}
-  if (curPage().kind === 'canvas') {setSel([id]); flyTo(id);}
+  if (isSpatial(curPage())) {setSel([id]); flyTo(id);}
   openNode(id);
 }
 /* ---------- инспектор связи и области ---------- */
@@ -1584,7 +1695,7 @@ function syncBulk() {
     b = document.createElement('div'); b.id = 'bulk'; $('view').appendChild(b);
   }
   if (!total || VIEWER) {b.classList.remove('on'); return;}
-  const canvas = curPage().kind === 'canvas';
+  const canvas = isSpatial(curPage());
   const label = extra ? `${total} выбрано${n ? ` (узлов ${n})` : ''}` : `${n} выбрано`;
   b.innerHTML = `<b style="font-size:12.5px">${label}</b>
     ${n ? `<select id="blkSt"><option value="">Статус…</option>${opts(P.schema.statuses.map(s => [s.key, s.name]), '_')}</select>
@@ -1609,7 +1720,7 @@ function syncBulk() {
   const bf = $('blkFrame'); if (bf) bf.onclick = () => addFrame('frame');
   const bd = $('blkDup'); if (bd) bd.onclick = duplicateSelection;
   $('blkDel').onclick = deleteSelection;
-  $('blkNone').onclick = () => {setSel([]); if (curPage().kind !== 'canvas') renderPage();};
+  $('blkNone').onclick = () => {setSel([]); if (!isSpatial(curPage())) renderPage();};
 }
 function bulkSet(key, val) {
   const arr = selArr(); if (!arr.length) return;
@@ -1638,13 +1749,13 @@ document.addEventListener('keydown', e => {
   if (mod && e.key.toLowerCase() === 'z') {e.preventDefault(); e.shiftKey ? redo() : undo(); return;}
   if (mod && e.key.toLowerCase() === 's') {e.preventDefault(); exportProject(); return;}
   if (VIEWER) return;
-  if (mod && e.key.toLowerCase() === 'a' && curPage().kind === 'canvas') {e.preventDefault(); setSel(cvNodes.map(n => n.id)); return;}
+  if (mod && e.key.toLowerCase() === 'a' && isSpatial(curPage())) {e.preventDefault(); setSel(cvNodes.map(n => n.id)); return;}
   if (mod && e.key.toLowerCase() === 'd') {e.preventDefault(); duplicateSelection(); return;}
   if (mod && e.key.toLowerCase() === 'c' && UI.sel.size) {e.preventDefault(); copySelection(); return;}
   if (mod && e.key.toLowerCase() === 'v') {e.preventDefault(); pasteSelection(); return;}
   if (mod && e.key.toLowerCase() === 'g') {e.preventDefault(); if (UI.sel.size) addFrame('frame'); return;}
   if (e.key === 'Delete' || e.key === 'Backspace') {e.preventDefault(); deleteSelection(); return;}
-  if (e.key === 'n' && curPage().kind === 'canvas') {addNode(); return;}
+  if (e.key === 'n' && isSpatial(curPage())) {addNode(); return;}
   // Панель больше не открывается сама по клику (см. onDown), поэтому нужен явный способ.
   if (e.key === 'Enter' && UI.sel.size === 1) {
     e.preventDefault();
@@ -1652,7 +1763,7 @@ document.addEventListener('keydown', e => {
     if (UI.insp === only) closeInsp(); else openNode(only);
     return;
   }
-  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && UI.sel.size && curPage().kind === 'canvas') {
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && UI.sel.size && isSpatial(curPage())) {
     e.preventDefault();
     const d = e.shiftKey ? 1 : GRID;
     const dx = e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0;
@@ -1660,7 +1771,7 @@ document.addEventListener('keydown', e => {
     snapshot();
     selArr().forEach(n => {
       cvPos[n.id].x += dx; cvPos[n.id].y += dy; setNpos(n, curPage().id, cvPos[n.id].x, cvPos[n.id].y);
-      if (curPage().canvas.layout === 'auto') n.pinned = 1;
+      if ((curPage().canvas || {}).layout === 'auto') n.pinned = 1;
     });
     updatePositions([...UI.sel]); save();
   }
@@ -1710,7 +1821,8 @@ $('bFind').onclick = openPalette;
 /* ==========================================================================
    СТРАНИЦЫ
    ========================================================================== */
-const KIND = {canvas: {n: 'Холст', i: '◇'}, table: {n: 'Таблица', i: '▤'}, board: {n: 'Канбан', i: '▥'}, dash: {n: 'Дашборд', i: '◎'}};
+const KIND = {canvas: {n: 'Холст', i: '◇'}, space: {n: 'Схема', i: '⬚'},
+  table: {n: 'Таблица', i: '▤'}, board: {n: 'Канбан', i: '▥'}, dash: {n: 'Дашборд', i: '◎'}};
 const kindName = k => (KIND[k] || {n: k}).n;
 
 function renderPages() {
@@ -1747,10 +1859,12 @@ function renderPage() {
   $('pgSub').textContent = `${kindName(pg.kind)} · ${ns.length} из ${P.nodes.length} узлов`;
   renderPageBar(pg);
   const old = $('bulk'); if (old) old.remove();
-  if (pg.kind === 'canvas') renderCanvas(pg);
+  if (isSpatial(pg)) renderCanvas(pg);
   else if (pg.kind === 'table') renderTable(pg);
   else if (pg.kind === 'board') renderBoard(pg);
-  else renderDash(pg);
+  else if (pg.kind === 'dash') renderDash(pg);
+  // неизвестный тип раньше молча рисовался дашбордом — теперь это видно
+  else {$('view').innerHTML = `<div class="scroller"><div class="hint">Неизвестный тип страницы: ${esc(pg.kind)}</div></div>`;}
   syncBulk(); paintSave();
 }
 /* ---------- панель страницы ---------- */
@@ -1774,6 +1888,21 @@ function renderPageBar(pg) {
       <div class="mi" data-img="png">Экспорт в PNG<small>2× — для презентации</small></div>
       <div class="mi" data-img="svg">Экспорт в SVG<small>вектор — для правки</small></div></div></div>`;
     h += `<span class="spacer"></span><button class="chip" id="cCrit">Критический путь</button><button class="chip" id="cReady">Доступное сейчас</button>`;
+  }
+  if (pg.kind === 'space') {
+    h += `<span class="sep"></span>
+      <div class="menu noview" id="mAddObj"><button class="btn">＋ Объект ▾</button><div class="mlist left">
+        <div class="mi" data-o="node">Новый узел<span class="k">N</span></div><div class="mi" data-o="note">Заметка</div>
+        <div class="mi" data-o="frame">Область<span class="k">Ctrl+G</span></div></div></div>`;
+    h += `<div class="menu noview" id="mPut"><button class="btn">↧ Положить узел ▾</button>
+      <div class="mlist left" style="min-width:300px;padding:6px">
+        <input type="text" id="putq" placeholder="найти узел проекта…" style="width:100%">
+        <div id="putlist" style="max-height:240px;overflow:auto;margin-top:5px"></div></div></div>`;
+    h += `<div class="menu noview" id="mLType"><button class="btn">Связь: <b id="ltName"></b> ▾</button><div class="mlist left"></div></div>`;
+    h += `<div class="menu" id="mImg"><button class="btn">⤓ Картинка ▾</button><div class="mlist left">
+      <div class="mi" data-img="png">Экспорт в PNG<small>2× — для презентации</small></div>
+      <div class="mi" data-img="svg">Экспорт в SVG<small>вектор — для правки</small></div></div></div>`;
+    h += `<span class="spacer"></span><span class="hint">Свободная схема: узлы лежат там, где положил</span>`;
   }
   if (pg.kind === 'table') {
     h += `<div class="menu" id="mCols"><button class="btn">Колонки ▾</button><div class="mlist left" style="max-height:60vh;overflow:auto"></div></div>`;
@@ -1813,6 +1942,55 @@ function renderPageBar(pg) {
     $('cReady').classList.toggle('on', !!pg.canvas.ready);
     $('cCrit').onclick = () => {pg.canvas.crit = !pg.canvas.crit; pg.canvas.ready = false; save(); renderPage(); fitAll();};
     $('cReady').onclick = () => {pg.canvas.ready = !pg.canvas.ready; pg.canvas.crit = false; save(); renderPage(); fitAll();};
+  }
+  if (pg.kind === 'space') {
+    qsa('#mAddObj .mi').forEach(el => el.onclick = () => {
+      const o = el.dataset.o;
+      if (o === 'node') addNode(); if (o === 'note') addNote(); if (o === 'frame') addFrame('frame');
+    });
+    qsa('#mImg .mi').forEach(el => el.onclick = () => {el.dataset.img === 'png' ? exportCanvasPNG() : exportCanvasSVG();});
+    UI.linkType = UI.linkType && P.schema.linkTypes.some(t => t.key === UI.linkType) ? UI.linkType : P.schema.linkTypes[0].key;
+    $('ltName').textContent = ltOf(UI.linkType).name;
+    qs('#mLType .mlist').innerHTML = P.schema.linkTypes.map(t =>
+      `<div class="mi" data-lt="${esc(t.key)}"><span style="width:22px;border-top:2px ${t.style} ${t.color};display:inline-block"></span>${esc(t.name)}</div>`).join('')
+      + '<hr><div class="mi" data-lt="__">Настроить типы связей…</div>';
+    qsa('#mLType .mi').forEach(el => el.onclick = () => {
+      if (el.dataset.lt === '__') {showSchema('links'); return;}
+      UI.linkType = el.dataset.lt; $('ltName').textContent = ltOf(UI.linkType).name;
+    });
+    // «Положить узел»: схема показывает только то, что на неё положили, поэтому
+    // должен быть способ вынести на неё уже существующий узел проекта
+    const putq = $('putq'), putlist = $('putlist');
+    const paintPut = () => {
+      const q = (putq.value || '').trim().toLowerCase();
+      const free = P.nodes.filter(n => !npos(n, pg.id))
+        .filter(n => !q || n.name.toLowerCase().includes(q) || n.id.toLowerCase().includes(q)
+                       || (n.sub || '').toLowerCase().includes(q))
+        .slice(0, 40);
+      putlist.innerHTML = free.length
+        ? free.map(n => `<div class="di" data-put="${esc(n.id)}" style="display:flex;align-items:center;gap:7px;padding:5px 7px;border-radius:6px;font-size:12.2px;cursor:pointer">
+            <span style="width:7px;height:7px;border-radius:50%;background:${catOf(n.cat).color}"></span>
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(n.name)}</span>
+            <span style="font-size:9.6px;color:var(--muted);font-family:ui-monospace,Menlo,monospace">${esc(n.id)}</span></div>`).join('')
+        : `<div class="kv" style="padding:4px 6px">${q ? 'ничего не нашлось' : 'все узлы проекта уже на схеме'}</div>`;
+      qsa('[data-put]', putlist).forEach(el => {
+        el.onmouseenter = () => el.style.background = 'var(--accent-bg)';
+        el.onmouseleave = () => el.style.background = '';
+        el.onclick = () => {
+          const n = nodeById(el.dataset.put); if (!n) return;
+          snapNow();
+          const c = centerWorld();
+          // раскладываем каскадом, чтобы несколько подряд не легли друг на друга
+          const k = pageNodes(pg).length;
+          setNpos(n, pg.id, Math.round((c.x + (k % 5) * 40) / GRID) * GRID,
+                            Math.round((c.y + Math.floor(k / 5) * 30) / GRID) * GRID);
+          save(); renderPage(); setSel([n.id]);
+          toast('Узел на схеме: ' + n.name);
+        };
+      });
+    };
+    putq.oninput = paintPut;
+    paintPut();
   }
   if (pg.kind === 'table') buildColsMenu(pg);
   if (pg.kind === 'board') buildGbyMenu(pg);
@@ -2134,7 +2312,7 @@ function renderDash(pg) {
 const _pageNodes = pageNodes;
 pageNodes = function (pg) {
   let ns = _pageNodes(pg);
-  if (pg.kind === 'canvas' && pg.canvas) {
+  if (pg.kind === 'canvas' && pg.canvas) {   // критический путь и «доступное сейчас» — про зависимости, на схеме их нет
     const g = G();
     if (pg.canvas.crit) ns = ns.filter(n => g.crit.has(n.id));
     if (pg.canvas.ready) ns = ns.filter(n => (g.par[n.id] || []).length === 0);
@@ -2154,7 +2332,8 @@ function newPage() {
       ${Object.keys(KIND).map((k, i) => `<label class="pk" style="border:1px solid var(--line);border-radius:9px;padding:9px 11px">
         <input type="radio" name="npk" value="${k}" ${i === 0 ? 'checked' : ''}>
         <span><b>${KIND[k].i} ${KIND[k].n}</b><br><small style="color:var(--muted)">${
-          {canvas: 'граф связей, свободно или авто', table: 'строки, колонки, правка в ячейках',
+          {canvas: 'колонка = глубина зависимости', space: 'свободная схема: кладёшь что хочешь и куда хочешь',
+           table: 'строки, колонки, правка в ячейках',
            board: 'карточки по колонкам, drag&drop', dash: 'плитки и сводка из данных'}[k]}</small></span></label>`).join('')}
       </div></div>
     <div class="f"><label>Копировать фильтр с текущей страницы</label>
@@ -2167,6 +2346,7 @@ function newPage() {
       const pg = {id: uid('p'), name: $('npn').value.trim() || KIND[kind].n, kind,
         filter: $('npf').checked ? clone(curPage().filter) : {q: '', cats: [], statuses: [], types: [], f: {}}};
       if (kind === 'canvas') pg.canvas = {layout: 'free', lanes: ['блокировки', 'этап 1', 'этап 2', 'этап 3', 'этап 4', 'этап 5']};
+      if (kind === 'space') pg.space = {};
       if (kind === 'table') pg.table = {cols: ['name', 'cat', 'status', 'step', 'weight', 'checks'], sort: 'name', dir: 1, group: ''};
       if (kind === 'board') pg.board = {groupBy: 'status'};
       P.pages.push(pg); seedFreePositions(pg); save(); closeModal(); gotoPage(pg.id);
@@ -2394,15 +2574,16 @@ function wrapLines(s, maxChars, maxLines) {
 const SF = 'font-family="-apple-system,Segoe UI,Roboto,sans-serif"';
 function buildCanvasSVG() {
   const pg = curPage();
-  if (!pg || pg.kind !== 'canvas') {toast('Экспорт карты доступен только на странице-холсте'); return null;}
+  if (!isSpatial(pg)) {toast('Экспорт карты доступен только на холсте или схеме'); return null;}
   if (!cvNodes || !cvNodes.length) {toast('Нет узлов для экспорта'); return null;}
   const PAD = 64;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   const ext = (x, y, w, h) => {if (x < minX) minX = x; if (y < minY) minY = y; if (x + w > maxX) maxX = x + w; if (y + h > maxY) maxY = y + h;};
-  cvNodes.forEach(n => {const p = cvPos[n.id]; if (p) ext(p.x, p.y, n.w || NW, n.h || NH);});
+  cvNodes.forEach(n => {const p = cvPos[n.id]; if (p) {const sz = nsize(n, pg.id); ext(p.x, p.y, sz.w, sz.h);}});
   (P.frames || []).forEach(f => ext(f.x, f.y, f.w, f.h));
   (P.notes || []).forEach(t => ext(t.x, t.y, t.w || 190, t.h || 90));
-  const auto = pg.canvas.layout === 'auto' && laneInfo && laneInfo.length;
+  // pg.canvas на схеме отсутствует: колонки-этапы — принадлежность холста зависимостей
+  const auto = (pg.canvas || {}).layout === 'auto' && laneInfo && laneInfo.length;
   minX -= PAD; minY -= PAD; maxX += PAD; maxY += PAD;
   const W = Math.max(1, Math.round(maxX - minX)), H = Math.max(1, Math.round(maxY - minY));
   const off = (x, y) => [Math.round((x - minX) * 10) / 10, Math.round((y - minY) * 10) / 10];
@@ -2410,7 +2591,7 @@ function buildCanvasSVG() {
   if (auto) laneInfo.forEach((l, i) => {
     if (i > 0) {const [lx] = off(l.x - COLGAP / 2, 0); body += `<line x1="${lx}" y1="0" x2="${lx}" y2="${H}" stroke="#dfe3ec" stroke-width="1" stroke-dasharray="4,5"/>`;}
     const [cx, cy] = off(l.x, 26);
-    const cap = (pg.canvas.lanes || [])[l.idx] || (l.idx === 0 ? 'блокировки' : 'этап ' + l.idx);
+    const cap = ((pg.canvas || {}).lanes || [])[l.idx] || (l.idx === 0 ? 'блокировки' : 'этап ' + l.idx);
     body += `<text x="${cx}" y="${cy}" ${SF} font-size="10.5" font-weight="700" letter-spacing="0.5" fill="#aeb4c3">${svgEsc(cap.toUpperCase())}</text>`;
   });
   (P.frames || []).forEach(f => {
@@ -2435,7 +2616,8 @@ function buildCanvasSVG() {
     const a = cvPos[l.from], b = cvPos[l.to]; if (!a || !b) return;
     const na = nodeById(l.from), nb = nodeById(l.to), t = ltOf(l.type);
     const [ax, ay] = off(a.x, a.y), [bx, by] = off(b.x, b.y);
-    const d = edgePath({x: ax, y: ay}, {x: bx, y: by}, na.w || NW, na.h || NH, nb.w || NW, nb.h || NH);
+    const sa2 = nsize(na, pg.id), sb2 = nsize(nb, pg.id);
+    const d = edgeFor(pg)({x: ax, y: ay}, {x: bx, y: by}, sa2.w, sa2.h, sb2.w, sb2.h);
     const dash = t.style === 'dashed' ? ' stroke-dasharray="6,5"' : t.style === 'dotted' ? ' stroke-dasharray="2,4"' : '';
     edges += `<path d="${d}" fill="none" stroke="${t.color}" stroke-width="1.6"${dash} marker-end="url(#${mk[l.type] || mk[P.schema.linkTypes[0].key]})"/>`;
     if (l.label) {const m = midOf(d); edges += `<text x="${m.x}" y="${m.y - 5}" text-anchor="middle" font-size="10" font-weight="600" fill="${t.color}">${svgEsc(l.label)}</text>`;}
@@ -2444,7 +2626,7 @@ function buildCanvasSVG() {
   let nds = '';
   cvNodes.forEach(n => {
     const p = cvPos[n.id]; if (!p) return;
-    const [x, y] = off(p.x, p.y), w = n.w || NW, h = n.h || NH;
+    const [x, y] = off(p.x, p.y), {w, h} = nsize(n, pg.id);
     const ty = typeOf(n.type), st = statusOf(n.status);
     let bg = '#ffffff', br = '#e4e7ef', rx = 10;
     if (ty.shape === 'pill') {bg = '#fffdf6'; br = '#ecd8a0'; rx = Math.min(22, h / 2);}
@@ -2523,7 +2705,7 @@ function showExport() {
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
       <button class="btn" data-x="png">PNG (2×)</button>
       <button class="btn" data-x="svg">SVG</button>
-      <span class="hint" style="align-self:center">${curPage().kind === 'canvas' ? 'экспорт текущего холста' : 'откройте страницу-холст'}</span>
+      <span class="hint" style="align-self:center">${isSpatial(curPage()) ? 'экспорт текущего холста' : 'откройте холст или схему'}</span>
     </div>
     ${VIEWER ? '' : `<div class="cap" style="font-size:9.6px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#a6acbb;margin-top:18px">Версии и проверка</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
@@ -2765,7 +2947,8 @@ function normalize(pr) {
   if (!pr.pages || !pr.pages.length) pr.pages = [{id: uid('p'), name: 'Холст', kind: 'canvas',
     filter: {q: '', cats: [], statuses: [], types: [], f: {}}, canvas: {layout: 'auto', lanes: []}}];
   pr.pages.forEach(p => {p.filter = p.filter || {q: '', cats: [], statuses: [], types: [], f: {}};
-    if (p.kind === 'canvas') p.canvas = p.canvas || {layout: 'auto', lanes: []};});
+    if (p.kind === 'canvas') p.canvas = p.canvas || {layout: 'auto', lanes: []};
+    if (p.kind === 'space') p.space = p.space || {};});
   return pr;
 }
 // Восстановление бэкап-бандла. Общая точка для «Импорт → JSON» и для «Открыть файл»:
@@ -3061,7 +3244,7 @@ $('navHelp').onclick = showHelp;
 function applyTheme(dark) {
   document.body.classList.toggle('dark', !!dark);
   const el = $('navTheme'); if (el) el.querySelector('.nm').textContent = dark ? 'Светлая тема' : 'Тёмная тема';
-  if (typeof drawMini === 'function' && P && UI.page && (curPage() || {}).kind === 'canvas') try { drawMini(); } catch (e) {}
+  if (typeof drawMini === 'function' && P && UI.page && isSpatial(curPage())) try { drawMini(); } catch (e) {}
 }
 function toggleTheme() {
   const dark = !document.body.classList.contains('dark');
@@ -3324,7 +3507,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, INSP_MAX, INSP_MIN, KIND, META, NH, NW, PADX, PADY, ROWGAP, SCHEMA_PALETTE, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, _pageNodes, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgePath, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isLegacy, isPinned, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, scheduleFileSave, scheduleViewSave, schemaKey, seedFreePositions, selArr, selectLink, setNpos, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
+Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, META, NH, NW, PADX, PADY, ROWGAP, SCHEMA_PALETTE, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, _pageNodes, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, scheduleFileSave, scheduleViewSave, schemaKey, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, '_g', {get: () => _g, set: v => {_g = v;}, configurable: true});

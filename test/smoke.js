@@ -345,6 +345,92 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
         : bad('позиция потеряна после перезагрузки', `было ${JSON.stringify(after[key])}, стало ${JSON.stringify(afterReload)}`);
     }
 
+    // --- свободная схема (kind: 'space') -----------------------------------
+    const space = await c.eval(`(() => {
+      const pg = {id: 'p_space_test', name: 'Схема', kind: 'space',
+                  filter: {q: '', cats: [], statuses: [], types: [], f: {}}, space: {}};
+      P.pages.push(pg);
+      UI.page = pg.id; renderPages(); renderPage();
+      const emptyNodes = pageNodes(pg).length;            // на схему ещё ничего не положили
+      const hasCanvas = !!document.getElementById('cv');  // отрисовалась именно как холст
+      const hasLanes = document.querySelectorAll('.lanebg').length;  // колонок тут быть не должно
+      // кладём существующий узел
+      const some = P.nodes[0];
+      setNpos(some, pg.id, 200, 120);
+      renderPage();
+      const afterPut = pageNodes(pg).length;
+      const drawn = document.querySelectorAll('.nd[data-n]').length;
+      const pos = JSON.parse(JSON.stringify(cvPos[some.id] || null));
+      // создаём новый узел прямо на схеме
+      const before = P.nodes.length;
+      addNode({x: 400, y: 300});
+      const created = P.nodes[P.nodes.length - 1];
+      const createdPlaced = !!npos(created, pg.id);
+      // контекстное меню на узле не должно падать (раньше тут был TypeError на pg.canvas)
+      let ctxOk = true;
+      try {
+        const el = document.querySelector('.nd[data-n]');
+        const r = el.getBoundingClientRect();
+        ctxMenu({target: el, clientX: r.x + 5, clientY: r.y + 5, preventDefault(){}, stopPropagation(){}});
+        hideCtx();
+      } catch (e) { ctxOk = 'ошибка: ' + e.message; }
+      // экспорт картинки со схемы
+      let svgOk = true;
+      try { svgOk = !!buildCanvasSVG(); } catch (e) { svgOk = 'ошибка: ' + e.message; }
+      return {emptyNodes, hasCanvas, hasLanes, afterPut, drawn, pos,
+              addedNode: P.nodes.length - before, createdPlaced, ctxOk, svgOk};
+    })()`);
+    (space.hasCanvas && space.emptyNodes === 0)
+      ? ok('схема: новая страница пустая и рисуется холстом')
+      : bad('схема: не отрисовалась или не пустая', JSON.stringify(space));
+    space.hasLanes === 0 ? ok('схема: колонок зависимостей на ней нет')
+                         : bad('схема: нарисованы колонки', 'штук: ' + space.hasLanes);
+    (space.afterPut === 1 && space.drawn >= 1 && space.pos && space.pos.x === 200)
+      ? ok('схема: узел появляется, когда его положили', JSON.stringify(space.pos))
+      : bad('схема: положенный узел не появился', JSON.stringify(space));
+    (space.addedNode === 1 && space.createdPlaced)
+      ? ok('схема: новый узел создаётся прямо на ней')
+      : bad('схема: новый узел не привязался к странице', JSON.stringify(space));
+    space.ctxOk === true ? ok('схема: контекстное меню не падает')
+                         : bad('схема: контекстное меню упало', String(space.ctxOk));
+    space.svgOk === true ? ok('схема: экспорт картинки работает')
+                         : bad('схема: экспорт картинки упал', String(space.svgOk));
+
+    // размер узла: хранится по страницам, в n.p[pid].w/h
+    const resize = await c.eval(`(() => {
+      const pg = pageById('p_space_test'); UI.page = pg.id; renderPage();
+      const n = pageNodes(pg)[0]; if (!n) return {err: 'на схеме нет узлов'};
+      const had = document.querySelector('.nd .rs') ? 1 : 0;   // ручка есть только на схеме
+      setNsize(n, pg.id, 320, 140);
+      renderPage();
+      const el = document.querySelector('.nd[data-n="' + CSS.escape(n.id) + '"]');
+      const box = el ? {w: Math.round(el.getBoundingClientRect().width / view().k),
+                        h: Math.round(el.getBoundingClientRect().height / view().k)} : null;
+      // на холсте-зависимостях размер тот же узел иметь не должен: он хранится по страницам
+      const cv = P.pages.find(p => p.kind === 'canvas');
+      const onCanvas = nsize(n, cv.id);
+      const stored = JSON.parse(JSON.stringify(n.p[pg.id]));
+      UI.page = cv.id; renderPage();
+      const handleOnCanvas = document.querySelector('.nd .rs') ? 1 : 0;
+      return {had, box, onCanvas, stored, handleOnCanvas};
+    })()`);
+    if (resize.err) bad('размер узла: ' + resize.err);
+    else {
+      resize.had ? ok('размер: ручка есть на схеме') : bad('размер: ручки нет на схеме');
+      (resize.box && Math.abs(resize.box.w - 320) <= 2 && Math.abs(resize.box.h - 140) <= 2)
+        ? ok('размер: узел рисуется заданного размера', JSON.stringify(resize.box))
+        : bad('размер: узел не изменился', JSON.stringify(resize));
+      (resize.stored.w === 320 && resize.stored.h === 140)
+        ? ok('размер: хранится по страницам в n.p[pageId]', JSON.stringify(resize.stored))
+        : bad('размер: сохранён не туда', JSON.stringify(resize.stored));
+      (resize.onCanvas.w === 212 && resize.onCanvas.h === 74)
+        ? ok('размер: на холсте-зависимостях узел прежнего размера')
+        : bad('размер: протёк на другую страницу', JSON.stringify(resize.onCanvas));
+      resize.handleOnCanvas === 0
+        ? ok('размер: на холсте-зависимостях ручки нет')
+        : bad('размер: ручка появилась на холсте, где раскладку считает граф');
+    }
+
     // --- фаза 0: отрисовка не должна писать в документ ----------------------
     // Раньше layoutPage() на странице layout:'free' сеял позиции и звал save() прямо
     // из рендера. Под общим документом это дало бы конкурирующие записи у всех,

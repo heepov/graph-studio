@@ -124,6 +124,11 @@ button,input,select,textarea{font-family:inherit}
 .port.r{right:-7px;top:50%;margin-top:-6.5px} .port.l{left:-7px;top:50%;margin-top:-6.5px}
 .port.t{top:-7px;left:50%;margin-left:-6.5px} .port.b{bottom:-7px;left:50%;margin-left:-6.5px}
 .nd.droptgt{box-shadow:0 0 0 3px var(--accent)}
+/* ручка размера узла — только на свободной схеме (на холсте-зависимостях
+   раскладку считает граф, и разные размеры узлов её сломали бы) */
+.nd .rs{position:absolute;right:-4px;bottom:-4px;width:11px;height:11px;border:1.5px solid var(--accent);
+  background:#fff;border-radius:3px;cursor:nwse-resize;opacity:0;z-index:23}
+.nd:hover .rs,.nd.sel .rs{opacity:1}
 .fr{position:absolute;border:1.5px solid #d7dbe6;border-radius:12px;background:rgba(255,255,255,.42)}
 .fr.lane{border-style:dashed;background:rgba(240,242,248,.5)}
 .fr .fh{position:absolute;top:-21px;left:0;font-size:11px;font-weight:750;color:#767d8f;background:transparent;
