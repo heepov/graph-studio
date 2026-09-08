@@ -1992,7 +1992,15 @@ document.addEventListener('keydown', e => {
   if (mod && isKey(e, 'KeyK', 'k')) {e.preventDefault(); openPalette(); return;}
   if (typing) return;
   if (mod && isKey(e, 'KeyZ', 'z')) {e.preventDefault(); e.shiftKey ? redo() : undo(); return;}
-  if (mod && isKey(e, 'KeyS', 's')) {e.preventDefault(); exportProject(); return;}
+  // Ctrl+S — мышечная память «сохранить». Проект и так сохраняется сам, а если он
+  // привязан к файлу на диске — пишем в него. Раньше сочетание всегда открывало
+  // диалог скачивания, что на «сохранить» совсем не похоже.
+  if (mod && isKey(e, 'KeyS', 's')) {
+    e.preventDefault();
+    if (UI.fileName) saveProjectToFile(false);
+    else {save(1); toast('Проект сохраняется сам — выгрузить файл можно в «Экспорт и импорт»');}
+    return;
+  }
   if (VIEWER) return;
   if (mod && isKey(e, 'KeyA', 'a') && isSpatial(curPage())) {e.preventDefault(); setSel(cvNodes.map(n => n.id)); return;}
   if (mod && isKey(e, 'KeyD', 'd')) {e.preventDefault(); duplicateSelection(); return;}
@@ -2198,7 +2206,16 @@ function renderPageBar(pg) {
     h += `<span class="spacer"></span><span class="hint">Перетаскивай карточки между колонками</span>`;
   }
   bar.innerHTML = h;
-  $('fq').oninput = deb(() => {pg.filter.q = $('fq').value; save(); renderPage(); const el = $('fq'); if (el) {el.focus(); el.selectionStart = el.value.length;}}, 280);
+  // Каретка улетала в конец строки: после дебаунса шла полная перерисовка, и позиция
+  // курсора восстанавливалась как value.length. Правишь слово в середине запроса —
+  // через 280 мс курсор в хвосте. Запоминаем реальную позицию выделения.
+  $('fq').oninput = deb(() => {
+    const src = $('fq');
+    const ss = src ? src.selectionStart : null, se = src ? src.selectionEnd : null;
+    pg.filter.q = src.value; save(); renderPage();
+    const el = $('fq');
+    if (el) {el.focus(); if (ss != null) el.setSelectionRange(ss, se);}
+  }, 280);
   buildFilterMenu(pg);
   if (pg.kind === 'canvas') {
     qsa('#mLay .mi').forEach(el => el.onclick = () => {
@@ -3510,7 +3527,16 @@ $('pImport').onclick = () => importJson('new');
 if ($('pOpenFile')) {$('pOpenFile').onclick = openProjectFile; if (!FSA) $('pOpenFile').classList.add('hidden');}
 if ($('pVault')) $('pVault').onclick = chooseVault;
 $('pBackup').onclick = backupAll;
-$('bAdd').onclick = () => addNode();
+// На дашборде и в таблице узел создавался «в никуда»: страница перерисовывалась,
+// визуально не менялось ничего, а узел повисал в проекте. Уводим на холст.
+$('bAdd').onclick = () => {
+  if (!P) return;
+  if (!isSpatial(curPage())) {
+    const home = P.pages.find(p => isSpatial(p));
+    if (home) {gotoPage(home.id); setTimeout(() => addNode(), 60); return;}
+  }
+  addNode();
+};
 $('bUndo').onclick = undo; $('bRedo').onclick = redo;
 
 /* ==========================================================================

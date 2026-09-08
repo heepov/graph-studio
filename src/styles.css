@@ -502,3 +502,22 @@ body.dark .chip.on{background:var(--accent-bg);border-color:var(--accent-br);col
    Растим паддингом, не меняя визуальный размер глифа. */
 .pgi .mo{padding:2px 6px;margin:-2px -2px -2px 0}
 .sidecap .add{padding:2px 6px}
+
+/* ---- узкие экраны ----
+   Медиазапросов не было ни одного: сайдбар 236 + инспектор 380 не оставляли места,
+   а верхняя панель без переноса уводила кнопки за край экрана без возможности достать. */
+@media (max-width: 1000px) {
+  #app.siderail #side,#side{width:52px;min-width:52px}
+  #side .brand .nm,#projBtn .pn,#projBtn .cnt,.pgi .nm,.pgi .mo,#saveState{display:none}
+  #side .brand{flex-direction:column;gap:6px;padding:12px 0 6px}
+  .sidecap{justify-content:center;padding:10px 0 4px;font-size:0}
+  .sidecap .add{font-size:14px;margin-left:0}
+  .pgi{justify-content:center;padding:8px 0}
+  #topbar{height:auto;min-height:46px;flex-wrap:wrap;padding:6px 12px}
+  #pagebar{padding:5px 8px}
+}
+@media (max-width: 700px) {
+  #insp,#insp.open{width:100vw}
+  #cvempty{max-width:88vw;padding:14px 16px}
+  .emptybox{margin:20px 12px}
+}
