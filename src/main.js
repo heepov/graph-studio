@@ -31,9 +31,32 @@ const dl = (name, text, mime) => {
   setTimeout(() => {URL.revokeObjectURL(u); a.remove();}, 500);
 };
 let toastT;
-function toast(m) {
-  const t = $('toast'); t.textContent = m; t.classList.add('on');
-  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2800);
+// Тост с необязательной кнопкой действия. Она закрывает целый класс проблем:
+// удаление узла, сброс раскладки и массовые правки были необратимы иначе как Ctrl+Z,
+// про который никто не знает (а до этого он ещё и не работал в русской раскладке).
+// «21 узлов», «1 строк», «2 связей» — склонение по-русски, а не наивное «+ов».
+const plural = (n, forms) => {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return forms[2];
+  if (b > 1 && b < 5) return forms[1];
+  if (b === 1) return forms[0];
+  return forms[2];
+};
+const nOf = (n, forms) => n + ' ' + plural(n, forms);
+const NODES = ['узел', 'узла', 'узлов'], LINKS = ['связь', 'связи', 'связей'];
+const ROWS = ['строка', 'строки', 'строк'], OBJS = ['объект', 'объекта', 'объектов'];
+function toast(m, action) {
+  const t = $('toast');
+  t.innerHTML = esc(m) + (action ? ` <button class="tact">${esc(action.label)}</button>` : '');
+  t.classList.toggle('act', !!action);
+  if (action) {
+    const btn = qs('.tact', t);
+    btn.onclick = () => {t.classList.remove('on', 'act'); clearTimeout(toastT); action.run();};
+  }
+  t.classList.add('on');
+  clearTimeout(toastT);
+  // с кнопкой держим дольше: на 2.8 с человек не успевает прочитать и нажать
+  toastT = setTimeout(() => t.classList.remove('on', 'act'), action ? 7000 : 2800);
 }
 function pickFile(accept, cb) {
   const i = $('fpick'); i.value = ''; i.accept = accept;
@@ -140,7 +163,7 @@ function paintSave() {
   const el = $('saveState'); if (!el) return;
   if (VIEWER) {el.textContent = 'режим просмотра'; return;}
   const fileLine = UI.fileName ? `<br><span title="проект синхронизируется с этим файлом">📄 ${esc(UI.fileName)}</span>` : '';
-  el.innerHTML = `${P ? P.nodes.length : 0} узлов · ${P ? P.links.length : 0} связей<br>сохранено ${UI.lastSave ? UI.lastSave.toLocaleTimeString('ru-RU').slice(0, 5) : '—'}${fileLine}`;
+  el.innerHTML = `${nOf(P ? P.nodes.length : 0, NODES)} · ${nOf(P ? P.links.length : 0, LINKS)}<br>сохранено ${UI.lastSave ? UI.lastSave.toLocaleTimeString('ru-RU').slice(0, 5) : '—'}${fileLine}`;
   $('bUndo').disabled = !undoS.length; $('bRedo').disabled = !redoS.length;
 }
 function undo() {
@@ -576,7 +599,7 @@ function nodeHTML(n) {
   if (blk) badges.push(`<span class="b blk" title="блокеров внутри">⚠${blk}</span>`);
   if (w >= 3) badges.push(`<span class="b wt" title="разблокирует узлов">${w}</span>`);
   const subBits = [];
-  P.schema.fields.filter(f => f.card).forEach(f => {const v = (n.f || {})[f.key]; if (v) subBits.push(`<b style="font-size:9px;font-weight:800;color:#4b5563;background:#eef0f4;border-radius:5px;padding:0 4px">${esc(Array.isArray(v) ? v[0] : v)}</b>`);});
+  P.schema.fields.filter(f => f.card).forEach(f => {const v = (n.f || {})[f.key]; if (v) subBits.push(`<b class="fbadge">${esc(Array.isArray(v) ? v[0] : v)}</b>`);});
   return `<div class="nd${shape}" data-n="${esc(n.id)}" style="left:${p.x}px;top:${p.y}px;width:${wd}px;height:${ht}px">
     <div class="bar" style="background:${catOf(n.cat).color}"></div>
     <div class="bdg">${badges.join('')}</div>
@@ -1136,7 +1159,7 @@ function deleteSelection() {
     if (frameSel.length) P.frames = (P.frames || []).filter(f => !frameSel.includes(f.id));
     UI.sel.clear(); UI.selNotes.clear(); UI.selFrames.clear(); UI.selLink = null;
     gInval(); save(); closeInsp(); renderPage();
-    toast('Удалено объектов: ' + total);
+    toast('Удалено: ' + nOf(total, OBJS), {label: 'Вернуть', run: undo});
   };
   if (total > 1) confirmBox(`Удалить ${total} объектов${ids.length ? ' (узлы — вместе со связями)' : ''}?`, go, 'Удалить');
   else go();
@@ -1834,7 +1857,7 @@ function syncBulk() {
   if (!b) {
     b = document.createElement('div'); b.id = 'bulk'; $('view').appendChild(b);
   }
-  if (!total || VIEWER) {b.classList.remove('on'); return;}
+  if (!total || VIEWER) {b.classList.remove('on'); document.body.classList.remove('bulkon'); return;}
   const canvas = isSpatial(curPage());
   const label = extra ? `${total} выбрано${n ? ` (узлов ${n})` : ''}` : `${n} выбрано`;
   b.innerHTML = `<b style="font-size:12.5px">${label}</b>
@@ -1852,7 +1875,7 @@ function syncBulk() {
     ${n ? '<button class="btn sm" id="blkDup">Дублировать</button>' : ''}
     <button class="btn sm" id="blkDel" style="color:#ff9a92">Удалить</button>
     <button class="btn sm" id="blkNone">Снять</button>`;
-  b.classList.add('on');
+  b.classList.add('on'); document.body.classList.add('bulkon');
   const st = $('blkSt'); if (st) st.onchange = e => {if (e.target.value) bulkSet('status', e.target.value); e.target.value = '';};
   const ct = $('blkCat'); if (ct) ct.onchange = e => {if (e.target.value) bulkSet('cat', e.target.value); e.target.value = '';};
   const ty = $('blkTy'); if (ty) ty.onchange = e => {if (e.target.value) bulkSet('type', e.target.value); e.target.value = '';};
@@ -2012,7 +2035,7 @@ function renderPage() {
   UI.page = pg.id;
   $('pgTitle').textContent = pg.name;
   const ns = pageNodes(pg);
-  $('pgSub').textContent = `${kindName(pg.kind)} · ${ns.length} из ${P.nodes.length} узлов`;
+  $('pgSub').textContent = `${kindName(pg.kind)} · ${ns.length} из ${nOf(P.nodes.length, NODES)}`;
   renderPageBar(pg);
   const old = $('bulk'); if (old) old.remove();
   if (isSpatial(pg)) renderCanvas(pg);
@@ -2075,9 +2098,24 @@ function renderPageBar(pg) {
   if (pg.kind === 'canvas') {
     qsa('#mLay .mi').forEach(el => el.onclick = () => {
       const l = el.dataset.l;
-      if (l === 'reset') {snapNow(); pageNodes(pg).forEach(n => {if (n.p) delete n.p[pg.id]; n.pinned = 0;}); save(); renderPage(); fitAll(); toast('Раскладка пересчитана по зависимостям'); return;}
+      if (l === 'reset') {
+        snapNow();
+        const cnt = pageNodes(pg).filter(n => n.p && n.p[pg.id]).length;
+        pageNodes(pg).forEach(n => {if (n.p) delete n.p[pg.id]; n.pinned = 0;});
+        save(); renderPage(); fitAll();
+        toast(`Позиции сброшены: ${nOf(cnt, NODES)}`, {label: 'Вернуть', run: undo});
+        return;
+      }
       if (l === 'lanes') {editLanes(pg); return;}
-      snapNow(); pg.canvas.layout = l; seedFreePositions(pg); save(); renderPage(); fitAll();
+      snapNow();
+      // Возврат в «Авто» раньше ничего не менял: переключение в «Свободно» прописывает
+      // позицию каждому узлу, а авто-раскладка отдаёт приоритет сохранённой позиции.
+      // Человек возвращался в «Авто» и видел ту же кашу, решая, что раскладка сломана.
+      if (l === 'auto') pageNodes(pg).forEach(n => {if (n.p) delete n.p[pg.id]; n.pinned = 0;});
+      pg.canvas.layout = l;
+      seedFreePositions(pg);
+      save(); renderPage(); fitAll();
+      if (l === 'auto') toast('Раскладка считается по зависимостям', {label: 'Вернуть', run: undo});
     });
     qsa('#mAddObj .mi').forEach(el => el.onclick = () => {
       const o = el.dataset.o;
@@ -2281,7 +2319,7 @@ function renderTable(pg) {
     <thead><tr>${th}<th></th></tr></thead><tbody>${rows}</tbody></table></div>
     ${VIEWER ? '' : `<div style="margin-top:10px"><button class="btn" id="tAdd">＋ Узел</button></div>`}
     </div>`;
-  $('tblCount').textContent = ns.length + ' строк';
+  $('tblCount').textContent = nOf(ns.length, ROWS);
   qsa('#view th[data-c]').forEach(el => el.onclick = () => {
     if (t.sort === el.dataset.c) t.dir = (t.dir || 1) * -1; else {t.sort = el.dataset.c; t.dir = 1;}
     save(); renderPage();
@@ -3663,7 +3701,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, META, NH, NW, PADX, PADY, ROWGAP, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, _pageNodes, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isKey, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintEmptyHint, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
+Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, _pageNodes, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isKey, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintEmptyHint, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, '_g', {get: () => _g, set: v => {_g = v;}, configurable: true});

@@ -1,5 +1,5 @@
 :root{
-  --ink:#15181f; --ink2:#525a6b; --muted:#8b91a1; --line:#e4e7ef; --line2:#eef0f6;
+  --ink:#15181f; --ink2:#525a6b; --muted:#6b7280;   /* было #8b91a1 — контраст 3.2:1 на белом при кегле 10.5px, ниже нормы */ --line:#e4e7ef; --line2:#eef0f6;
   --bg:#f6f7fa; --card:#fff; --accent:#3355d1; --accent-bg:#eef1fc; --accent-br:#d3dcf7;
   --red:#b3261e; --red-bg:#fdecea; --red-br:#f0c7c2;
   --amber:#8a5d00; --amber-bg:#fff5da; --amber-br:#ecd8a0;
@@ -64,7 +64,7 @@ body.dark #sideToggle:hover{background:var(--hov)}
 #projBtn:hover{border-color:#c8cede;box-shadow:var(--sh1)}
 #projBtn .pn{font-weight:700;font-size:12.8px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #projBtn .cnt{font-size:10.5px;color:var(--muted)}
-.sidecap{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:#a6acbb;padding:10px 14px 4px;display:flex;align-items:center}
+.sidecap{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);padding:10px 14px 4px;display:flex;align-items:center}
 .sidecap .add{margin-left:auto;cursor:pointer;font-size:14px;color:var(--muted);line-height:1;padding:0 3px;border-radius:4px}
 .sidecap .add:hover{background:#eceff6;color:var(--ink)}
 #pageList{flex:1;overflow:auto;padding:0 8px 10px}
@@ -122,7 +122,7 @@ body.dark #sideToggle:hover{background:var(--hov)}
 #edges{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
 #edges path.hit{stroke-width:14;stroke:transparent;fill:none;pointer-events:stroke;cursor:pointer}
 .lanebg{position:absolute;border-left:1px dashed #dfe3ec;pointer-events:none}
-.lanecap{position:absolute;font-size:10.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#aeb4c3;pointer-events:none;white-space:nowrap}
+.lanecap{position:absolute;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--ink2);pointer-events:none;white-space:nowrap}
 .nd{position:absolute;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 11px 8px 13px;
    box-shadow:var(--sh1);user-select:none;cursor:grab}
 .nd:hover{box-shadow:var(--sh2);border-color:#ccd3e3}
@@ -142,6 +142,9 @@ body.dark #sideToggle:hover{background:var(--hov)}
 .nd.anc{box-shadow:0 0 0 2px var(--red-br),var(--sh1)}
 .nd.dsc{box-shadow:0 0 0 2px var(--green-br),var(--sh1)}
 .nd.drag{cursor:grabbing;z-index:20;box-shadow:var(--sh3)}
+/* бейдж значения своего поля на карточке узла: цвета были захардкожены светлыми
+   прямо в nodeHTML и в тёмной теме светились белым пятном */
+.nd .fbadge{font-size:9px;font-weight:800;color:var(--ink2);background:var(--line2);border-radius:5px;padding:0 4px}
 .nd .dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:1px}
 .nd .nte{outline:none;cursor:text}
 .port{position:absolute;width:13px;height:13px;border-radius:50%;background:#fff;border:2px solid var(--accent);
@@ -374,6 +377,14 @@ body.dark .dchip i:hover{background:var(--surf2)}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(18px);background:#1b1f2a;color:#fff;font-size:12.6px;
   padding:9px 16px;border-radius:9px;z-index:400;opacity:0;transition:.2s;pointer-events:none;max-width:70vw;box-shadow:var(--sh3)}
 #toast.on{opacity:1;transform:translateX(-50%)}
+/* с кнопкой тост должен ловить клики — без действия он их пропускает насквозь */
+#toast.act{pointer-events:auto}
+#toast .tact{margin-left:10px;background:#39405a;border:1px solid #4b5470;color:#fff;
+  font-size:12px;font-weight:650;padding:3px 10px;border-radius:7px;cursor:pointer}
+#toast .tact:hover{background:#4a5372}
+/* панель массовых действий стоит там же внизу по центру — тост её накрывал ровно
+   в тот момент, когда человек продолжает в ней работать */
+body.bulkon #toast{bottom:82px}
 #pal{position:fixed;inset:0;background:rgba(16,20,32,.35);z-index:310;display:none;justify-content:center;padding-top:12vh}
 #pal.open{display:flex}
 #palbox{background:#fff;border-radius:13px;width:min(620px,92vw);height:fit-content;max-height:70vh;box-shadow:var(--sh3);overflow:hidden;display:flex;flex-direction:column}
@@ -450,3 +461,15 @@ body.dark .pcard.new{background:var(--surf2)}
 body.dark .chk.blk{background:var(--red-bg)}
 body.dark input:focus,body.dark select:focus,body.dark textarea:focus{box-shadow:0 0 0 3px var(--accent-bg)}
 body.dark .picker,body.dark .crow{background:var(--surf2)}
+
+/* ---- тёмная тема: точечные утечки ----
+   Цвета статусов и категорий приходят из схемы проекта инлайновым стилем и подобраны
+   под белый фон (#136c33, #b3261e, #8a5d00). На тёмном они дают контраст около 1.5:1.
+   Инлайн-стиль из CSS не переопределить — осветляем фильтром. */
+body.dark .pill,body.dark .dchip{filter:brightness(1.5) saturate(.85)}
+body.dark .tag:hover{background:var(--accent-bg)}
+/* ховер главной кнопки был темнее её же базы: в тёмной теме --accent светлый,
+   и кнопка при наведении выглядела нажатой */
+body.dark .btn.pri:hover{background:#8aa4ff}
+/* «включённый» чип почти не отличался от выключенного */
+body.dark .chip.on{background:var(--accent-bg);border-color:var(--accent-br);color:var(--accent)}

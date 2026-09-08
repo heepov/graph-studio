@@ -501,6 +501,47 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
     palOpen ? ok('Ctrl+K работает в русской раскладке') : bad('Ctrl+K в русской раскладке не сработал');
     await c.eval(`(document.getElementById('pal').classList.remove('open'), true)`);
 
+    // --- склонение и возврат действий --------------------------------------
+    const pl = await c.eval(`({
+      one: nOf(1, NODES), two: nOf(2, NODES), five: nOf(5, NODES),
+      eleven: nOf(11, NODES), tt: nOf(21, NODES), rows: nOf(1, ROWS)
+    })`);
+    (pl.one === '1 узел' && pl.two === '2 узла' && pl.five === '5 узлов' &&
+     pl.eleven === '11 узлов' && pl.tt === '21 узел' && pl.rows === '1 строка')
+      ? ok('числительные склоняются', `${pl.one} · ${pl.two} · ${pl.five} · ${pl.eleven} · ${pl.tt}`)
+      : bad('склонение неверное', JSON.stringify(pl));
+
+    // возврат в «Авто» действительно пересчитывает раскладку
+    const lay = await c.eval(`(() => {
+      const pg = P.pages.find(p => p.kind === 'canvas');
+      UI.page = pg.id; renderPages(); renderPage();
+      pg.canvas.layout = 'free'; seedFreePositions(pg);
+      const pinnedFree = pageNodes(pg).filter(n => n.p && n.p[pg.id]).length;
+      // имитируем клик по пункту «Авто» в меню раскладки
+      const item = [...document.querySelectorAll('#mLay .mi')].find(x => x.dataset.l === 'auto');
+      if (!item) return {err: 'пункт «Авто» не найден'};
+      item.onclick();
+      const pinnedAuto = pageNodes(pg).filter(n => n.p && n.p[pg.id]).length;
+      return {pinnedFree, pinnedAuto, layout: pg.canvas.layout};
+    })()`);
+    if (lay.err) bad('раскладка: ' + lay.err);
+    else (lay.pinnedFree > 0 && lay.pinnedAuto === 0 && lay.layout === 'auto')
+      ? ok('возврат в «Авто» снимает ручные позиции', `${lay.pinnedFree} → ${lay.pinnedAuto}`)
+      : bad('возврат в «Авто» не пересчитал раскладку', JSON.stringify(lay));
+
+    // тост умеет предлагать возврат
+    const tst = await c.eval(`(() => {
+      let ran = false;
+      toast('Проверка', {label: 'Вернуть', run: () => {ran = true;}});
+      const el = document.getElementById('toast');
+      const btn = el.querySelector('.tact');
+      if (btn) btn.click();
+      return {hadBtn: !!btn, ran, act: el.classList.contains('act')};
+    })()`);
+    (tst.hadBtn && tst.ran)
+      ? ok('тост предлагает вернуть действие')
+      : bad('кнопка возврата в тосте не работает', JSON.stringify(tst));
+
     // --- пустые состояния холста --------------------------------------------
     const empty = await c.eval(`(() => {
       const out = {};
