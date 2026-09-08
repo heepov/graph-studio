@@ -184,6 +184,12 @@ body.dark #sideToggle:hover{background:var(--hov)}
   max-width:420px;text-align:center;pointer-events:none;
   background:rgba(255,255,255,.82);border:1px solid var(--line);border-radius:14px;
   padding:18px 22px;box-shadow:var(--sh1);backdrop-filter:blur(2px)}
+/* пустое состояние списковых страниц (таблица, канбан) */
+.emptybox{margin:40px auto;max-width:440px;text-align:center;background:#fff;border:1px solid var(--line);
+  border-radius:14px;padding:22px 24px;box-shadow:var(--sh1)}
+.emptybox .ttl{font-size:14px;font-weight:750;color:var(--ink);margin-bottom:6px}
+.emptybox .txt{font-size:12.6px;color:var(--ink2);line-height:1.55}
+body.dark .emptybox{background:var(--card)}
 #cvempty .ttl{font-size:14px;font-weight:750;color:var(--ink);margin-bottom:6px}
 #cvempty .txt{font-size:12.4px;color:var(--ink2);line-height:1.6}
 #cvempty b{color:var(--ink)}

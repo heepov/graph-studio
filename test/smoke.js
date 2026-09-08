@@ -580,6 +580,35 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       ? ok('проект переименовывается', `«${ren.was}» → «${ren.now}»`)
       : bad('переименование не сработало', JSON.stringify(ren));
 
+    // --- пустые состояния таблицы и канбана ---------------------------------
+    const emptyList = await c.eval(`(() => {
+      const out = {};
+      for (const kind of ['table', 'board']) {
+        const pg = P.pages.find(p => p.kind === kind);
+        if (!pg) continue;
+        const keep = JSON.parse(JSON.stringify(pg.filter));
+        pg.filter.q = 'заведомо-нет-такого-xyzzy';
+        UI.page = pg.id; renderPage();
+        const box = document.querySelector('.emptybox');
+        out[kind] = box ? {ttl: box.querySelector('.ttl').textContent, clear: !!document.getElementById('emptyClear')} : null;
+        if (box && document.getElementById('emptyClear')) {
+          document.getElementById('emptyClear').click();
+          out[kind].afterClear = !document.querySelector('.emptybox');
+        }
+        pg.filter = keep; renderPage();
+      }
+      return out;
+    })()`);
+    (emptyList.table && /фильтр/i.test(emptyList.table.ttl))
+      ? ok('пустая таблица объясняет причину', emptyList.table.ttl)
+      : bad('таблица не объясняет пустоту', JSON.stringify(emptyList));
+    (emptyList.board && /фильтр/i.test(emptyList.board.ttl))
+      ? ok('пустой канбан объясняет причину', emptyList.board.ttl)
+      : bad('канбан не объясняет пустоту', JSON.stringify(emptyList));
+    (emptyList.table && emptyList.table.afterClear)
+      ? ok('кнопка «Сбросить фильтр» работает')
+      : bad('сброс фильтра из пустого блока не сработал', JSON.stringify(emptyList));
+
     // --- пустые состояния холста --------------------------------------------
     const empty = await c.eval(`(() => {
       const out = {};

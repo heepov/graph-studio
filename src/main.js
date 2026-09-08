@@ -558,6 +558,31 @@ function renderCanvas(pg) {
 }
 // Пустой холст раньше показывал только точки — что делать дальше, узнать было неоткуда.
 // Три разных пустых состояния: страница совсем пустая, фильтр всё отсёк, схема без узлов.
+// Пустое состояние для таблицы и канбана. Раньше таблица рисовала шапку и пустое
+// тело, канбан — пустые колонки: человек не отличал «здесь ничего нет» от
+// «я включил фильтр и всё скрыл».
+// Кнопка «Сбросить фильтр» из пустого блока: обработчик фильтров живёт внутри
+// своего меню, а блок рисуется в #view — связываем делегатом один раз.
+document.addEventListener('click', e => {
+  if (!e.target || e.target.id !== 'emptyClear' || !P) return;
+  const pg = curPage(); if (!pg) return;
+  pg.filter = {q: '', cats: [], statuses: [], types: [], f: {}, blockersOnly: 0};
+  save(); renderPage();
+  toast('Фильтр сброшен');
+});
+function emptyBlock(pg, total) {
+  // activeFilterCount() считает только фасеты (категории, статусы, типы, свои поля):
+  // он питает счётчик на кнопке «Фильтр», а строка поиска живёт отдельным полем.
+  // Для пустого состояния важно и то, и другое.
+  const hasFilter = activeFilterCount(pg.filter) > 0 || !!(pg.filter && (pg.filter.q || '').trim());
+  return `<div class="emptybox">
+    <div class="ttl">${hasFilter ? 'Под фильтр не попал ни один узел' : 'В проекте пока нет узлов'}</div>
+    <div class="txt">${hasFilter
+      ? `Всего в проекте ${nOf(total, NODES)}, но текущие условия не пропустили ни одного.`
+      : 'Создайте узлы на странице-холсте — они появятся здесь автоматически.'}</div>
+    ${hasFilter && !VIEWER ? '<button class="btn" id="emptyClear" style="margin-top:10px">Сбросить фильтр</button>' : ''}
+  </div>`;
+}
 function paintEmptyHint(pg, nodes) {
   const host = $('cvhost'); if (!host) return;
   const old = $('cvempty'); if (old) old.remove();
@@ -2380,10 +2405,12 @@ function renderTable(pg) {
         `<td style="width:30px"><button class="ib" data-open="${esc(n.id)}" title="карточка">↗</button></td></tr>`;
     });
   });
-  $('view').innerHTML = `<div class="scroller"><div class="tblwrap"><table class="grid">
-    <thead><tr>${th}<th></th></tr></thead><tbody>${rows}</tbody></table></div>
-    ${VIEWER ? '' : `<div style="margin-top:10px"><button class="btn" id="tAdd">＋ Узел</button></div>`}
-    </div>`;
+  $('view').innerHTML = ns.length
+    ? `<div class="scroller"><div class="tblwrap"><table class="grid">
+      <thead><tr>${th}<th></th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${VIEWER ? '' : `<div style="margin-top:10px"><button class="btn" id="tAdd">＋ Узел</button></div>`}
+      </div>`
+    : `<div class="scroller">${emptyBlock(pg, P.nodes.length)}</div>`;
   $('tblCount').textContent = nOf(ns.length, ROWS);
   qsa('#view th[data-c]').forEach(el => el.onclick = () => {
     if (t.sort === el.dataset.c) t.dir = (t.dir || 1) * -1; else {t.sort = el.dataset.c; t.dir = 1;}
@@ -2478,7 +2505,9 @@ function renderBoard(pg) {
     </div>`;
   });
   h += '</div>';
-  $('view').innerHTML = `<div class="scroller" style="padding-bottom:20px">${h}</div>`;
+  $('view').innerHTML = ns.length
+    ? `<div class="scroller" style="padding-bottom:20px">${h}</div>`
+    : `<div class="scroller">${emptyBlock(pg, P.nodes.length)}</div>`;
   qsa('.kc').forEach(el => {
     el.onclick = () => {setSel([el.dataset.n]); openNode(el.dataset.n);};
     el.ondragstart = e => {e.dataTransfer.setData('text/plain', el.dataset.n); el.classList.add('drag');};
@@ -3761,7 +3790,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isKey, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintEmptyHint, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renameProject, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
+Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, emptyBlock, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isKey, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintEmptyHint, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renameProject, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, '_g', {get: () => _g, set: v => {_g = v;}, configurable: true});
@@ -3809,7 +3838,10 @@ Object.defineProperty(window, 'viewSaveT', {get: () => viewSaveT, set: v => {vie
   const id = last && live.some(p => p.id === last.v) ? last.v : (live[0] || {}).id;
   if (id) await openProject(id); else showProjects();
   const seen = await dbGet(META, 'seen');
-  if (!seen) {await dbPut(META, {k: 'seen', v: 1}); setTimeout(showHelp, 600);}
+  // Справку показываем только когда проект уже открыт: раньше она вылезала поверх
+  // ПУСТОГО стартового экрана, и всё написанное было не к чему приложить —
+  // «тяга от круглого порта» при полном отсутствии узлов на экране.
+  if (!seen && P) {await dbPut(META, {k: 'seen', v: 1}); setTimeout(showHelp, 900);}
 
   // IndexedDB по умолчанию best-effort: браузер вправе вытеснить её при нехватке места
   // или при чистке сайтовых данных. Пока это единственная копия проектов — просим закрепить.
