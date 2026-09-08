@@ -526,11 +526,42 @@ function renderCanvas(pg) {
   paintFrames(); paintNodes(); paintEdges(); paintNotes();
   applyView();
   wireCanvas();
+  paintEmptyHint(pg, nodes);
   if (!UI.view[pg.id] || !UI.view[pg.id]._done) {
     view()._done = 1; fitAll();
     // повторный fit на следующем кадре — на случай, если контейнер ещё не получил размеры (первый рендер/viewer)
     requestAnimationFrame(() => {const c = $('cv'); if (c && c.getBoundingClientRect().width > 50 && curPage() && curPage().id === pg.id) fitAll();});
   }
+}
+// Пустой холст раньше показывал только точки — что делать дальше, узнать было неоткуда.
+// Три разных пустых состояния: страница совсем пустая, фильтр всё отсёк, схема без узлов.
+function paintEmptyHint(pg, nodes) {
+  const host = $('cvhost'); if (!host) return;
+  const old = $('cvempty'); if (old) old.remove();
+  if (nodes.length) return;
+  const total = P.nodes.length;
+  const filtered = total > 0 && pg.kind !== 'space';
+  let title, body;
+  if (pg.kind === 'space') {
+    title = 'Схема пока пустая';
+    body = VIEWER ? 'Автор ещё ничего сюда не положил.'
+      : 'Положите на неё узлы проекта кнопкой <b>↧ Положить узел</b> в панели сверху ' +
+        'или создайте новый: <b>двойной клик</b> по пустому месту.';
+  } else if (filtered) {
+    title = 'Фильтр не пропустил ни одного узла';
+    body = `В проекте ${total} узлов, но под текущий фильтр не подошёл ни один. Снимите условия в «Фильтр» сверху.`;
+  } else {
+    title = 'Здесь пока пусто';
+    body = VIEWER ? 'В этом проекте ещё нет узлов.'
+      : '<b>Двойной клик</b> по пустому месту — новый узел.<br>' +
+        'Связь тянется от <b>кружка на краю</b> узла к другому узлу.<br>' +
+        'Колесо — панорама, <b>Ctrl</b> + колесо — масштаб.';
+  }
+  const el = document.createElement('div');
+  el.id = 'cvempty';
+  el.innerHTML = `<div class="ttl">${esc(title)}</div><div class="txt">${body}</div>`;
+  host.appendChild(el);
+  el.onmousedown = e => e.stopPropagation();   // клики по подсказке не должны начинать рамку выделения
 }
 function nodeHTML(n) {
   const g = G(), w = g.W(n.id), blk = nBlockers(n), st = statusOf(n.status), ty = typeOf(n.type);
@@ -838,10 +869,9 @@ function onDown(e) {
       if (UI.sel.has(id)) UI.sel.delete(id); else UI.sel.add(id);
       applyHi(); syncBulk();
     } else if (!UI.sel.has(id)) setSel([id]);
-    // Панель больше не вылезает на каждый mousedown — раньше она открывалась даже
-    // когда узел просто тащат. Если она уже открыта, показываем в ней выбранный узел;
-    // открыть закрытую — Enter, двойной клик по карточке в меню или контекстное меню.
-    if (UI.insp || UI.inspKind) openNode(id);
+    // На mousedown панель НЕ открываем: иначе она вылетала даже когда узел просто тащат.
+    // Открывает клик — то есть mouseup без движения, см. ниже в обработчике mouseup.
+    if (UI.insp || UI.inspKind) openNode(id);   // уже открыта — просто следует за выбором
     if (VIEWER) return;
     startMove(e); e.preventDefault(); return;
   }
@@ -962,6 +992,12 @@ window.addEventListener('mouseup', e => {
   const cv = $('cv'); if (cv) cv.classList.remove('panning', 'linking');
   qsa('.nd').forEach(el => el.classList.remove('drag', 'droptgt'));
   const m = $('marq'); if (m) m.style.display = 'none';
+  // Клик по узлу (нажали и отпустили, не сдвинув) открывает его карточку.
+  // Это самый привычный жест: раньше клик не делал ничего, а двойной клик занят
+  // переименованием на месте — узнать, где смотреть детали, было неоткуда.
+  if (d.mode === 'move' && !d.moved && !VIEWER && d.nodeIds && d.nodeIds.length === 1) {
+    openNode(d.nodeIds[0]);
+  }
   if (d.mode === 'move' && d.moved) {
     snapNow();
     const v2 = view(), pid = curPage().id;
@@ -1279,12 +1315,19 @@ function inspOpen() { $('insp').classList.add('open'); document.body.classList.a
 
 // Узкий режим боковой панели. Состояние — настройка человека, живёт в meta рядом
 // с темой и шириной инспектора, а не в проекте.
+const SIDE_FULL = 236, SIDE_RAIL = 52;
 function applySideRail(on) {
+  const was = $('app').classList.contains('siderail');
   $('app').classList.toggle('siderail', !!on);
   const b = $('sideToggle');
   if (b) b.title = on ? 'Развернуть панель (Ctrl+B)' : 'Свернуть панель (Ctrl+B)';
-  // камера считает по видимой ширине холста, а она изменилась
-  if (isSpatial(curPage()) && $('cv')) setTimeout(() => {applyView(); drawMini();}, 180);
+  // Холст сдвигается вместе с панелью, а камера остаётся прежней — мир визуально
+  // уезжает на 184 px. Компенсируем сдвигом камеры, чтобы под курсором осталось то же.
+  if (P && was !== !!on && isSpatial(curPage()) && $('cv')) {
+    const d = (SIDE_FULL - SIDE_RAIL) * (on ? 1 : -1);
+    const v = view(); v.x += d;
+    setTimeout(() => {applyView(); drawMini();}, 180);
+  }
 }
 function toggleSideRail() {
   const on = !$('app').classList.contains('siderail');
@@ -1830,30 +1873,42 @@ function bulkSet(key, val) {
 /* ==========================================================================
    КЛАВИАТУРА
    ========================================================================== */
+// Сочетания сверяются по e.code — ФИЗИЧЕСКОЙ клавише, а не по введённому символу.
+// Раньше стояло e.key.toLowerCase() === 'z', а в русской раскладке та же клавиша
+// даёт 'я'. То есть у человека с русским интерфейсом, который печатает по-русски,
+// НЕ РАБОТАЛИ вообще все сочетания: Ctrl+Z, Ctrl+K, Ctrl+C/V, Ctrl+D, Ctrl+A,
+// Ctrl+G, Ctrl+S и клавиша N — при том что справка и подсказки их обещают.
+// e.key оставлен запасным вариантом для раскладок с нестандартными кодами.
+const isKey = (e, code, letter) => e.code === code || e.key.toLowerCase() === letter;
 document.addEventListener('keydown', e => {
   const tag = (e.target.tagName || '').toLowerCase();
   const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
   if (e.code === 'Space' && !typing) {UI.spaceDown = true; const c = $('cv'); if (c) c.classList.add('pan');}
   const mod = e.ctrlKey || e.metaKey;
-  if (mod && e.key.toLowerCase() === 'k') {e.preventDefault(); openPalette(); return;}
+  const started = !!P && !$('projects').classList.contains('open');
   if (e.key === 'Escape') {
     if ($('pal').classList.contains('open')) {$('pal').classList.remove('open'); return;}
     if ($('modal').classList.contains('open')) {closeModal(); return;}
     if ($('projects').classList.contains('open') && P) {$('projects').classList.remove('open'); return;}
+    if (!started) return;
     setSel([]); closeInsp(); return;
   }
+  // До открытия проекта половина обработчиков читает P.pages / curPage() и падает
+  // с TypeError — а пустая база это самое первое, что видит новый человек.
+  if (!started) return;
+  if (mod && isKey(e, 'KeyK', 'k')) {e.preventDefault(); openPalette(); return;}
   if (typing) return;
-  if (mod && e.key.toLowerCase() === 'z') {e.preventDefault(); e.shiftKey ? redo() : undo(); return;}
-  if (mod && e.key.toLowerCase() === 's') {e.preventDefault(); exportProject(); return;}
+  if (mod && isKey(e, 'KeyZ', 'z')) {e.preventDefault(); e.shiftKey ? redo() : undo(); return;}
+  if (mod && isKey(e, 'KeyS', 's')) {e.preventDefault(); exportProject(); return;}
   if (VIEWER) return;
-  if (mod && e.key.toLowerCase() === 'a' && isSpatial(curPage())) {e.preventDefault(); setSel(cvNodes.map(n => n.id)); return;}
-  if (mod && e.key.toLowerCase() === 'd') {e.preventDefault(); duplicateSelection(); return;}
-  if (mod && e.key.toLowerCase() === 'c' && UI.sel.size) {e.preventDefault(); copySelection(); return;}
-  if (mod && e.key.toLowerCase() === 'v') {e.preventDefault(); pasteSelection(); return;}
-  if (mod && e.key.toLowerCase() === 'b') {e.preventDefault(); toggleSideRail(); return;}
-  if (mod && e.key.toLowerCase() === 'g') {e.preventDefault(); if (UI.sel.size) addFrame('frame'); return;}
+  if (mod && isKey(e, 'KeyA', 'a') && isSpatial(curPage())) {e.preventDefault(); setSel(cvNodes.map(n => n.id)); return;}
+  if (mod && isKey(e, 'KeyD', 'd')) {e.preventDefault(); duplicateSelection(); return;}
+  if (mod && isKey(e, 'KeyC', 'c') && UI.sel.size) {e.preventDefault(); copySelection(); return;}
+  if (mod && isKey(e, 'KeyV', 'v')) {e.preventDefault(); pasteSelection(); return;}
+  if (mod && isKey(e, 'KeyB', 'b')) {e.preventDefault(); toggleSideRail(); return;}
+  if (mod && isKey(e, 'KeyG', 'g')) {e.preventDefault(); if (UI.sel.size) addFrame('frame'); return;}
   if (e.key === 'Delete' || e.key === 'Backspace') {e.preventDefault(); deleteSelection(); return;}
-  if (e.key === 'n' && isSpatial(curPage())) {addNode(); return;}
+  if (!mod && isKey(e, 'KeyN', 'n') && isSpatial(curPage())) {addNode(); return;}
   // Панель больше не открывается сама по клику (см. onDown), поэтому нужен явный способ.
   if (e.key === 'Enter' && UI.sel.size === 1) {
     e.preventDefault();
@@ -1930,6 +1985,9 @@ function renderPages() {
       <span class="mo noview" data-mo="${p.id}">⋯</span></div>`).join('');
   qsa('#pageList .pgi').forEach(el => {
     el.onclick = e => {if (e.target.dataset.mo) {pageMenu(e, e.target.dataset.mo); return;} gotoPage(el.dataset.p);};
+    // Правая кнопка — второй вход в меню страницы. В узком режиме панели «⋯» скрыт,
+    // и без этого переименовать, продублировать или удалить страницу было бы нельзя.
+    el.oncontextmenu = e => {if (VIEWER) return; e.preventDefault(); pageMenu(e, el.dataset.p);};
     el.ondragstart = e => {e.dataTransfer.setData('text/plain', el.dataset.p);};
     el.ondragover = e => {e.preventDefault(); el.classList.add('drop');};
     el.ondragleave = () => el.classList.remove('drop');
@@ -3605,7 +3663,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, META, NH, NW, PADX, PADY, ROWGAP, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, _pageNodes, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
+Object.assign(window, {$, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, META, NH, NW, PADX, PADY, ROWGAP, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, _pageNodes, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isKey, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintEmptyHint, paintFrames, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, '_g', {get: () => _g, set: v => {_g = v;}, configurable: true});

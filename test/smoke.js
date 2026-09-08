@@ -174,16 +174,24 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
         await c.mouse('mouseReleased', el2.x, el2.y);
         await sleep(250);
         const afterClick = await c.eval(`({open: document.getElementById('insp').classList.contains('open'), sel: UI.sel.size})`);
-        (!afterClick.open && afterClick.sel === 1)
-          ? ok('клик по узлу выделяет, но не открывает панель')
-          : bad('клик по узлу всё ещё открывает панель', JSON.stringify(afterClick));
-        // ...а Enter открывает
-        await c.send('Input.dispatchKeyEvent', {type: 'rawKeyDown', windowsVirtualKeyCode: 13, key: 'Enter', code: 'Enter'});
-        await c.send('Input.dispatchKeyEvent', {type: 'keyUp', windowsVirtualKeyCode: 13, key: 'Enter', code: 'Enter'});
+        (afterClick.open && afterClick.sel === 1)
+          ? ok('клик по узлу открывает его карточку')
+          : bad('клик по узлу не открыл карточку', JSON.stringify(afterClick));
+
+        // ...а вот перетаскивание панель открывать НЕ должно
+        await c.eval('(closeInsp(), setSel([]), true)');
+        await c.mouse('mousePressed', el2.x, el2.y);
+        for (let i = 1; i <= 4; i++) await c.mouse('mouseMoved', el2.x + i * 12, el2.y + i * 6);
+        await c.mouse('mouseReleased', el2.x + 48, el2.y + 24);
         await sleep(250);
-        const afterEnter = await c.eval(`document.getElementById('insp').classList.contains('open')`);
-        afterEnter ? ok('Enter открывает панель для выделенного узла')
-                   : bad('Enter не открыл панель');
+        const afterDrag = await c.eval(`document.getElementById('insp').classList.contains('open')`);
+        !afterDrag ? ok('перетаскивание узла панель не открывает')
+                   : bad('панель вылезла при перетаскивании');
+        // возвращаем узел на место: дальше идут проверки экспорта и перезагрузки,
+        // которые сверяются с позицией, записанной в блоке про drag выше
+        await c.eval(`(() => { const n = nodeById('${box.id}');
+          setNpos(n, '${key}', ${after[key].x}, ${after[key].y}); save(1); renderPage(); return 1; })()`);
+        await sleep(600);
       }
 
       // --- боковая панель сворачивается --------------------------------------
@@ -459,6 +467,71 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
         ? ok('размер: на холсте-зависимостях ручки нет')
         : bad('размер: ручка появилась на холсте, где раскладку считает граф');
     }
+
+    // --- горячие клавиши в русской раскладке --------------------------------
+    // Сочетания сверялись по e.key: в русской раскладке та же физическая клавиша
+    // даёт 'я' вместо 'z', и у человека, который печатает по-русски, НЕ РАБОТАЛО
+    // вообще ничего — ни отмена, ни копирование, ни палитра команд.
+    const ru = await c.eval(`(() => {
+      const cv = P.pages.find(p => p.kind === 'canvas');
+      UI.page = cv.id; renderPages(); renderPage();
+      const n = pageNodes(cv)[0];
+      const was = n.name;
+      snapNow(); n.name = 'ПРОВЕРКА ОТМЕНЫ'; save(1); renderPage();
+      return {was, now: nodeById(n.id).name, id: n.id};
+    })()`);
+    // Ctrl+Z «русской» клавишей: code остаётся KeyZ, key приходит как 'я'
+    await c.send('Input.dispatchKeyEvent', {type: 'rawKeyDown', code: 'KeyZ', key: 'я',
+      windowsVirtualKeyCode: 90, modifiers: 2});
+    await c.send('Input.dispatchKeyEvent', {type: 'keyUp', code: 'KeyZ', key: 'я',
+      windowsVirtualKeyCode: 90, modifiers: 2});
+    await sleep(300);
+    const undone = await c.eval(`nodeById('${ru.id}').name`);
+    undone === ru.was
+      ? ok('Ctrl+Z работает в русской раскладке', `«${ru.now}» → «${undone}»`)
+      : bad('Ctrl+Z в русской раскладке не сработал', JSON.stringify({...ru, undone}));
+
+    // палитра команд той же проверкой
+    await c.send('Input.dispatchKeyEvent', {type: 'rawKeyDown', code: 'KeyK', key: 'л',
+      windowsVirtualKeyCode: 75, modifiers: 2});
+    await c.send('Input.dispatchKeyEvent', {type: 'keyUp', code: 'KeyK', key: 'л',
+      windowsVirtualKeyCode: 75, modifiers: 2});
+    await sleep(250);
+    const palOpen = await c.eval(`document.getElementById('pal').classList.contains('open')`);
+    palOpen ? ok('Ctrl+K работает в русской раскладке') : bad('Ctrl+K в русской раскладке не сработал');
+    await c.eval(`(document.getElementById('pal').classList.remove('open'), true)`);
+
+    // --- пустые состояния холста --------------------------------------------
+    const empty = await c.eval(`(() => {
+      const out = {};
+      // 1) пустая схема
+      const sp = pageById('p_space_test');
+      if (sp) {
+        P.nodes.forEach(n => {if (n.p) delete n.p[sp.id];});
+        UI.page = sp.id; renderPage();
+        const el = document.getElementById('cvempty');
+        out.space = el ? el.querySelector('.ttl').textContent : null;
+      }
+      // 2) фильтр отсёк всё на холсте зависимостей
+      const cv = P.pages.find(p => p.kind === 'canvas');
+      const keep = JSON.parse(JSON.stringify(cv.filter));
+      cv.filter.q = 'заведомо-несуществующая-строка-xyzzy';
+      UI.page = cv.id; renderPage();
+      const el2 = document.getElementById('cvempty');
+      out.filtered = el2 ? el2.querySelector('.ttl').textContent : null;
+      cv.filter = keep; renderPage();
+      out.afterRestore = !!document.getElementById('cvempty');
+      return out;
+    })()`);
+    (empty.space && /пуст/i.test(empty.space))
+      ? ok('пустая схема объясняет, что делать', empty.space)
+      : bad('на пустой схеме нет подсказки', JSON.stringify(empty));
+    (empty.filtered && /фильтр/i.test(empty.filtered))
+      ? ok('пустой результат фильтра объяснён', empty.filtered)
+      : bad('фильтр не объясняет пустоту', JSON.stringify(empty));
+    empty.afterRestore === false
+      ? ok('подсказка исчезает, когда узлы есть')
+      : bad('подсказка осталась при непустом холсте');
 
     // --- фаза 0: отрисовка не должна писать в документ ----------------------
     // Раньше layoutPage() на странице layout:'free' сеял позиции и звал save() прямо
