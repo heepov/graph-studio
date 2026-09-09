@@ -1,3 +1,5 @@
+import { api, ApiError, parseRoute } from './api.js';
+import * as cloud from './cloud.js';
 /* ==========================================================================
    GRAPH STUDIO — редактор графов зависимостей, роадмапов и схем
    Один файл. Проекты в IndexedDB. Экспорт/импорт JSON, CSV, Markdown, viewer.
@@ -11,6 +13,17 @@ const VIEWER = !!window.VIEWER;
 // Отметка сборки, подставляется Vite. Нужна проверке боевого адреса после деплоя
 // и просто чтобы понимать, что открыто, когда что-то ведёт себя странно.
 const BUILD = typeof __BUILD__ !== 'undefined' ? __BUILD__ : {version: 'dev', sha: 'dev'};
+// Режим «только чтение» ВНУТРИ обычного приложения: доска открыта по ссылке на просмотр
+// или человеку выдали роль viewer. Отличается от VIEWER (это выгруженный файл-просмотрщик,
+// который решается один раз при загрузке страницы и больше не меняется).
+// ro() — единственная проверка во всех точках, которые что-то меняют.
+let RO = false;
+const ro = () => VIEWER || RO;
+function setReadonly(on, why) {
+  RO = !!on;
+  document.body.classList.toggle('readonly', !!on);
+  if (on && why) toast(why);
+}
 // FSA (File System Access) — доступно в Chrome/Edge в secure context (http(s)/localhost), не на file:// и не в viewer.
 // Объявлено рано, т.к. на него ссылается верхнеуровневый код ниже (TDZ-безопасно).
 const FSA = typeof window.showOpenFilePicker === 'function' && !VIEWER;
@@ -148,15 +161,61 @@ function snapshot() {
 function snapNow() { snapArmed = true; snapshot(); }
 let saveT = null;
 function save(immediate) {
-  if (VIEWER || !P) return;
+  if (ro() || !P) return;
   P.updated = today(); UI.dirty = true; paintSave();
   scheduleFileSave();
+  // Серверная доска: локальная копия остаётся кэшем, а правка уезжает на сервер
+  // своей очередью — сеть медленнее локальной записи и может ответить конфликтом.
+  if (cloud.boundToServer()) cloud.schedulePush(() => P, onPushState);
   clearTimeout(saveT);
   const go = async () => {
     try { await dbPut(STORE, P); UI.lastSave = new Date(); paintSave(); refreshProjMeta(); }
     catch (e) { toast('Ошибка сохранения: ' + e.message); }
   };
   if (immediate) go(); else saveT = setTimeout(go, 420);
+}
+// Что делать с ответом сервера на попытку сохранить.
+function onPushState(st) {
+  if (!st) return;
+  if (st.ok) { UI.cloudSaved = new Date(); paintSave(); return; }
+  if (st.error) { UI.cloudError = st.error; paintSave(); toast('Не сохранилось на сервере: ' + st.error); return; }
+  if (!st.conflict) return;
+  // Молча взять чью-то сторону нельзя: любой выбор здесь стирает чью-то работу.
+  // Спрашиваем и показываем, что именно разошлось.
+  const srv = st.server || {};
+  const mine = `${P.nodes.length} узлов, ${P.links.length} связей`;
+  const theirs = srv.doc ? `${srv.doc.nodes.length} узлов, ${srv.doc.links.length} связей` : 'не удалось прочитать';
+  modal(`<h3>Доску изменил кто-то ещё</h3>
+    <div class="kv" style="font-size:13px">Пока вы правили, на сервере появилась более новая версия${
+      srv.updated_at ? ' (от ' + esc(new Date(srv.updated_at).toLocaleString('ru-RU')) + ')' : ''}.
+      Слить автоматически нельзя — выберите, что оставить.</div>
+    <div class="kv" style="font-size:12.5px;margin-top:8px">У вас: <b>${esc(mine)}</b><br>На сервере: <b>${esc(theirs)}</b></div>
+    <div class="hint" style="margin-top:8px">«Скачать свою копию» сохранит ваш вариант файлом — так ничего не потеряется в любом случае.</div>
+    <div class="mfoot">
+      <button class="btn" data-a="dl">Скачать свою копию</button>
+      <button class="btn" data-a="theirs">Взять серверную</button>
+      <button class="btn dgr" data-a="mine">Отправить свою поверх</button>
+    </div>`, b => {
+    b.querySelector('[data-a=dl]').onclick = () => exportProject();
+    b.querySelector('[data-a=theirs]').onclick = () => {
+      closeModal();
+      if (!srv.doc) return;
+      snapNow();
+      P = normalize(srv.doc);
+      cloud.bindBoard(Object.assign({}, cloud.CLOUD.board, {version: srv.version}));
+      gInval(); save(1); renderPages(); renderPage();
+      toast('Взята версия с сервера');
+    };
+    b.querySelector('[data-a=mine]').onclick = async () => {
+      closeModal();
+      try {
+        const r = await api.boardPut(cloud.CLOUD.board.id, P, srv.version);
+        cloud.bindBoard(Object.assign({}, cloud.CLOUD.board, {version: r.version}));
+        toast('Ваша версия отправлена');
+        paintSave();
+      } catch (e) { toast('Не удалось отправить: ' + (e.message || e)); }
+    };
+  });
 }
 function refreshProjMeta() {
   const m = PROJECTS.find(x => x.id === P.id);
@@ -166,7 +225,21 @@ function paintSave() {
   const el = $('saveState'); if (!el) return;
   if (VIEWER) {el.textContent = 'режим просмотра'; return;}
   const fileLine = UI.fileName ? `<br><span title="проект синхронизируется с этим файлом">📄 ${esc(UI.fileName)}</span>` : '';
-  el.innerHTML = `${nOf(P ? P.nodes.length : 0, NODES)} · ${nOf(P ? P.links.length : 0, LINKS)}<br>сохранено ${UI.lastSave ? UI.lastSave.toLocaleTimeString('ru-RU').slice(0, 5) : '—'}${fileLine}`;
+  // Где именно живёт доска, должно быть видно всегда: «сохранено» без указания места
+  // не отвечает на главный вопрос — переживёт ли правка закрытие браузера.
+  let where = '';
+  if (cloud.boundToServer()) {
+    const b = cloud.CLOUD.board;
+    where = UI.cloudError
+      ? '<br><span style="color:var(--red)" title="' + esc(UI.cloudError) + '">⚠ не ушло на сервер</span>'
+      : '<br><span title="доска на сервере, версия ' + (b.version || '?') + '">☁ на сервере' +
+        (b.role === 'viewer' ? ' · только просмотр' : '') + (b.asAdmin ? ' · вы админ' : '') + '</span>';
+  } else if (cloud.CLOUD.account) {
+    where = '<br><span style="color:var(--muted)" title="проект хранится только в этом браузере">только здесь</span>';
+  }
+  el.innerHTML = `${nOf(P ? P.nodes.length : 0, NODES)} · ${nOf(P ? P.links.length : 0, LINKS)}<br>сохранено ${UI.lastSave ? UI.lastSave.toLocaleTimeString('ru-RU').slice(0, 5) : '—'}${fileLine}${where}`;
+  const sh = $('bShare');
+  if (sh) sh.classList.toggle('hidden', !cloud.boundToServer() || cloud.CLOUD.board.role === 'viewer');
   $('bUndo').disabled = !undoS.length; $('bRedo').disabled = !redoS.length;
 }
 function undo() {
@@ -635,7 +708,7 @@ function nodeHTML(n) {
     <div class="ns">${subBits.join(' ')} ${esc(n.sub || '')}</div>
     <div class="port l" data-port="l"></div><div class="port r" data-port="r"></div>
     <div class="port t" data-port="t"></div><div class="port b" data-port="b"></div>
-    ${curPage().kind === 'space' && !VIEWER ? '<div class="rs" title="потянуть, чтобы изменить размер"></div>' : ''}
+    ${curPage().kind === 'space' && !ro() ? '<div class="rs" title="потянуть, чтобы изменить размер"></div>' : ''}
   </div>`;
 }
 function paintNodes() {
@@ -909,8 +982,8 @@ function onDown(e) {
     drag = {mode: 'pan', sx: e.clientX, sy: e.clientY, vx: view().x, vy: view().y};
     cv.classList.add('panning'); e.preventDefault(); return;
   }
-  if (hit && !VIEWER) { selectLink(hit.dataset.l); e.preventDefault(); return; }
-  if (port && !VIEWER) {
+  if (hit && !ro()) { selectLink(hit.dataset.l); e.preventDefault(); return; }
+  if (port && !ro()) {
     const from = port.closest('.nd').dataset.n;
     drag = {mode: 'link', from, side: port.dataset.port};
     $('tmpLink').style.display = ''; cv.classList.add('linking');
@@ -920,7 +993,7 @@ function onDown(e) {
   // из констант NW/NH, и разные размеры узлов её сломали бы.
   // Проверка идёт ДО ветки .nd, иначе узел просто начнёт перетаскиваться.
   const nrs = e.target.closest('.nd .rs');
-  if (nrs && !VIEWER) {
+  if (nrs && !ro()) {
     const rn = nodeById(nrs.closest('.nd').dataset.n);
     if (rn) {
       const sz = nsize(rn, curPage().id);
@@ -940,11 +1013,11 @@ function onDown(e) {
     if (VIEWER) return;
     startMove(e); e.preventDefault(); return;
   }
-  if (frs && !VIEWER) {
+  if (frs && !ro()) {
     const f = (P.frames || []).find(x => x.id === frs.closest('.fr').dataset.f);
     drag = {mode: 'frameRS', f, sx: e.clientX, sy: e.clientY, w: f.w, h: f.h}; e.preventDefault(); return;
   }
-  if (frh && !VIEWER) {
+  if (frh && !ro()) {
     const f = (P.frames || []).find(x => x.id === frh.closest('.fr').dataset.f);
     const id = f.id, addKey = e.shiftKey || e.metaKey || e.ctrlKey;
     if (addKey) {
@@ -957,11 +1030,11 @@ function onDown(e) {
     }
     startMove(e); e.preventDefault(); return;
   }
-  if (sts && !VIEWER) {
+  if (sts && !ro()) {
     const t = (P.notes || []).find(x => x.id === sts.closest('.stk').dataset.t);
     drag = {mode: 'noteRS', t, sx: e.clientX, sy: e.clientY, w: t.w || 190, h: t.h || 90}; e.preventDefault(); return;
   }
-  if (stk && !VIEWER) {
+  if (stk && !ro()) {
     const id = stk.dataset.t, addKey = e.shiftKey || e.metaKey || e.ctrlKey;
     if (addKey) {
       if (UI.selNotes.has(id)) UI.selNotes.delete(id); else UI.selNotes.add(id);
@@ -1060,7 +1133,7 @@ window.addEventListener('mouseup', e => {
   // Клик по узлу (нажали и отпустили, не сдвинув) открывает его карточку.
   // Это самый привычный жест: раньше клик не делал ничего, а двойной клик занят
   // переименованием на месте — узнать, где смотреть детали, было неоткуда.
-  if (d.mode === 'move' && !d.moved && !VIEWER && d.nodeIds && d.nodeIds.length === 1) {
+  if (d.mode === 'move' && !d.moved && !ro() && d.nodeIds && d.nodeIds.length === 1) {
     openNode(d.nodeIds[0]);
   }
   if (d.mode === 'move' && d.moved) {
@@ -1405,6 +1478,14 @@ function toggleSideRail() {
   });
 }
 if ($('sideToggle')) $('sideToggle').onclick = e => {e.stopPropagation(); toggleSideRail();};
+if ($('navAccount')) $('navAccount').onclick = accountMenu;
+if ($('bShare')) $('bShare').onclick = () => {
+  if (!cloud.boundToServer()) { toast('Сначала отправьте доску на сервер'); return; }
+  cloud.showShare(cloud.CLOUD.board.id, P.name);
+};
+if ($('navAdmin')) $('navAdmin').onclick = () => showAdmin();
+// Кнопки браузера «назад» и «вперёд» должны работать: у приложения теперь свои адреса.
+window.addEventListener('popstate', () => { if (P || cloud.CLOUD.account) routeBoot(); });
 // правая кнопка по названию проекта — переименование и описание
 if ($('projBtn')) $('projBtn').oncontextmenu = e => {
   if (VIEWER || !P) return;
@@ -1471,7 +1552,7 @@ function openNode(id, keepScroll) {
       <span title="глубина по зависимостям: столько шагов до него от начала">Шаг ${st}</span>
     </div>`;
   qsa('#itabs .t').forEach(t => t.classList.toggle('on', t.dataset.i === UI.iTab));
-  if (UI.iTab === 'edit' && !VIEWER) editForm(n); else cardView(n, g);
+  if (UI.iTab === 'edit' && !ro()) editForm(n); else cardView(n, g);
   paintInspFoot(n);
   inspOpen(); $('ib').scrollTop = sc;
 }
@@ -3436,6 +3517,257 @@ const TPL = [
   })},
   {id: 'demo', name: 'Демо-проект', desc: 'Готовая карта на 32 узла — запуск маркетплейса с платёжным треком. Чтобы посмотреть, как всё работает.', make: () => clone(SEED)}
 ];
+/* ---------- аккаунт в сайдбаре ---------- */
+function paintAccount() {
+  const el = $('navAccount'), adm = $('navAdmin');
+  if (!el) return;
+  const acc = cloud.CLOUD.account;
+  const nm = qs('.nm', el);
+  if (acc) {
+    nm.textContent = acc.name || acc.email;
+    el.title = `${acc.email}${acc.admin ? ' · администратор' : ''} — нажмите, чтобы выйти или сменить пароль`;
+    qs('.ic', el).textContent = '◕';
+  } else if (cloud.CLOUD.online === false) {
+    nm.textContent = 'Без сервера';
+    el.title = 'Сервер недоступен — работают локальные проекты';
+    qs('.ic', el).textContent = '◌';
+  } else {
+    nm.textContent = 'Войти';
+    el.title = 'Войти, чтобы держать доски на сервере и делиться ссылками';
+    qs('.ic', el).textContent = '◔';
+  }
+  if (adm) adm.classList.toggle('hidden', !(acc && acc.admin));
+}
+
+function accountMenu(e) {
+  const acc = cloud.CLOUD.account;
+  if (!acc) {
+    if (cloud.CLOUD.online === false) { toast('Сервер недоступен — сейчас работают только локальные проекты'); return; }
+    cloud.showAuth({then: () => { paintAccount(); showProjects(); }});
+    return;
+  }
+  const r = e && e.target ? e.target.getBoundingClientRect() : {left: 60, top: 400};
+  showCtx(r.left + 10, r.top - 10, [
+    [`${acc.email}`, null],
+    ['—'],
+    ['Мои доски', () => showProjects()],
+    ['Сменить пароль…', () => {
+      modal(`<h3>Смена пароля</h3>
+        <div class="f"><label>Текущий пароль</label><input type="password" id="pwCur"></div>
+        <div class="f"><label>Новый пароль</label><input type="password" id="pwNew" placeholder="от 8 символов"></div>
+        <div class="mfoot"><button class="btn" data-a="c">Отмена</button>
+        <button class="btn pri" data-a="ok">Сменить</button></div>`, b => {
+        b.querySelector('[data-a=c]').onclick = closeModal;
+        b.querySelector('[data-a=ok]').onclick = async () => {
+          try {
+            await api.changePassword($('pwCur').value, $('pwNew').value);
+            closeModal(); toast('Пароль изменён, остальные сессии закрыты');
+          } catch (err) { toast(err.message || String(err)); }
+        };
+      });
+    }],
+    ['—'],
+    ['Выйти', async () => {
+      await cloud.logout();
+      cloud.unbindBoard();
+      paintAccount(); paintSave();
+      toast('Вы вышли — локальные проекты остались на месте');
+    }],
+  ]);
+}
+
+/* ---------- админка ---------- */
+// Доступна только владельцу сервиса. Раздавать эту роль через интерфейс нельзя:
+// это не «ещё одна роль», а полный доступ ко всем чужим доскам.
+async function showAdmin() {
+  if (!cloud.CLOUD.account) {
+    cloud.showAuth({reason: 'Админка доступна после входа.', then: showAdmin});
+    return;
+  }
+  if (!cloud.CLOUD.account.admin) { toast('Раздел только для администратора'); return; }
+
+  const fmt = t => t ? new Date(t).toLocaleString('ru-RU').slice(0, 16) : '—';
+  const draw = async (tab, msg) => {
+    let stats = {}, users = [], boards = [], log = [];
+    try {
+      stats = (await api.adminStats());
+      if (tab === 'users') users = (await api.adminUsers()).users;
+      if (tab === 'boards') boards = (await api.adminBoards()).boards;
+      if (tab === 'log') log = (await api.adminLog()).log;
+    } catch (e) { msg = msg || (e.message || String(e)); }
+
+    const tabs = [['users', 'Пользователи'], ['boards', 'Доски'], ['log', 'Журнал доступа']];
+    let body = '';
+    if (tab === 'users') {
+      body = users.length ? `<table class="grid"><thead><tr>
+        <th>Почта</th><th>Имя</th><th>Досок</th><th>Заходил</th><th></th></tr></thead><tbody>
+        ${users.map(u => `<tr>
+          <td>${u.is_admin ? '★ ' : ''}${esc(u.email)}${u.blocked ? ' <span style="color:var(--red)">заблокирован</span>' : ''}</td>
+          <td>${esc(u.name || '')}</td><td>${u.boards}</td><td>${esc(fmt(u.last_seen))}</td>
+          <td style="white-space:nowrap">
+            <button class="btn sm" data-pw="${esc(u.id)}">Сбросить пароль</button>
+            <button class="btn sm ${u.blocked ? '' : 'dgr'}" data-blk="${esc(u.id)}" data-on="${u.blocked ? 0 : 1}">${u.blocked ? 'Разблокировать' : 'Заблокировать'}</button>
+          </td></tr>`).join('')}</tbody></table>
+        <div style="margin-top:10px"><button class="btn" data-a="newuser">＋ Создать пользователя</button>
+        <button class="btn" data-a="invite">＋ Выписать приглашение</button></div>`
+        : '<div class="hint">Пользователей нет.</div>';
+    } else if (tab === 'boards') {
+      body = boards.length ? `<table class="grid"><thead><tr>
+        <th>Доска</th><th>Владелец</th><th>Узлов</th><th>Изменена</th><th></th></tr></thead><tbody>
+        ${boards.map(b => `<tr>
+          <td>${b.deleted ? '🗑 ' : ''}${esc(b.name || b.id)}</td><td>${esc(b.owner_email || '—')}</td>
+          <td>${b.nodes_count}</td><td>${esc(fmt(b.updated_at))}</td>
+          <td><button class="btn sm" data-open="${esc(b.id)}">Открыть</button></td></tr>`).join('')}</tbody></table>
+        <div class="hint" style="margin-top:8px">Открытие чужой доски записывается в журнал доступа.</div>`
+        : '<div class="hint">Досок нет.</div>';
+    } else {
+      body = log.length ? `<table class="grid"><thead><tr>
+        <th>Когда</th><th>Кто</th><th>Доска</th><th>Действие</th></tr></thead><tbody>
+        ${log.map(l => `<tr><td>${esc(fmt(l.at))}</td><td>${esc(l.admin_email || '')}</td>
+          <td>${esc(l.board_name || l.board_id)}</td><td>${esc(l.action)}</td></tr>`).join('')}</tbody></table>`
+        : '<div class="hint">Записей нет — чужие доски пока не открывались.</div>';
+    }
+
+    modal(`<h3>Админка</h3>
+      ${msg ? `<div class="kv" style="color:var(--red);font-size:12.5px">${esc(msg)}</div>` : ''}
+      <div class="kv" style="font-size:12.5px">
+        Пользователей: <b>${stats.users ?? '?'}</b> · Досок: <b>${stats.boards ?? '?'}</b>
+        · В корзине: <b>${stats.trashed ?? '?'}</b> · Живых ссылок: <b>${stats.shares ?? '?'}</b>
+        · Приглашений ждут: <b>${stats.invites ?? '?'}</b></div>
+      <div id="itabs" style="margin:10px 0 8px">${tabs.map(([k, n]) =>
+        `<div class="t${k === tab ? ' on' : ''}" data-tab="${k}">${n}</div>`).join('')}</div>
+      <div style="max-height:52vh;overflow:auto">${body}</div>
+      <div class="mfoot">
+        <button class="btn" data-a="backup">Сделать копию базы</button>
+        <button class="btn" data-a="c">Закрыть</button></div>`, b => {
+      b.querySelector('[data-a=c]').onclick = closeModal;
+      qsa('[data-tab]', b).forEach(el => el.onclick = () => draw(el.dataset.tab));
+      const back = b.querySelector('[data-a=backup]');
+      if (back) back.onclick = async () => {
+        try { const r = await api.adminBackup(); toast('Копия создана: ' + r.file); }
+        catch (e) { toast('Не удалось: ' + (e.message || e)); }
+      };
+      qsa('[data-pw]', b).forEach(el => el.onclick = () => {
+        promptBox('Новый пароль', 'От 8 символов', '', async pw => {
+          try { await api.adminUserPassword(el.dataset.pw, pw); draw(tab, 'Пароль изменён, сессии закрыты'); }
+          catch (e) { draw(tab, e.message || String(e)); }
+        });
+      });
+      qsa('[data-blk]', b).forEach(el => el.onclick = async () => {
+        try { await api.adminUserBlock(el.dataset.blk, el.dataset.on === '1'); draw(tab); }
+        catch (e) { draw(tab, e.message || String(e)); }
+      });
+      qsa('[data-open]', b).forEach(el => el.onclick = () => { closeModal(); openServerBoard(el.dataset.open); });
+      const nu = b.querySelector('[data-a=newuser]');
+      if (nu) nu.onclick = () => {
+        modal(`<h3>Новый пользователь</h3>
+          <div class="f"><label>Почта</label><input type="email" id="nuMail"></div>
+          <div class="f"><label>Имя</label><input type="text" id="nuName"></div>
+          <div class="f"><label>Пароль</label><input type="text" id="nuPass" placeholder="от 8 символов"></div>
+          <div class="mfoot"><button class="btn" data-a="c">Отмена</button>
+          <button class="btn pri" data-a="ok">Создать</button></div>`, bb => {
+          bb.querySelector('[data-a=c]').onclick = () => draw(tab);
+          bb.querySelector('[data-a=ok]').onclick = async () => {
+            try {
+              await api.adminUserCreate($('nuMail').value.trim(), $('nuPass').value, $('nuName').value.trim());
+              draw(tab, 'Пользователь создан');
+            } catch (e) { toast(e.message || String(e)); }
+          };
+        });
+      };
+      const inv = b.querySelector('[data-a=invite]');
+      if (inv) inv.onclick = () => {
+        promptBox('Приглашение', 'Почта (можно пустую — тогда подойдёт любая)', '', async mail => {
+          try {
+            const r = await api.inviteCreate(mail || null, 14);
+            const link = location.origin + '/join/' + r.token;
+            try { await navigator.clipboard.writeText(link); } catch {}
+            draw(tab, 'Ссылка скопирована: ' + link);
+          } catch (e) { draw(tab, e.message || String(e)); }
+        });
+      };
+    });
+  };
+  draw('users');
+}
+
+/* ---------- серверные доски и маршруты ---------- */
+// Открывает серверную доску: документ приходит с сервера, локальная копия
+// становится кэшем (быстрый старт и переживание короткого обрыва связи).
+async function openServerBoard(id, opts) {
+  const o = opts || {};
+  try {
+    const r = await api.boardGet(id);
+    P = normalize(r.doc);
+    P.id = 'srv_' + id;                       // локальный ключ кэша, не путать с id доски
+    cloud.bindBoard({id, version: r.version, role: r.role, asAdmin: !!r.asAdmin});
+    try { await dbPut(STORE, P); await loadProjects(); } catch {}
+    UI.page = (P.pages[0] || {}).id;
+    undoS.length = 0; redoS.length = 0;
+    document.title = (P.name || 'Доска') + ' — Graph Studio';
+    $('projects').classList.remove('open');
+    renderPages(); renderPage(); paintSave();
+    if (r.asAdmin) toast('Вы открыли чужую доску как администратор — это записано в журнал');
+    setReadonly(r.role === 'viewer', r.role === 'viewer' ? 'Только просмотр: править эту доску вам не разрешили' : '');
+    if (!o.keepUrl) cloud.goTo('/b/' + id, true);
+    return true;
+  } catch (e) {
+    toast('Не удалось открыть доску: ' + (e.message || e));
+    return false;
+  }
+}
+
+// Переход по ссылке-доступу.
+async function openShare(token, wantRole) {
+  try {
+    const r = await api.shareOpen(token);
+    if (r.role === 'viewer' && r.doc) {
+      // Просмотр без входа: документ пришёл сразу, в базу его не кладём —
+      // это чужая доска, ей нечего делать в списке проектов гостя.
+      P = normalize(r.doc);
+      cloud.bindBoard(null);
+      UI.page = (P.pages[0] || {}).id;
+      setReadonly(true, 'Открыто только для просмотра — правки не сохранятся');
+      document.title = (P.name || 'Доска') + ' — просмотр';
+      $('projects').classList.remove('open');
+      renderPages(); renderPage(); paintSave();
+      toast('Открыто только для просмотра');
+      return true;
+    }
+    return await openServerBoard(r.id, {keepUrl: true});
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401 && e.body && e.body.needAuth) {
+      cloud.showAuth({
+        reason: 'Эта ссылка даёт право править доску, поэтому нужен вход: у изменений должен быть автор.',
+        then: () => openShare(token, wantRole),
+      });
+      return false;
+    }
+    toast('Ссылка недействительна: ' + (e.message || e));
+    return false;
+  }
+}
+
+// Разбор адреса при старте. Открытая ссылка обязана вести туда, куда обещает.
+async function routeBoot() {
+  const r = parseRoute(location.pathname);
+  cloud.CLOUD.route = r;
+  if (r.kind === 'share') return openShare(r.token, r.role);
+  if (r.kind === 'board') return openServerBoard(r.id, {keepUrl: true});
+  if (r.kind === 'join') {
+    try {
+      const info = await api.inviteInfo(r.token);
+      cloud.showAuth({mode: 'register', invite: r.token, email: info.email || '',
+        reason: 'Приглашение принято — заведите аккаунт.',
+        then: () => { cloud.goTo('/', true); showProjects(); }});
+    } catch (e) { toast('Приглашение недействительно: ' + (e.message || e)); }
+    return false;
+  }
+  if (r.kind === 'login') { cloud.showAuth({then: () => { cloud.goTo('/', true); showProjects(); }}); return false; }
+  if (r.kind === 'admin') { showAdmin(); return false; }
+  return false;
+}
+
 async function loadProjects() {
   const all = await dbAll(STORE);
   PROJECTS = all.map(p => ({id: p.id, name: p.name, desc: p.desc, updated: p.updated, created: p.created, nodes: p.nodes.length, links: p.links.length, deleted: !!p.deleted, deletedAt: p.deletedAt || null, vaultMissing: !!p.vaultMissing}))
@@ -3459,13 +3791,75 @@ async function purgeProject(id) {
   await fhDel(id);
   await loadProjects(); showProjects(); toast('Проект удалён навсегда');
 }
+/* ---------- серверные доски на стартовом экране ---------- */
+// Локальные проекты никуда не деваются: переезд на сервер — явное действие,
+// а не молчаливая миграция. Пока человек не нажал «на сервер», всё как было.
+async function paintServerBoards() {
+  const sect = $('srvSect'), list = $('srvList'), hint = $('srvHint'), cap = $('localCap');
+  if (!sect) return;
+  const acc = cloud.CLOUD.account;
+  if (!acc) {
+    sect.classList.add('hidden');
+    if (cap) cap.classList.add('hidden');
+    return;
+  }
+  sect.classList.remove('hidden');
+  if (cap) cap.classList.remove('hidden');
+  hint.textContent = '— доступны с любого устройства, ими можно делиться ссылкой';
+  list.innerHTML = '<div class="hint">Загружаю…</div>';
+
+  const data = await cloud.fetchBoards();
+  if (!data) { list.innerHTML = '<div class="hint">Не удалось получить список.</div>'; return; }
+  const card = (b, shared) => `<div class="pcard" data-srv="${esc(b.id)}">
+    ${shared ? '' : `<span class="x noview" data-srvdel="${esc(b.id)}" title="в корзину">×</span>`}
+    <div class="t">${esc(b.name || 'Без названия')}</div>
+    <div class="d">${shared ? 'от ' + esc(b.owner_email || 'коллеги') + ' · ' +
+      (b.role === 'editor' ? 'можно править' : 'только просмотр') : ''}</div>
+    <div class="m"><span>${nOf(b.nodes_count || 0, NODES)}</span><span>${nOf(b.links_count || 0, LINKS)}</span>
+      <span style="margin-left:auto">${esc(new Date(b.updated_at).toLocaleDateString('ru-RU'))}</span></div></div>`;
+  const mine = (data.mine || []).map(b => card(b, false)).join('');
+  const shared = (data.shared || []).map(b => card(b, true)).join('');
+  list.innerHTML = (mine + shared) || '<div class="hint">Досок на сервере пока нет — отправьте туда любой проект кнопкой «↑ на сервер».</div>';
+
+  qsa('#srvList .pcard').forEach(el => el.onclick = async e => {
+    if (e.target.dataset.srvdel) {
+      const id = e.target.dataset.srvdel;
+      confirmBox('Убрать доску в корзину? Её можно будет вернуть.', async () => {
+        try { await api.boardDelete(id); paintServerBoards(); toast('Доска в корзине'); }
+        catch (err) { toast(err.message || String(err)); }
+      }, 'Убрать');
+      return;
+    }
+    await openServerBoard(el.dataset.srv);
+  });
+}
+
+// Отправка локального проекта на сервер.
+async function uploadCurrentProject(projectId) {
+  if (!cloud.CLOUD.account) {
+    cloud.showAuth({reason: 'Чтобы держать доску на сервере и делиться ссылкой, нужен аккаунт.',
+      then: () => uploadCurrentProject(projectId)});
+    return;
+  }
+  try {
+    const pr = await dbGet(STORE, projectId);
+    if (!pr) { toast('Проект не найден'); return; }
+    const id = await cloud.uploadProject(pr);
+    toast('Проект теперь на сервере');
+    await paintServerBoards();
+    await openServerBoard(id);
+  } catch (e) { toast('Не удалось отправить: ' + (e.message || e)); }
+}
+
 function showProjects() {
   $('projects').classList.add('open');
+  paintServerBoards();
   const live = PROJECTS.filter(p => !p.deleted), trash = PROJECTS.filter(p => p.deleted);
   $('pList').innerHTML = live.map(p => `<div class="pcard" data-p="${esc(p.id)}">
     <span class="x noview" data-del="${esc(p.id)}" title="в корзину">×</span>
     <div class="t">${esc(p.name)}</div><div class="d">${esc(p.desc || '')}</div>
-    <div class="m"><span>${p.nodes} узлов</span><span>${p.links} связей</span>${p.vaultMissing ? '<span style="color:var(--amber)" title="файл в папке-хранилище не найден — проект остался только в браузере">⚠ файл не найден</span>' : ''}<span style="margin-left:auto">${esc(p.updated || '')}</span></div></div>`).join('')
+    <div class="m"><span>${nOf(p.nodes, NODES)}</span><span>${nOf(p.links, LINKS)}</span>${p.vaultMissing ? '<span style="color:var(--amber)" title="файл в папке-хранилище не найден — проект остался только в браузере">⚠ файл не найден</span>' : ''}<span style="margin-left:auto">${esc(p.updated || '')}</span></div>
+    <button class="btn sm noview" data-up="${esc(p.id)}" style="margin-top:8px" title="отправить на сервер: доска станет доступна с других устройств и по ссылке">↑ на сервер</button></div>`).join('')
     || '<div class="hint">Пока нет проектов — создай из шаблона ниже.</div>';
   $('tList').innerHTML = TPL.map(t => `<div class="pcard new" data-t="${t.id}">
     <div class="t">＋ ${esc(t.name)}</div><div class="d" style="text-align:center;color:var(--ink2)">${esc(t.desc)}</div></div>`).join('');
@@ -3478,6 +3872,7 @@ function showProjects() {
       <button class="btn sm dgr" data-purge="${esc(p.id)}">Удалить навсегда</button>
     </div></div>`).join('');
   qsa('#pList .pcard').forEach(el => el.onclick = e => {
+    if (e.target.dataset.up) { e.stopPropagation(); uploadCurrentProject(e.target.dataset.up); return; }
     if (e.target.dataset.del) {
       const id = e.target.dataset.del, pr = PROJECTS.find(x => x.id === id);
       confirmBox(`Переместить проект «${pr.name}» (${pr.nodes} узлов) в «Удалённые»? Оттуда его можно вернуть.`,
@@ -3512,6 +3907,7 @@ function showProjects() {
   });
 }
 async function openProject(id) {
+  setReadonly(false);   // локальный проект всегда свой и правится
   const pr = await dbGet(STORE, id);
   if (!pr) {toast('Проект не найден'); return;}
   P = normalize(pr); gInval(); undoS.length = 0; redoS.length = 0;
@@ -3842,9 +4238,10 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, BUILD, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, emptyBlock, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isKey, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, opts, pageById, pageMenu, pageNodes, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renameProject, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setSel, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
+Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, copySelection, createFieldOption, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, emptyBlock, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, gotoPage, hasCycle, hideCtx, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isKey, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, onPushState, openDB, openFrame, openLink, openNode, openPalette, openProject, openProjectFile, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintSave, paintServerBoards, palRender, parseCsv, parseRoute, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renameProject, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreProject, restoreSnap, ro, routeBoot, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setReadonly, setSel, showAdmin, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, uploadCurrentProject, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
+Object.defineProperty(window, 'RO', {get: () => RO, set: v => {RO = v;}, configurable: true});
 Object.defineProperty(window, '_g', {get: () => _g, set: v => {_g = v;}, configurable: true});
 Object.defineProperty(window, '_uid', {get: () => _uid, set: v => {_uid = v;}, configurable: true});
 Object.defineProperty(window, '_writeLock', {get: () => _writeLock, set: v => {_writeLock = v;}, configurable: true});
@@ -3865,6 +4262,14 @@ Object.defineProperty(window, 'staleT', {get: () => staleT, set: v => {staleT = 
 Object.defineProperty(window, 'toastT', {get: () => toastT, set: v => {toastT = v;}, configurable: true});
 Object.defineProperty(window, 'viewSaveT', {get: () => viewSaveT, set: v => {viewSaveT = v;}, configurable: true});
 
+// Модуль серверной части получает нужные функции явно, а не лезет в глобальные:
+// иначе он превратился бы во вторую копию этого файла.
+//
+// Вызов стоит ЗДЕСЬ, а не в начале файла: $, esc, modal и остальные объявлены
+// через const, и обращение к ним выше по тексту даёт TDZ-ReferenceError, который
+// убивает весь скрипт до boot() — приложение молча не стартует.
+cloud.initCloud({ $, esc, modal, closeModal, toast, confirmBox, promptBox });
+
 (async function boot() {
   if (VIEWER) {
     document.body.classList.add('viewer');
@@ -3884,6 +4289,17 @@ Object.defineProperty(window, 'viewSaveT', {get: () => viewSaveT, set: v => {vie
     if (v && v.handle && v.handle.queryPermission && (await v.handle.queryPermission({mode: 'readwrite'})) === 'granted') await loadVault(v.handle);
   } catch (e) {}
   await loadProjects();
+
+  // Кто мы на сервере. Сервера может не быть вообще (сеть отвалилась, открыт
+  // собранный файл) — это НЕ ошибка: локальные проекты обязаны работать всегда.
+  await cloud.loadAccount();
+  paintAccount();
+
+  // Адрес мог указывать на конкретную доску или ссылку-доступ. Открытая ссылка
+  // должна вести туда, куда обещает, а не всегда на список проектов.
+  const routed = await routeBoot();
+  if (routed) return;
+
   // Пустая база → стартовый экран с шаблонами (демо-проект — один из шаблонов), ничего не создаём молча.
   const last = await dbGet(META, 'last');
   const live = PROJECTS.filter(p => !p.deleted);

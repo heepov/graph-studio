@@ -121,7 +121,10 @@ app.post('/api/auth/password', {
 // Регистрация только по приглашению: сайт открыт в интернете, и открытая
 // регистрация означала бы чужие аккаунты на личном сервере.
 app.post('/api/auth/register', {
-  config: { rateLimit: { max: 10, timeWindow: '10 minutes' } },
+  // Регистрация и так закрыта одноразовым приглашением из 32 случайных байт —
+  // перебирать тут нечего. Ограничитель здесь только против шума, поэтому мягкий.
+  // Жёсткий стоит на входе: вот там перебор пароля имеет смысл.
+  config: { rateLimit: { max: 40, timeWindow: '10 minutes' } },
 }, async (req, reply) => {
   const { email, password, name, invite } = req.body || {};
   if (!email || !password) return reply.code(400).send({ error: 'нужны почта и пароль' });

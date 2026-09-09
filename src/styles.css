@@ -426,6 +426,11 @@ body.bulkon #toast{bottom:82px}
 .pcard.new{border-style:dashed;display:flex;align-items:center;justify-content:center;flex-direction:column;color:var(--accent);min-height:118px;background:#fdfdff}
 .pcard.new .t{color:var(--accent)}
 body.viewer .noview{display:none!important}
+/* Тот же приём для доски, открытой по ссылке на просмотр: править её нельзя,
+   значит и органы правки показывать незачем. */
+body.readonly .noview{display:none!important}
+body.readonly .nd{cursor:default}
+body.readonly .port,body.readonly .nd .rs{display:none}
 
 /* ============ тёмная тема ============ */
 body.dark{

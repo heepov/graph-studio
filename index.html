@@ -32,6 +32,8 @@
       <div class="pgi" id="navExport" title="Экспорт и импорт, снимки версий, проверка проекта"><span class="ic">↓</span><span class="nm">Экспорт и импорт</span></div>
       <div class="pgi" id="navTheme" title="Светлая или тёмная тема"><span class="ic">◐</span><span class="nm">Тёмная тема</span></div>
       <div class="pgi" id="navHelp" title="Справка"><span class="ic">?</span><span class="nm">Справка</span></div>
+      <div class="pgi noview" id="navAccount" title="Аккаунт"><span class="ic">◔</span><span class="nm">Войти</span></div>
+      <div class="pgi noview hidden" id="navAdmin" title="Админка: все пользователи и доски"><span class="ic">★</span><span class="nm">Админка</span></div>
       <div id="saveState"></div>
     </div>
   </div>
@@ -44,6 +46,7 @@
       <button class="btn ico noview" id="bUndo" title="Отменить · Ctrl+Z">↶</button>
       <button class="btn ico noview" id="bRedo" title="Вернуть · Ctrl+Shift+Z">↷</button>
       <button class="btn" id="bFind" title="Быстрый поиск · Ctrl+K">🔍 Поиск</button>
+      <button class="btn noview hidden" id="bShare" title="ссылки на просмотр и правку">↗ Поделиться</button>
       <button class="btn pri noview" id="bAdd">＋ Узел</button>
     </div>
     <div id="pagebar"></div>
@@ -74,6 +77,11 @@
   </div>
   <div class="hint" id="vaultStatus" style="margin-bottom:22px">Редактор графов зависимостей, роадмапов и любых схем «что чем заблокировано». Проекты хранятся в этом браузере (IndexedDB).</div>
   <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:0 0 10px">Проекты</h3>
+  <div id="srvSect" class="hidden">
+    <div class="sect" style="margin-top:0">Доски на сервере <span id="srvHint" class="hint" style="text-transform:none;letter-spacing:0"></span></div>
+    <div class="pgrid" id="srvList"></div>
+  </div>
+  <div class="sect" id="localCap">На этом компьютере</div>
   <div class="pgrid" id="pList"></div>
   <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:30px 0 10px">Создать из шаблона</h3>
   <div class="pgrid" id="tList"></div>

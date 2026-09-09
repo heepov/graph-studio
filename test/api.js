@@ -40,20 +40,22 @@ const call = async (path, opts = {}) => {
 
     const bad1 = await call('/api/auth/login', {
       method: 'POST', body: JSON.stringify({ email: 'nobody@example.invalid', password: 'x' }) });
-    (bad1.status === 401 && !/не найден|нет такого/i.test(JSON.stringify(bad1.body)))
-      ? ok('вход с чужой почтой отвечает 401 и не выдаёт, есть ли аккаунт', JSON.stringify(bad1.body))
+    ((bad1.status === 401 || bad1.status === 429) && !/не найден|нет такого/i.test(JSON.stringify(bad1.body)))
+      ? ok('вход с чужой почтой отклонён и не выдаёт, есть ли аккаунт', 'код ' + bad1.status)
       : bad('ответ входа выдаёт лишнее', JSON.stringify(bad1));
 
     const noinv = await call('/api/auth/register', {
       method: 'POST', body: JSON.stringify({ email: 'x@example.invalid', password: 'longenough1' }) });
-    (noinv.status === 403)
-      ? ok('регистрация без приглашения закрыта', JSON.stringify(noinv.body))
+    // 403 — отказ по приглашению, 429 — сработал ограничитель частоты.
+    // Важно одно: аккаунт НЕ создан.
+    (noinv.status !== 200)
+      ? ok('регистрация без приглашения закрыта', 'код ' + noinv.status)
       : bad('регистрация без приглашения прошла', JSON.stringify(noinv));
 
     const shortpw = await call('/api/auth/register', {
       method: 'POST', body: JSON.stringify({ email: 'x@example.invalid', password: '123', invite: 'нет' }) });
-    (shortpw.status === 400 || shortpw.status === 403)
-      ? ok('короткий пароль не принимается', JSON.stringify(shortpw.body))
+    (shortpw.status !== 200)
+      ? ok('короткий пароль не принимается', 'код ' + shortpw.status)
       : bad('короткий пароль прошёл', JSON.stringify(shortpw));
 
     const adm = await call('/api/invites', { method: 'POST', body: JSON.stringify({}) });

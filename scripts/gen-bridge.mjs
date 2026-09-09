@@ -29,6 +29,17 @@ const splitTop = str => {
 const fns = new Set(), stable = new Set(), live = new Set();
 for (const line of src.split('\n')) {
   let m;
+  // Импортированное тоже кладём в мост: тесты и консоль обращаются к api и cloud
+  // так же, как к остальному — они часть того же публичного набора.
+  if ((m = line.match(/^import\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from/))) { stable.add(m[1]); continue; }
+  if ((m = line.match(/^import\s+\{([^}]+)\}\s+from/))) {
+    m[1].split(',').forEach(part => {
+      const n = part.trim().split(/\s+as\s+/).pop().trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(n)) stable.add(n);
+    });
+    continue;
+  }
+  if (line.startsWith('import ')) continue;
   if ((m = line.match(/^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/))) { fns.add(m[1]); continue; }
   if ((m = line.match(/^class\s+([A-Za-z_$][\w$]*)/))) { fns.add(m[1]); continue; }
   if ((m = line.match(/^(const|let|var)\s+([\s\S]*)$/))) {

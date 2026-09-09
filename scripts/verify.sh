@@ -35,6 +35,9 @@ node test/api-flow.js
 echo "── регрессионный прогон"
 node test/smoke.js
 
+echo "── связка клиент-сервер"
+node test/cloud.js
+
 echo "── совместимость со старыми файлами"
 node test/legacy.js
 
