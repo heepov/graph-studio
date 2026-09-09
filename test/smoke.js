@@ -18,7 +18,7 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
   try {
     // --- загрузка ---------------------------------------------------------
     await c.send('Page.navigate', { url: URL });
-    await c.waitFor('window.boot !== undefined || document.getElementById("projects")', 20000, 'загрузка html');
+    await c.waitFor('document.getElementById("home") !== null', 20000, 'загрузка html');
     await c.waitFor('typeof PROJECTS !== "undefined" && typeof G === "function"', 20000, 'boot() отработал');
     ok('приложение загрузилось и boot() отработал');
 
@@ -31,8 +31,11 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
     ok('демо-сид разобран', JSON.stringify(seed));
 
     // --- создание проекта из демо-шаблона ---------------------------------
-    await c.waitFor('document.querySelector(\'#tList .pcard[data-t="demo"]\')', 15000, 'карточка шаблона');
-    await c.eval(`document.querySelector('#tList .pcard[data-t="demo"]').click()`);
+    // Без аккаунта сервер досок не даёт, и главная показывает витрину — поэтому
+    // проект создаётся вызовом, а не кликом по карточке шаблона: этот набор
+    // проверяет редактор, а не путь входа (за него отвечает test/cloud.js).
+    await c.waitFor('typeof createFromTemplate === "function"', 15000, 'приложение готово');
+    await c.eval(`createFromTemplate('demo')`);
     await c.waitFor('typeof P !== "undefined" && P && P.nodes.length > 0', 15000, 'проект открылся');
     const proj = await c.eval(`({name: P.name, nodes: P.nodes.length, links: P.links.length, pages: P.pages.map(p => p.kind)})`);
     ok('проект создан из шаблона', JSON.stringify(proj));
@@ -380,6 +383,19 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       JSON.stringify(afterReload) === JSON.stringify(after[key])
         ? ok('позиция пережила перезагрузку (IndexedDB)', JSON.stringify(afterReload))
         : bad('позиция потеряна после перезагрузки', `было ${JSON.stringify(after[key])}, стало ${JSON.stringify(afterReload)}`);
+
+      // Приложение больше НЕ открывает молча последний проект: человек попадал
+      // сразу в свою вчерашнюю доску и не понимал, где он и что здесь ещё есть.
+      const start = await c.eval(`({p: P === null,
+        home: document.getElementById('home').classList.contains('open'),
+        landing: document.getElementById('landing').classList.contains('open')})`);
+      (start.p && (start.home || start.landing))
+        ? ok('после перезагрузки открывается главная, а не последний проект')
+        : bad('старт ведёт не на главную', JSON.stringify(start));
+
+      // дальше проверки идут по конкретному проекту — открываем его явно
+      await c.eval(`openLocal('${pid}')`);
+      await c.waitFor('typeof P !== "undefined" && P && P.nodes.length > 0', 15000, 'проект открыт');
     }
 
     // --- свободная схема (kind: 'space') -----------------------------------

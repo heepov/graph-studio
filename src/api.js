@@ -50,9 +50,11 @@ export const api = {
   changePassword: (current, next) => req('POST', '/auth/password', {current, next}),
 
   boards: () => req('GET', '/boards'),
-  boardCreate: doc => req('POST', '/boards', {doc}),
+  // preview рисует карточку доски в списке. undefined означает «не трогай то,
+  // что уже лежит на сервере»: JSON.stringify выкидывает такие ключи целиком.
+  boardCreate: (doc, preview) => req('POST', '/boards', {doc, preview}),
   boardGet: id => req('GET', '/boards/' + encodeURIComponent(id)),
-  boardPut: (id, doc, baseVersion) => req('PUT', '/boards/' + encodeURIComponent(id), {doc, baseVersion}),
+  boardPut: (id, doc, baseVersion, preview) => req('PUT', '/boards/' + encodeURIComponent(id), {doc, baseVersion, preview}),
   boardDelete: id => req('DELETE', '/boards/' + encodeURIComponent(id)),
   boardRestore: id => req('POST', '/boards/' + encodeURIComponent(id) + '/restore', {}),
 

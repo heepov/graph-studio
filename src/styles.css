@@ -1,17 +1,24 @@
 :root{
-  --ink:#15181f; --ink2:#525a6b; --muted:#6b7280;   /* было #8b91a1 — контраст 3.2:1 на белом при кегле 10.5px, ниже нормы */ --line:#e4e7ef; --line2:#eef0f6;
-  --bg:#f6f7fa; --card:#fff; --accent:#3355d1; --accent-bg:#eef1fc; --accent-br:#d3dcf7;
+  /* Палитра. Контраст проверен на белом: --muted раньше был #8b91a1 — 3.2:1 при кегле
+     10.5px, ниже нормы. Кегли подняты по всему интерфейсу: 10–11px читаемы только
+     когда смотришь в упор, а доской пользуются, откинувшись от экрана. */
+  --ink:#141822; --ink2:#4d5567; --muted:#6b7383; --line:#e5e8f0; --line2:#eef0f6;
+  --bg:#f1f3f8; --card:#fff; --accent:#4262ff; --accent-bg:#eef1ff; --accent-br:#cdd8ff;
+  --accent-ink:#2a44cc;
   --red:#b3261e; --red-bg:#fdecea; --red-br:#f0c7c2;
   --amber:#8a5d00; --amber-bg:#fff5da; --amber-br:#ecd8a0;
   --green:#136c33; --green-bg:#e4f3e8; --green-br:#b9dfc4;
   --grey:#5f6673; --grey-bg:#eef0f4; --grey-br:#dbdfe8;
   --sh1:0 1px 2px rgba(16,20,32,.06); --sh2:0 4px 14px rgba(16,20,32,.10); --sh3:0 16px 46px rgba(16,20,32,.20);
-  --side:236px;
-  --insp-w:380px;
+  /* Тень плавающих панелей поверх холста: без неё панель сливается с сеткой. */
+  --shf:0 2px 6px rgba(16,20,32,.08),0 10px 30px rgba(16,20,32,.13);
+  --side:248px;
+  --insp-w:396px;
+  --r-s:8px; --r-m:12px; --r-l:16px;
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden}
-body{font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;background:var(--bg);color:var(--ink);font-size:13.5px;line-height:1.45;-webkit-font-smoothing:antialiased}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 button,input,select,textarea{font-family:inherit}
 .hidden{display:none!important}
 ::-webkit-scrollbar{width:10px;height:10px}
@@ -24,8 +31,8 @@ button,input,select,textarea{font-family:inherit}
 #app{display:flex;height:100vh;position:relative}
 #side{width:var(--side);min-width:var(--side);background:#fbfbfd;border-right:1px solid var(--line);display:flex;flex-direction:column}
 #main{flex:1;min-width:0;display:flex;flex-direction:column}
-#topbar{height:46px;min-height:46px;border-bottom:1px solid var(--line);background:#fff;display:flex;align-items:center;gap:8px;padding:0 12px}
-#pagebar{min-height:40px;border-bottom:1px solid var(--line);background:#fff;display:flex;align-items:center;gap:7px;padding:5px 12px;flex-wrap:wrap}
+#topbar{height:54px;min-height:54px;border-bottom:1px solid var(--line);background:#fff;display:flex;align-items:center;gap:8px;padding:0 12px}
+#pagebar{min-height:44px;border-bottom:1px solid var(--line);background:#fff;display:flex;align-items:center;gap:7px;padding:5px 12px;flex-wrap:wrap}
 #view{flex:1;min-height:0;position:relative;overflow:hidden}
 .scroller{position:absolute;inset:0;overflow:auto;padding:18px 22px 60px}
 
@@ -64,11 +71,11 @@ body.dark #sideToggle:hover{background:var(--hov)}
 #projBtn:hover{border-color:#c8cede;box-shadow:var(--sh1)}
 #projBtn .pn{font-weight:700;font-size:12.8px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #projBtn .cnt{font-size:10.5px;color:var(--muted)}
-.sidecap{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);padding:10px 14px 4px;display:flex;align-items:center}
+.sidecap{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);padding:10px 14px 4px;display:flex;align-items:center}
 .sidecap .add{margin-left:auto;cursor:pointer;font-size:14px;color:var(--muted);line-height:1;padding:0 3px;border-radius:4px}
 .sidecap .add:hover{background:#eceff6;color:var(--ink)}
 #pageList{flex:1;overflow:auto;padding:0 8px 10px}
-.pgi{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:12.8px;color:var(--ink2);user-select:none}
+.pgi{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--r-s);cursor:pointer;font-size:13.4px;color:var(--ink2);user-select:none}
 .pgi:hover{background:#eff1f7}
 .pgi.on{background:var(--accent-bg);color:var(--accent);font-weight:650}
 .pgi .ic{width:15px;text-align:center;font-size:12px;opacity:.85}
@@ -78,37 +85,37 @@ body.dark #sideToggle:hover{background:var(--hov)}
 .pgi .mo:hover{background:#e2e6f0;color:var(--ink)}
 .pgi.drop{box-shadow:inset 0 -2px 0 var(--accent)}
 #sidefoot{border-top:1px solid var(--line);padding:6px 8px 8px}
-#sidefoot .pgi{font-size:12.4px}
-#saveState{font-size:10.6px;color:var(--muted);padding:4px 8px 0;line-height:1.35}
+#sidefoot .pgi{font-size:13px}
+#saveState{font-size:11.4px;color:var(--muted);padding:4px 8px 0;line-height:1.35}
 
 /* ============ кнопки и чипы ============ */
-.btn{font-size:12.2px;font-weight:600;padding:5px 10px;border-radius:7px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--ink2);white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.btn{font-size:13px;font-weight:600;padding:7px 13px;border-radius:var(--r-s);border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--ink2);white-space:nowrap;display:inline-flex;align-items:center;gap:6px;transition:background .12s,border-color .12s,color .12s}
 .btn:hover{background:#f3f5fa;color:var(--ink);border-color:#d8dde9}
-.btn.pri{background:var(--accent);border-color:transparent;color:#fff}
-.btn.pri:hover{background:#2843b5;color:#fff}
+.btn.pri{background:var(--accent);border-color:transparent;color:#fff;box-shadow:0 1px 2px rgba(66,98,255,.35)}
+.btn.pri:hover{background:#3550e0;color:#fff}
 .btn.act{background:var(--accent-bg);border-color:var(--accent-br);color:var(--accent)}
 .btn.dgr{color:var(--red);border-color:var(--red-br)}
 .btn.dgr:hover{background:var(--red-bg)}
 .btn[disabled]{opacity:.38;cursor:default;pointer-events:none}
-.btn.sm{font-size:11.4px;padding:3px 8px}
-.btn.ico{padding:5px 7px}
-.chip{font-size:11.6px;font-weight:600;padding:3px 10px;border-radius:13px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--ink2);user-select:none;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.btn.sm{font-size:12px;padding:4px 9px}
+.btn.ico{padding:7px 9px}
+.chip{font-size:12.4px;font-weight:600;padding:4px 11px;border-radius:14px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--ink2);user-select:none;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
 .chip:hover{background:#f3f5fa}
 .chip.on{color:#fff;border-color:transparent;background:#3d4657}
 .chip .dt{width:7px;height:7px;border-radius:50%;display:inline-block}
 .sep{width:1px;height:20px;background:var(--line);margin:0 3px}
 .spacer{flex:1}
-.hint{font-size:11.6px;color:var(--muted)}
+.hint{font-size:12.4px;color:var(--muted)}
 .kbd{font:600 10.5px ui-monospace,Menlo,monospace;background:#eef0f6;border:1px solid #dfe3ec;border-bottom-width:2px;border-radius:4px;padding:1px 4px;color:var(--ink2)}
 
 /* ============ меню ============ */
 .menu{position:relative;display:inline-block}
-.mlist{display:none;position:absolute;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:var(--sh2);padding:5px;min-width:230px;z-index:120}
+.mlist{display:none;position:absolute;background:#fff;border:1px solid var(--line);border-radius:var(--r-m);box-shadow:var(--shf);padding:6px;min-width:236px;z-index:120}
 .menu.open>.mlist{display:block}
 .mlist.right{right:0;top:calc(100% + 5px)} .mlist.left{left:0;top:calc(100% + 5px)}
-.mi{padding:6px 9px;font-size:12.4px;border-radius:6px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:8px;color:var(--ink2)}
+.mi{padding:7px 10px;font-size:13px;border-radius:6px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:8px;color:var(--ink2)}
 .mi:hover{background:#f1f3f9;color:var(--ink)}
-.mi small{display:block;color:var(--muted);font-size:10.4px;font-weight:400}
+.mi small{display:block;color:var(--muted);font-size:11.4px;font-weight:400}
 .mi .k{margin-left:auto;font-size:10px;color:var(--muted)}
 .mi.dgr{color:var(--red)} .mi.dgr:hover{background:var(--red-bg)}
 .mlist hr{border:none;border-top:1px solid var(--line2);margin:4px 2px}
@@ -312,7 +319,7 @@ body.inspdrag{cursor:col-resize;user-select:none}
 #ifoot{border-top:1px solid var(--line);padding:9px 16px;display:none;gap:8px;background:#fff}
 #ifoot.on{display:flex}
 body.dark #ifoot{background:var(--card)}
-.sect{font-size:10.2px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:16px 0 6px}
+.sect{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:18px 0 7px}
 .kv{font-size:12.2px;color:var(--ink2);margin-top:5px}
 .kv b{color:var(--ink)}
 .body{font-size:12.9px;line-height:1.55;background:#f7f9fd;border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:10px 13px;white-space:pre-wrap}
@@ -329,7 +336,7 @@ body.dark #ifoot{background:var(--card)}
 
 /* ============ формы ============ */
 .f{margin-top:10px}
-.f>label,.flab{display:block;font-size:10.2px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:3px}
+.f>label,.flab{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:3px}
 input[type=text],input[type=number],input[type=date],select,textarea{width:100%;font-size:12.8px;color:var(--ink);border:1px solid var(--line);
   border-radius:7px;padding:6px 9px;background:#fff;outline:none}
 input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
@@ -389,8 +396,8 @@ body.dark .dchip i:hover{background:var(--surf2)}
 /* ============ модалка, оверлеи ============ */
 #modal{position:fixed;inset:0;background:rgba(16,20,32,.45);z-index:300;display:none;align-items:center;justify-content:center;padding:24px}
 #modal.open{display:flex}
-#mbox{background:#fff;border-radius:14px;max-width:680px;width:100%;max-height:88vh;overflow:auto;padding:20px 22px;box-shadow:var(--sh3)}
-#mbox h3{margin:0 0 10px;font-size:17px;font-weight:750}
+#mbox{background:#fff;border-radius:var(--r-l);max-width:680px;width:100%;max-height:88vh;overflow:auto;padding:24px 26px;box-shadow:var(--sh3)}
+#mbox h3{margin:0 0 12px;font-size:19px;font-weight:750;letter-spacing:-.2px}
 .mfoot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(18px);background:#1b1f2a;color:#fff;font-size:12.6px;
   padding:9px 16px;border-radius:9px;z-index:400;opacity:0;transition:.2s;pointer-events:none;max-width:70vw;box-shadow:var(--sh3)}
@@ -428,7 +435,10 @@ body.bulkon #toast{bottom:82px}
 body.viewer .noview{display:none!important}
 /* Тот же приём для доски, открытой по ссылке на просмотр: править её нельзя,
    значит и органы правки показывать незачем. */
+/* Навигация НЕ относится к правке. Прятать её в режиме просмотра нельзя:
+   демо и ссылка-просмотр превращались в комнату без двери — ни назад, ни войти. */
 body.readonly .noview{display:none!important}
+body.readonly #bHome,body.readonly #bAvatar{display:flex!important}
 body.readonly .nd{cursor:default}
 body.readonly .port,body.readonly .nd .rs{display:none}
 
@@ -443,7 +453,8 @@ body.dark{
   --sh1:0 1px 2px rgba(0,0,0,.4); --sh2:0 4px 14px rgba(0,0,0,.5); --sh3:0 16px 46px rgba(0,0,0,.6);
   color-scheme:dark;
 }
-body.dark{--side-bg:#12151d;--surf2:#1e232e;--hov:#222836}
+body.dark{--side-bg:#12151d;--surf2:#1e232e;--hov:#222836;--accent-ink:#9db1ff;
+  --shf:0 2px 6px rgba(0,0,0,.5),0 10px 30px rgba(0,0,0,.55)}
 body.dark #side{background:var(--side-bg)}
 body.dark #topbar,body.dark #pagebar,body.dark #cvintro{background:var(--card)}
 body.dark #projBtn,body.dark .btn,body.dark .chip,body.dark .mlist,body.dark .nd,body.dark .port,
@@ -525,4 +536,191 @@ body.dark .chip.on{background:var(--accent-bg);border-color:var(--accent-br);col
   #insp,#insp.open{width:100vw}
   #cvempty{max-width:88vw;padding:14px 16px}
   .emptybox{margin:20px 12px}
+}
+
+/* ==========================================================================
+   ГЛАВНАЯ: витрина и список досок
+   --------------------------------------------------------------------------
+   Раньше главной не было вообще: приложение открывалось сразу оверлеем со списком
+   локальных проектов. Войти было некуда — кнопка «Войти» пряталась в подвале
+   боковой панели, а боковая панель видна только когда проект уже открыт.
+   Получалась дверь, которая открывается только изнутри.
+   ========================================================================== */
+#home{position:fixed;inset:0;background:var(--bg);z-index:250;display:none;flex-direction:column}
+#home.open{display:flex}
+
+#hhead{height:60px;min-height:60px;display:flex;align-items:center;gap:14px;padding:0 20px;
+  background:var(--card);border-bottom:1px solid var(--line)}
+.hbrand{display:flex;align-items:center;gap:9px;cursor:pointer;user-select:none;flex-shrink:0}
+.hbrand .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#4262ff,#7b3fd1);
+  display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:15px}
+.hbrand .nm{font-weight:750;font-size:16px;letter-spacing:-.3px}
+/* Поиск по доскам. Он в шапке, а не в углу: когда досок больше десятка,
+   искать глазами по сетке дольше, чем набрать три буквы. */
+.hsearchw{flex:1;max-width:460px;position:relative}
+.hsearchw .ic{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:13px;pointer-events:none}
+#hq{width:100%;padding:8px 12px 8px 32px;border:1px solid var(--line);border-radius:var(--r-s);
+  background:var(--bg);font-size:13.5px;color:var(--ink);outline:none}
+#hq:focus{background:var(--card);border-color:var(--accent-br);box-shadow:0 0 0 3px var(--accent-bg)}
+.hgrow{flex:1}
+
+/* Аватар — единственная точка входа в аккаунт. Он в правом верхнем углу и на главной,
+   и в редакторе: место, где его ищут не задумываясь. */
+.avat{width:34px;height:34px;min-width:34px;border-radius:50%;border:none;cursor:pointer;
+  background:linear-gradient(135deg,#4262ff,#7b3fd1);color:#fff;font-weight:700;font-size:13px;
+  display:flex;align-items:center;justify-content:center;letter-spacing:.3px;text-transform:uppercase}
+.avat:hover{filter:brightness(1.08)}
+.avat.guest{background:var(--line2);color:var(--ink2);border:1px solid var(--line)}
+.avat.sm{width:26px;height:26px;min-width:26px;font-size:10.5px}
+/* Стопка участников доски: показывает, что доска не только твоя. */
+.avstack{display:flex;align-items:center;margin-right:2px}
+.avstack .avat{margin-left:-7px;box-shadow:0 0 0 2px var(--card)}
+.avstack .avat:first-child{margin-left:0}
+
+#hbody{flex:1;min-height:0;display:flex}
+#hnav{width:210px;min-width:210px;padding:14px 10px;border-right:1px solid var(--line);
+  background:var(--card);display:flex;flex-direction:column;gap:2px;overflow:auto}
+.hn{display:flex;align-items:center;gap:10px;padding:8px 11px;border-radius:var(--r-s);cursor:pointer;
+  font-size:13.6px;color:var(--ink2);user-select:none}
+.hn:hover{background:var(--line2)}
+.hn.on{background:var(--accent-bg);color:var(--accent-ink);font-weight:650}
+.hn .ic{width:17px;text-align:center;font-size:14px;opacity:.9}
+.hn .cnt{margin-left:auto;font-size:11.6px;color:var(--muted);font-weight:600}
+.hn.on .cnt{color:var(--accent-ink)}
+.hnsep{height:1px;background:var(--line);margin:10px 6px}
+#hmain{flex:1;min-width:0;overflow:auto;padding:26px 30px 60px}
+.hwrap{max-width:1240px;margin:0 auto}
+.hh1{font-size:24px;font-weight:750;letter-spacing:-.4px;margin:0 0 4px}
+.hsub{font-size:13.6px;color:var(--muted);margin-bottom:22px}
+
+/* ---- карточка доски ----
+   Карточка без картинки — это строка текста: чтобы найти нужную доску, приходится
+   читать названия одно за другим. Превью рисуется из настоящих координат узлов. */
+.bgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:16px}
+.bcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r-m);cursor:pointer;
+  overflow:hidden;position:relative;transition:box-shadow .14s,transform .14s,border-color .14s}
+.bcard:hover{box-shadow:var(--sh2);transform:translateY(-2px);border-color:#ccd3e3}
+.bprev{height:132px;background:#fff;border-bottom:1px solid var(--line);position:relative;overflow:hidden}
+.bprev svg{width:100%;height:100%;display:block}
+.bprev .noprev{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:30px;font-weight:800;color:#fff;opacity:.9;letter-spacing:-1px}
+.bbody{padding:11px 13px 13px}
+.bcard .t{font-size:14px;font-weight:700;line-height:1.3;margin-bottom:5px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.bcard .m{font-size:11.8px;color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.bcard .m .dot{opacity:.5}
+.bcard .who{font-size:11.6px;color:var(--muted);margin-top:5px;display:flex;align-items:center;gap:6px}
+/* Кнопка меню карточки: появляется по наведению, чтобы не шуметь в сетке. */
+.bcard .mo{position:absolute;right:8px;top:8px;opacity:0;width:28px;height:28px;border-radius:7px;border:none;
+  background:rgba(255,255,255,.94);box-shadow:var(--sh1);cursor:pointer;color:var(--ink2);font-size:15px;line-height:1}
+.bcard:hover .mo,.bcard .mo:focus-visible{opacity:1}
+.bcard .mo:hover{background:#fff;color:var(--ink)}
+.bcard .tag{position:absolute;left:9px;top:9px;font-size:10.8px;font-weight:700;padding:3px 8px;border-radius:20px;
+  background:rgba(255,255,255,.94);color:var(--ink2);box-shadow:var(--sh1)}
+.bcard.new{border-style:dashed;background:transparent;display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:7px;min-height:206px;color:var(--accent);font-weight:650;font-size:14px}
+.bcard.new:hover{background:var(--accent-bg);border-color:var(--accent-br)}
+.bcard.new .plus{font-size:26px;line-height:1;font-weight:400}
+.bempty{background:var(--card);border:1px dashed var(--line);border-radius:var(--r-m);
+  padding:44px 30px;text-align:center;color:var(--muted)}
+.bempty .ttl{font-size:16px;font-weight:700;color:var(--ink);margin-bottom:6px}
+
+/* ---- витрина для тех, кто ещё не вошёл ---- */
+#landing{position:fixed;inset:0;background:var(--bg);z-index:250;display:none;overflow:auto}
+#landing.open{display:block}
+.lhead{height:64px;display:flex;align-items:center;gap:14px;padding:0 26px;max-width:1120px;margin:0 auto}
+.lwrap{max-width:1120px;margin:0 auto;padding:40px 26px 70px}
+.lhero{text-align:center;padding:36px 0 30px}
+.lhero h1{font-size:44px;line-height:1.12;font-weight:800;letter-spacing:-1.2px;margin:0 0 16px}
+.lhero p{font-size:17px;line-height:1.6;color:var(--ink2);max-width:620px;margin:0 auto 26px}
+.lcta{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.lcta .btn{font-size:14.5px;padding:11px 22px;border-radius:10px}
+.lnote{font-size:12.8px;color:var(--muted);margin-top:16px}
+.lshot{margin:38px auto 0;max-width:940px;border:1px solid var(--line);border-radius:var(--r-l);
+  overflow:hidden;box-shadow:var(--sh3);background:var(--card)}
+.lshot svg{display:block;width:100%;height:auto}
+.lfeat{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;margin-top:52px}
+.lfeat .c{background:var(--card);border:1px solid var(--line);border-radius:var(--r-m);padding:20px 20px 22px}
+.lfeat .c h3{margin:0 0 7px;font-size:15.5px;font-weight:730}
+.lfeat .c p{margin:0;font-size:13.4px;line-height:1.6;color:var(--ink2)}
+.lfeat .c .ic{font-size:20px;margin-bottom:10px;display:block}
+
+/* ---- вход отдельным экраном, а не окошком поверх ----
+   Модальное окно поверх пустоты не отвечает на вопрос «куда я попал». */
+#authpage{position:fixed;inset:0;background:var(--bg);z-index:260;display:none;
+  align-items:center;justify-content:center;padding:24px;overflow:auto}
+#authpage.open{display:flex}
+.acard{background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:var(--sh2);
+  width:100%;max-width:404px;padding:30px 30px 26px}
+.acard .brandline{display:flex;align-items:center;gap:9px;justify-content:center;margin-bottom:20px}
+.acard h2{margin:0 0 6px;font-size:22px;font-weight:750;letter-spacing:-.4px;text-align:center}
+.acard .sub{font-size:13.4px;color:var(--muted);text-align:center;margin-bottom:22px;line-height:1.5}
+.acard .f{margin-bottom:13px}
+.acard input{width:100%;padding:10px 12px;font-size:14px;border:1px solid var(--line);border-radius:var(--r-s);
+  background:var(--card);color:var(--ink);outline:none}
+.acard input:focus{border-color:var(--accent-br);box-shadow:0 0 0 3px var(--accent-bg)}
+.acard .go{width:100%;justify-content:center;font-size:14.5px;padding:11px}
+.acard .alt{text-align:center;margin-top:16px;font-size:13px;color:var(--muted)}
+.acard .alt a{color:var(--accent);cursor:pointer;text-decoration:none;font-weight:600}
+.aerr{background:var(--red-bg);border:1px solid var(--red-br);color:var(--red);border-radius:var(--r-s);
+  padding:9px 11px;font-size:12.8px;margin-bottom:14px;line-height:1.45}
+
+/* ==========================================================================
+   РЕДАКТОР: верхняя панель и плавающие панели поверх холста
+   ========================================================================== */
+#topbar{gap:10px}
+.tbhome{width:32px;height:32px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--card);
+  cursor:pointer;color:var(--ink2);font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.tbhome:hover{background:var(--line2);color:var(--ink)}
+.bname{border:none;background:transparent;font-size:15px;font-weight:730;letter-spacing:-.2px;color:var(--ink);
+  cursor:pointer;padding:5px 9px;border-radius:var(--r-s);max-width:280px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;text-align:left}
+.bname:hover{background:var(--line2)}
+#pgTitle{font-weight:600!important;font-size:13.4px!important;color:var(--ink2)}
+.tbsep{width:1px;height:22px;background:var(--line);flex-shrink:0}
+
+/* Плавающие панели: белая плашка с тенью поверх холста, как принято в редакторах
+   на бесконечном полотне. Раньше зум-панель была прижата к краю без тени
+   и читалась как часть сетки. */
+#zoombar{position:absolute;left:14px;bottom:14px;display:flex;align-items:center;gap:3px;
+  background:var(--card);border:1px solid var(--line);border-radius:11px;padding:5px 6px;
+  box-shadow:var(--shf);z-index:6}
+#zoombar .btn{border:none;background:transparent;padding:6px 8px}
+#zoombar .btn:hover{background:var(--line2)}
+#zval{font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink2)}
+#mini{position:absolute;right:14px;bottom:14px;background:var(--card);border:1px solid var(--line);
+  border-radius:11px;box-shadow:var(--shf);z-index:6}
+
+/* Панель инструментов холста слева: создать узел, область, заметку.
+   Была только кнопка «＋ Узел» в верхней панели — области и заметки жили
+   в контекстном меню, то есть не существовали для того, кто его не открыл. */
+#toolrail{position:absolute;left:14px;top:14px;display:flex;flex-direction:column;gap:3px;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px;
+  box-shadow:var(--shf);z-index:6}
+#toolrail button{width:36px;height:36px;border:none;background:transparent;border-radius:9px;cursor:pointer;
+  color:var(--ink2);font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center}
+#toolrail button:hover{background:var(--line2);color:var(--ink)}
+#toolrail button.on{background:var(--accent-bg);color:var(--accent-ink)}
+#toolrail .rsep{height:1px;background:var(--line);margin:3px 4px}
+
+body.dark .bprev{background:#f7f8fb}
+body.dark .bcard .mo,body.dark .bcard .tag{background:rgba(23,27,36,.94)}
+body.dark #hhead,body.dark #hnav,body.dark .bcard,body.dark .acard,
+body.dark .lfeat .c,body.dark .lshot,body.dark .bempty{background:var(--card)}
+body.dark #hq{background:var(--surf2)}
+body.dark .hn:hover{background:var(--surf2)}
+body.dark .tbhome{background:var(--card)}
+body.dark .tbhome:hover,body.dark .bname:hover,body.dark #zoombar .btn:hover,
+body.dark #toolrail button:hover{background:var(--surf2)}
+body.dark #zoombar,body.dark #mini,body.dark #toolrail{background:var(--card)}
+
+@media (max-width: 860px) {
+  #hnav{width:56px;min-width:56px;padding:12px 6px}
+  .hn .nm,.hn .cnt{display:none}
+  .hn{justify-content:center;padding:9px 0}
+  #hmain{padding:20px 16px 50px}
+  .hsearchw{max-width:none}
+  .hbrand .nm{display:none}
+  .lhero h1{font-size:32px}
+  .lhero p{font-size:15px}
 }

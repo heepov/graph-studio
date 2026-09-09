@@ -24,42 +24,62 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
     await c.waitFor('typeof idb !== "undefined" && !!idb', 25000, 'загрузка');
     await c.eval('(closeModal(), true)');
 
-    // без входа приложение обязано работать: локальные проекты никуда не делись
-    const anon = await c.eval(`({acc: cloud.CLOUD.account, online: cloud.CLOUD.online})`);
-    (anon.acc === null && anon.online === true)
-      ? ok('без входа приложение работает, сервер виден')
-      : bad('состояние до входа неверное', JSON.stringify(anon));
+    // Без входа человек должен увидеть, что это за инструмент и куда войти.
+    // Раньше здесь был пустой список проектов без единой кнопки входа.
+    const anon = await c.eval(`({acc: cloud.CLOUD.account, online: cloud.CLOUD.online,
+      landing: document.getElementById('landing').classList.contains('open'),
+      loginBtn: !!document.querySelector('#landing [data-a=login]'),
+      demoBtn: !!document.querySelector('#landing [data-a=demo]')})`);
+    (anon.acc === null && anon.online === true && anon.landing && anon.loginBtn && anon.demoBtn)
+      ? ok('без входа открывается витрина с кнопками «Войти» и «Демо»')
+      : bad('витрина до входа не показана', JSON.stringify(anon));
 
     // вход
     const login = await c.eval(`(async () => {
       const r = await api.login('kaitnik@gmail.com', ${JSON.stringify(pass)});
-      cloud.CLOUD.account = r.user; paintAccount();
+      cloud.CLOUD.account = r.user; paintAccount(); await home.showHome('all');
       return {email: r.user.email, admin: r.user.admin,
-              nav: document.querySelector('#navAccount .nm').textContent,
-              adminVisible: !document.getElementById('navAdmin').classList.contains('hidden')};
+              nav: document.getElementById('hAvatar').textContent,
+              adminVisible: !!document.querySelector('#hnav [data-a=admin]')};
     })()`);
     (login.admin && login.adminVisible)
       ? ok('вход выполняется, админка появляется в панели', login.nav)
       : bad('вход или отображение аккаунта сломаны', JSON.stringify(login));
 
-    // создаём локальный проект из демо-шаблона и отправляем на сервер
-    await c.waitFor('document.querySelector(\'#tList .pcard[data-t="demo"]\')', 15000, 'шаблон');
-    await c.eval('document.querySelector(\'#tList .pcard[data-t="demo"]\').click()');
-    await c.waitFor('typeof P !== "undefined" && P && P.nodes.length > 0', 15000, 'проект');
+    // Новая доска создаётся СРАЗУ на сервере: промежуточного локального шага
+    // больше нет. Раньше «＋ проект» клал файл в браузер, и человек узнавал,
+    // что доски нет на втором устройстве, уже потеряв её.
+    await c.waitFor('typeof createFromTemplate === "function"', 15000, 'приложение готово');
+    await c.eval('createFromTemplate(\'demo\')');
+    await c.waitFor('typeof P !== "undefined" && P && P.nodes.length > 0 && cloud.boundToServer()',
+      20000, 'доска на сервере');
     await sleep(800);
 
-    const up = await c.eval(`(async () => {
-      const id = await cloud.uploadProject(P);
-      await openServerBoard(id);
-      return {id, bound: cloud.boundToServer(), version: cloud.CLOUD.board.version,
-              role: cloud.CLOUD.board.role, url: location.pathname,
-              share: !document.getElementById('bShare').classList.contains('hidden')};
-    })()`);
+    const up = await c.eval(`({id: cloud.CLOUD.board.id, bound: cloud.boundToServer(),
+      version: cloud.CLOUD.board.version, role: cloud.CLOUD.board.role, url: location.pathname,
+      share: !document.getElementById('bShare').classList.contains('hidden')})`);
     (up.bound && up.role === 'owner' && up.url === '/b/' + up.id)
-      ? ok('проект уезжает на сервер и открывается как доска', `${up.id}, версия ${up.version}`)
-      : bad('отправка на сервер не сработала', JSON.stringify(up));
+      ? ok('новая доска создаётся сразу на сервере', `${up.id}, версия ${up.version}`)
+      : bad('доска не создалась на сервере', JSON.stringify(up));
     up.share ? ok('кнопка «Поделиться» появляется у серверной доски')
              : bad('кнопки «Поделиться» нет');
+
+    // превью для карточки в списке: без него сетка досок — просто столбик названий
+    const prev = await c.eval(`(async () => {
+      gotoPage(P.pages.find(p => p.kind === 'canvas').id);
+      await new Promise(r => setTimeout(r, 900));
+      const p = buildPreview();
+      P.desc = (P.desc || '') + '.';
+      save();
+      await new Promise(r => setTimeout(r, 2200));
+      const list = await api.boards();
+      const row = list.mine.find(b => b.id === cloud.CLOUD.board.id);
+      let parsed = null; try { parsed = JSON.parse(row.preview); } catch {}
+      return {built: p ? p.n.length : 0, stored: parsed ? parsed.n.length : 0};
+    })()`);
+    (prev.built > 0 && prev.stored === prev.built)
+      ? ok('превью доски считается и доезжает до сервера', prev.stored + ' узлов')
+      : bad('превью не сохраняется', JSON.stringify(prev));
 
     // правка должна уехать на сервер
     const edited = await c.eval(`(async () => {

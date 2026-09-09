@@ -45,17 +45,28 @@ export function registerBoards(app, db, deps) {
     try { return String(JSON.parse(docText).name || '').slice(0, 200); } catch { return ''; }
   };
 
+  // Превью для карточки в списке считает клиент — сервер документ не разбирает.
+  // Здесь только защита от мусора: строка, не длиннее разумного. Кривое превью
+  // не должно быть поводом отказать в сохранении самой доски.
+  const PREVIEW_MAX = 24 * 1024;
+  function previewOf(raw, prev) {
+    if (raw === undefined) return prev === undefined ? null : prev;   // не прислали — не трогаем
+    if (raw === null) return null;
+    const t = typeof raw === 'string' ? raw : JSON.stringify(raw);
+    return t.length > PREVIEW_MAX ? null : t;
+  }
+
   /* ---------- список ---------- */
   app.get('/api/boards', { preHandler: requireUser }, async (req) => {
-    const mine = db.prepare(`SELECT id, name, nodes_count, links_count, updated_at, created_at, 'owner' AS role
+    const mine = db.prepare(`SELECT id, name, nodes_count, links_count, updated_at, created_at, preview, 'owner' AS role
       FROM boards WHERE owner_id = ? AND deleted = 0 ORDER BY updated_at DESC`).all(req.user.id);
-    const shared = db.prepare(`SELECT b.id, b.name, b.nodes_count, b.links_count, b.updated_at, b.created_at,
+    const shared = db.prepare(`SELECT b.id, b.name, b.nodes_count, b.links_count, b.updated_at, b.created_at, b.preview,
         m.role, u.email AS owner_email
       FROM board_members m JOIN boards b ON b.id = m.board_id
       LEFT JOIN users u ON u.id = b.owner_id
       WHERE m.user_id = ? AND b.deleted = 0 AND b.owner_id != ?
       ORDER BY b.updated_at DESC`).all(req.user.id, req.user.id);
-    const trashed = db.prepare(`SELECT id, name, updated_at FROM boards
+    const trashed = db.prepare(`SELECT id, name, nodes_count, links_count, updated_at, preview FROM boards
       WHERE owner_id = ? AND deleted = 1 ORDER BY updated_at DESC LIMIT 50`).all(req.user.id);
     return { mine, shared, trashed };
   });
@@ -68,8 +79,9 @@ export function registerBoards(app, db, deps) {
     const c = counts(text);
     const id = newId('b');
     const t = now();
-    db.prepare(`INSERT INTO boards (id, owner_id, name, doc, version, nodes_count, links_count, created_at, updated_at, updated_by)
-      VALUES (?,?,?,?,1,?,?,?,?,?)`).run(id, req.user.id, nameOf(text) || 'Доска', text, c.n, c.l, t, t, req.user.id);
+    db.prepare(`INSERT INTO boards (id, owner_id, name, doc, version, nodes_count, links_count, preview, created_at, updated_at, updated_by)
+      VALUES (?,?,?,?,1,?,?,?,?,?,?)`).run(id, req.user.id, nameOf(text) || 'Доска', text, c.n, c.l,
+        previewOf((req.body || {}).preview, null), t, t, req.user.id);
     db.prepare('INSERT INTO board_members (board_id, user_id, role, added_at) VALUES (?,?,?,?)')
       .run(id, req.user.id, 'owner', t);
     return { id, version: 1 };
@@ -112,8 +124,9 @@ export function registerBoards(app, db, deps) {
     const t = now();
     const v = board.version + 1;
     db.prepare(`UPDATE boards SET doc = ?, version = ?, name = ?, nodes_count = ?, links_count = ?,
-      updated_at = ?, updated_by = ? WHERE id = ?`)
-      .run(text, v, nameOf(text) || board.name, c.n, c.l, t, req.user.id, board.id);
+      preview = ?, updated_at = ?, updated_by = ? WHERE id = ?`)
+      .run(text, v, nameOf(text) || board.name, c.n, c.l,
+        previewOf((req.body || {}).preview, board.preview), t, req.user.id, board.id);
     return { version: v, updated_at: t };
   });
 

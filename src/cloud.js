@@ -100,8 +100,8 @@ export async function fetchBoards() {
 
 // Отдаёт локальный проект на сервер. Это же путь переезда: ничего не удаляется,
 // локальная копия остаётся на месте, пока человек сам не решит иначе.
-export async function uploadProject(doc) {
-  const r = await api.boardCreate(doc);
+export async function uploadProject(doc, preview) {
+  const r = await api.boardCreate(doc, preview);
   return r.id;
 }
 
@@ -163,9 +163,11 @@ export function showShare(boardId, boardName) {
 // Отдельная очередь: сохранение в сеть медленнее локального и может конфликтовать.
 let pushT = null, pushing = false, pendingDoc = null;
 
-export function schedulePush(getDoc, onState) {
+let pendingPrev = null;
+export function schedulePush(getDoc, onState, getPreview) {
   if (!CLOUD.board) return;
   pendingDoc = getDoc;
+  pendingPrev = getPreview || null;
   clearTimeout(pushT);
   pushT = setTimeout(() => pushNow(onState), 900);
 }
@@ -174,9 +176,12 @@ export async function pushNow(onState) {
   if (!CLOUD.board || !pendingDoc || pushing) return;
   pushing = true;
   const doc = pendingDoc();
+  // Превью считается ровно здесь: оно нужно только серверу для карточки в списке
+  // и не должно попадать в сам документ доски.
+  let prev; try { prev = pendingPrev ? pendingPrev() : undefined; } catch { prev = undefined; }
   pendingDoc = null;
   try {
-    const r = await api.boardPut(CLOUD.board.id, doc, CLOUD.board.version);
+    const r = await api.boardPut(CLOUD.board.id, doc, CLOUD.board.version, prev);
     CLOUD.board.version = r.version;
     if (onState) onState({ok: true, version: r.version});
   } catch (e) {
@@ -192,4 +197,4 @@ export async function pushNow(onState) {
 
 export function boundToServer() { return !!CLOUD.board; }
 export function bindBoard(info) { CLOUD.board = info; }
-export function unbindBoard() { CLOUD.board = null; clearTimeout(pushT); pendingDoc = null; }
+export function unbindBoard() { CLOUD.board = null; clearTimeout(pushT); pendingDoc = null; pendingPrev = null; }
