@@ -115,6 +115,56 @@ const GUEST_PASS = 'test-pass-12345';
     heavy ? ok('правка на большой доске доезжает уведомлением с догрузкой', Math.round(size / 1024) + ' КБ')
           : bad('большая доска не доехала до второго', Math.round(size / 1024) + ' КБ');
 
+    // --- двое клеят стикеры одновременно ------------------------------------
+    // На доске одновременная правка — не исключение, а весь смысл. Раньше второй
+    // получал модалку «взять серверную», то есть «потерять свой стикер».
+    const JPID = await A.eval(`(() => {
+      P.notes = [];
+      const pg = {id: uid('p'), name: 'Доска', kind: 'jam',
+        filter: {q: '', cats: [], statuses: [], types: [], f: {}}, jam: {items: [], bg: 'dots'}};
+      P.pages.push(pg); save(1); return pg.id;
+    })()`);
+    // ждём, пока страница доедет до второго
+    let hasPage = false;
+    for (let i = 0; i < 40 && !hasPage; i++) {
+      hasPage = await B.eval(`!!P.pages.find(p => p.id === ${JSON.stringify(JPID)})`).catch(() => false);
+      if (!hasPage) await sleep(300);
+    }
+    hasPage ? ok('доска доехала до второго участника') : bad('доска не доехала');
+
+    // Оба ставят по стикеру, не дав друг другу сохраниться: это и есть 409.
+    await A.eval(`(() => { const pg = pageById(${JSON.stringify(JPID)});
+      pg.jam.items.push({id: 'from_A', kind: 'sticky', x: 40, y: 40, w: 180, h: 180, fill: '#ffd93b', text: 'от первого'});
+      save(1); return true; })()`);
+    await B.eval(`(() => { const pg = pageById(${JSON.stringify(JPID)});
+      pg.jam.items.push({id: 'from_B', kind: 'sticky', x: 300, y: 40, w: 180, h: 180, fill: '#c9e3ff', text: 'от второго'});
+      save(1); return true; })()`);
+
+    let bothSeen = false, whoLost = null;
+    for (let i = 0; i < 50 && !bothSeen; i++) {
+      const st = await B.eval(`(() => { const pg = pageById(${JSON.stringify(JPID)});
+        const ids = (pg.jam.items || []).map(i => i.id);
+        return {ids, modal: document.getElementById('modal').classList.contains('open')}; })()`).catch(() => null);
+      if (st) { whoLost = st; bothSeen = st.ids.includes('from_A') && st.ids.includes('from_B'); }
+      if (!bothSeen) await sleep(300);
+    }
+    bothSeen ? ok('оба стикера на доске: правки слиты, а не затёрты')
+             : bad('чей-то стикер потерян', JSON.stringify(whoLost));
+
+    const modalUp = await B.eval(`document.getElementById('modal').classList.contains('open')`).catch(() => false);
+    !modalUp ? ok('слияние прошло без вопросов человеку')
+             : bad('вылезла модалка разрешения конфликта');
+
+    // И у первого тоже должны оказаться оба.
+    let bothOnA = false;
+    for (let i = 0; i < 40 && !bothOnA; i++) {
+      bothOnA = await A.eval(`(() => { const pg = pageById(${JSON.stringify(JPID)});
+        const ids = (pg.jam.items || []).map(i => i.id);
+        return ids.includes('from_A') && ids.includes('from_B'); })()`).catch(() => false);
+      if (!bothOnA) await sleep(300);
+    }
+    bothOnA ? ok('оба стикера доехали и до первого') : bad('у первого пропал чужой стикер');
+
     // --- курсоры ------------------------------------------------------------
     await A.eval(`(() => { live.sendCursor(500, 400, UI.page); return true; })()`);
     let cur = null;
