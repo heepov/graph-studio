@@ -548,6 +548,45 @@ body.dark .chip.on{background:var(--accent-bg);border-color:var(--accent-br);col
   #insp,#insp.open{width:100vw}
   #cvempty{max-width:88vw;padding:14px 16px}
   .emptybox{margin:20px 12px}
+
+  /* ---- телефон ----
+     На 414 px верхняя панель разъезжалась в три строки, мини-карта занимала
+     треть экрана, а зум-панель уезжала за правый край. Работать этим было нельзя. */
+
+  /* Панели в одну строку с горизонтальной прокруткой: перенос съедал высоту,
+     которой на телефоне и так нет. */
+  #topbar{height:52px;min-height:52px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;
+    gap:6px;padding:0 8px;scrollbar-width:none}
+  #topbar::-webkit-scrollbar{display:none}
+  /* Без запрета на сжатие flex ужимает кнопки вместо прокрутки, и от названия
+     доски остаётся одна буква. */
+  #topbar > *{flex-shrink:0}
+  #topbar .spacer{display:none}
+  #pagebar{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+  #pagebar::-webkit-scrollbar{display:none}
+  /* Имя страницы и счётчик узлов на телефоне уступают место кнопкам: то же самое
+     видно в списке страниц и в подвале панели. */
+  #pgTitle,#pgSub,.tbsep{display:none}
+  .bname{max-width:44vw;font-size:14px}
+  /* «Поиск» на телефоне остаётся значком: подпись занимает место, которого нет,
+     а сам значок узнаётся без слов. font-size:0 гасит текст кнопки, ::before
+     возвращает значок — иначе кнопка превращалась в пустую пилюлю. */
+  #bFind{font-size:0;padding:7px 11px}
+  #bFind::before{content:'🔍';font-size:15px}
+  .btn{padding:7px 10px}
+
+  /* Мини-карта — роскошь настольного экрана: на телефоне она перекрывала холст,
+     ради которого сюда и пришли. */
+  #mini{display:none}
+  #zoombar{left:10px;right:10px;bottom:10px;justify-content:center}
+  #zoombar .btn.sm{font-size:12px}
+  #toolrail{top:10px;left:10px;padding:4px}
+  #toolrail button{width:40px;height:40px}
+  /* Пояснение над холстом на телефоне занимало треть экрана: показываем начало
+     и даём развернуть касанием. */
+  #cvintro{max-height:5.4em;overflow:hidden}
+  #cvintro.open{max-height:none}
+  #verbar{left:10px;right:10px;transform:none;justify-content:center;flex-wrap:wrap}
 }
 
 /* ==========================================================================

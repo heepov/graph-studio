@@ -234,7 +234,7 @@ function buildPreview() {
     for (const nd of cvNodes.slice(0, PREVIEW_NODES)) {
       const pos = cvPos[nd.id]; if (!pos) continue;
       const sz = nsize(nd, pg.id);
-      const c = (catOf(nd) || {}).color || (statusOf(nd.status) || {}).color || '#9aa1b2';
+      const c = (catOf(nd.cat) || {}).color || (statusOf(nd.status) || {}).color || '#9aa1b2';
       mid[nd.id] = [Math.round(pos.x + sz.w / 2), Math.round(pos.y + sz.h / 2)];
       n.push([Math.round(pos.x), Math.round(pos.y), Math.round(sz.w), Math.round(sz.h), c]);
     }
@@ -788,7 +788,11 @@ function renderCanvas(pg) {
     <canvas id="mini" width="264" height="176"></canvas>
   </div></div></div>`;
   const ix = $('introX');
-  if (ix) ix.onclick = () => {cfg.introOff = 1; save(); renderPage();};
+  if (ix) ix.onclick = e => {e.stopPropagation(); cfg.introOff = 1; save(); renderPage();};
+  // На узком экране пояснение показывается началом: касание разворачивает его
+  // целиком. Прятать текст без возможности прочитать — не решение.
+  const intro = $('cvintro');
+  if (intro) intro.onclick = () => intro.classList.toggle('open');
   cvPos = layoutPage(pg, nodes);
   paintFrames(); paintNodes(); paintEdges(); paintNotes();
   applyView();
