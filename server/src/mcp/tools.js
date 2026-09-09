@@ -393,6 +393,104 @@ export const TOOLS = [
   },
 
   /* ---------- история и доступ ---------- */
+  /* ---------- свободная доска ---------- */
+  {
+    name: 'jam_add',
+    title: 'Положить объекты на доску',
+    description: 'Стикеры, фигуры, текст, рисунки и коннекторы на страницу kind=jam. '
+      + 'Координаты — в единицах холста, начало в левом верхнем углу, ось Y вниз. '
+      + 'Порядок в ответе = порядок наложения: что добавлено позже, лежит выше. '
+      + 'Коннектор здесь — ЛИНИЯ, а не зависимость: на слои, вес узла и критический путь он не влияет.',
+    inputSchema: O('', {
+      board: BOARD,
+      page: S('id страницы-доски'),
+      items: A('Что положить', O('', {
+        kind: S('sticky — стикер, shape — фигура, text — текст, draw — рисунок, conn — коннектор, section — секция',
+          { enum: ['sticky', 'shape', 'text', 'draw', 'conn', 'section'] }),
+        x: N('X'), y: N('Y'), w: N('Ширина'), h: N('Высота'),
+        text: S('Текст внутри объекта'),
+        fill: S('Заливка #rrggbb'),
+        stroke: S('Цвет линии #rrggbb'),
+        sw: N('Толщина линии'),
+        rotation: N('Поворот в градусах'),
+        shape: S('Форма для kind=shape', { enum: ['rect', 'roundrect', 'ellipse', 'diamond', 'triangle', 'star', 'arrow'] }),
+        points: S('Для kind=draw: пары «x,y» через пробел, ОТНОСИТЕЛЬНО x/y объекта. Например «0,0 20,18 44,6»'),
+        from: S('Для kind=conn: id объекта доски, либо node:<id узла графа>, положенного на эту доску'),
+        to: S('Для kind=conn: то же, что from'),
+        style: S('Для kind=conn', { enum: ['curve', 'ortho', 'line'] }),
+        cap_start: S('Наконечник в начале', { enum: ['none', 'arrow', 'dot'] }),
+        cap_end: S('Наконечник в конце', { enum: ['none', 'arrow', 'dot'] }),
+      }, ['kind'])),
+    }, ['board', 'page', 'items']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const added = D.jamAdd(doc, a.page, a.items);
+      return { summary: `+${added.length} об. на доске из Claude`, result: { added, count: added.length } };
+    }),
+  },
+  {
+    name: 'jam_update',
+    title: 'Правка объектов доски',
+    description: 'Меняет только те поля, что присланы. Остальные, включая незнакомые, не трогаются.',
+    inputSchema: O('', {
+      board: BOARD, page: S('id страницы-доски'),
+      items: A('Что поменять', O('', {
+        id: S('id объекта'),
+        x: N('X'), y: N('Y'), w: N('Ширина'), h: N('Высота'),
+        text: S('Текст'), fill: S('Заливка #rrggbb'), stroke: S('Цвет линии #rrggbb'), sw: N('Толщина'),
+        rotation: N('Поворот в градусах'), lock: B('Запретить правку мышью'),
+        shape: S('Форма', { enum: ['rect', 'roundrect', 'ellipse', 'diamond', 'triangle', 'star', 'arrow'] }),
+        points: S('Точки рисунка'),
+        from: S('Начало коннектора'), to: S('Конец коннектора'),
+        style: S('Стиль линии', { enum: ['curve', 'ortho', 'line'] }),
+        cap_start: S('Наконечник в начале', { enum: ['none', 'arrow', 'dot'] }),
+        cap_end: S('Наконечник в конце', { enum: ['none', 'arrow', 'dot'] }),
+      }, ['id'])),
+    }, ['board', 'page', 'items']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const updated = D.jamUpdate(doc, a.page, a.items);
+      return { summary: `правка ${updated.length} об. на доске из Claude`, result: { updated } };
+    }),
+  },
+  {
+    name: 'jam_delete',
+    title: 'Убрать объекты с доски',
+    description: 'Коннекторы, у которых пропал конец, удаляются вместе с объектом — линия в никуда смысла не имеет.',
+    inputSchema: O('', {
+      board: BOARD, page: S('id страницы-доски'), items: A('id объектов', S('id')),
+    }, ['board', 'page', 'items']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const result = D.jamDelete(doc, a.page, a.items);
+      return { summary: `−${result.removed} об. с доски из Claude`, result };
+    }),
+  },
+  {
+    name: 'jam_read',
+    title: 'Прочитать доску',
+    description: 'Объекты одной доски. Отдельный вызов, а не часть get_board: объектов на доске '
+      + 'бывает больше, чем всего остального документа, и тащить их в каждое чтение доски — жечь контекст.',
+    inputSchema: O('', { board: BOARD, page: S('id страницы-доски') }, ['board', 'page']),
+    handler: (ctx, a) => {
+      const { board, doc } = ctx.load(a.board);
+      const items = D.jamRead(doc, a.page);
+      return { board: board.id, page: a.page, count: items.length, items };
+    },
+  },
+  {
+    name: 'jam_arrange',
+    title: 'Разложить объекты доски',
+    description: 'Выравнивание, раскладка в ряд, в столбец и в сетку, а также порядок наложения. '
+      + 'Без items берёт все объекты доски.',
+    inputSchema: O('', {
+      board: BOARD, page: S('id страницы-доски'),
+      items: A('id объектов; без него — все', S('id')),
+      op: S('Что сделать', { enum: ['front', 'back', 'align_left', 'align_right', 'align_top', 'align_bottom', 'stack_h', 'stack_v', 'grid'] }),
+      gap: N('Промежуток для stack_* и grid, по умолчанию 40'),
+    }, ['board', 'page', 'op']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const result = D.jamArrange(doc, a.page, a.items, a.op, a.gap);
+      return { summary: `раскладка доски (${a.op}) из Claude`, result };
+    }),
+  },
   {
     name: 'board_history',
     title: 'История доски',

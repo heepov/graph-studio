@@ -620,4 +620,194 @@ export function metrics(doc) {
   };
 }
 
+/* ==========================================================================
+   СВОБОДНАЯ ДОСКА (страница kind:'jam')
+   ==========================================================================
+   Объекты доски лежат В САМОЙ странице, поэтому все операции адресуются парой
+   (страница, объект). Правило файла соблюдается и здесь: незнакомые поля объекта
+   не трогаются никогда — присваивается только явно перечисленное. */
+
+const JAM_KINDS = ['sticky', 'shape', 'text', 'draw', 'conn', 'section'];
+// Формы объектов ДОСКИ. Не путать с SHAPES выше — там формы узлов графа (rect|pill|diamond).
+const JAM_SHAPES = ['rect', 'roundrect', 'ellipse', 'diamond', 'triangle', 'star', 'arrow'];
+const CONN_STYLES = ['curve', 'ortho', 'line'];
+const CAPS = ['none', 'arrow', 'dot'];
+
+export function jamPage(doc, pageId) {
+  const p = (doc.pages || []).find(x => x.id === pageId)
+    || fail(`страницы ${pageId} нет`);
+  if (p.kind !== 'jam') fail(`страница «${p.name}» это ${p.kind}, а не доска: объекты кладутся только на доску`);
+  p.jam = p.jam || { items: [], bg: 'dots' };
+  if (!Array.isArray(p.jam.items)) p.jam.items = [];
+  return p;
+}
+const jamFind = (p, id) => (p.jam.items.find(x => x.id === id) || fail(`объекта ${id} нет на этой доске`));
+
+// Конец коннектора: объект доски, узел графа или свободная точка. Ссылка даётся
+// строкой — 'i_ab12' для объекта и 'node:LIC' для узла, чтобы модель не гадала.
+function jamEnd(doc, p, raw, what) {
+  if (raw == null) fail(`у коннектора нет конца «${what}»`);
+  if (typeof raw === 'object' && raw.x != null && raw.y != null) {
+    return { x: Math.round(+raw.x || 0), y: Math.round(+raw.y || 0) };
+  }
+  const v = String(raw);
+  const side = undefined;
+  if (v.startsWith('node:')) {
+    const id = v.slice(5);
+    need(doc, id);
+    if (!(doc.nodes.find(n => n.id === id).p || {})[p.id]) {
+      fail(`узел ${id} не положен на эту доску — сначала place_nodes`);
+    }
+    return { node: id, side: 'c' };
+  }
+  if (!p.jam.items.some(x => x.id === v)) fail(`объекта ${v} нет на этой доске (для узла графа пишите node:<id>)`);
+  return { item: v, side: 'c' };
+}
+
+function jamApply(doc, p, it, raw, creating) {
+  const num = (v, d) => (v === undefined ? d : Math.round(+v || 0));
+  if (raw.x !== undefined || creating) it.x = num(raw.x, 0);
+  if (raw.y !== undefined || creating) it.y = num(raw.y, 0);
+  if (it.kind !== 'conn' && it.kind !== 'draw') {
+    if (raw.w !== undefined || creating) it.w = Math.max(20, num(raw.w, jamDefault(it.kind).w));
+    if (raw.h !== undefined || creating) it.h = Math.max(20, num(raw.h, jamDefault(it.kind).h));
+  }
+  if (raw.text !== undefined) it.text = String(raw.text);
+  if (raw.fill !== undefined) it.fill = String(raw.fill);
+  if (raw.stroke !== undefined) it.stroke = String(raw.stroke);
+  if (raw.sw !== undefined) it.sw = Math.max(1, Math.round(+raw.sw || 2));
+  if (raw.rotation !== undefined) it.rot = Math.round(+raw.rotation || 0);
+  if (raw.lock !== undefined) it.lock = raw.lock ? 1 : 0;
+  if (it.kind === 'shape' && raw.shape !== undefined) {
+    it.shape = JAM_SHAPES.includes(raw.shape) ? raw.shape : fail(`фигуры «${raw.shape}» не бывает. Допустимо: ${JAM_SHAPES.join(', ')}`);
+  }
+  if (it.kind === 'draw' && raw.points !== undefined) it.d = String(raw.points).trim();
+  if (it.kind === 'conn') {
+    if (raw.from !== undefined) it.a = jamEnd(doc, p, raw.from, 'from');
+    if (raw.to !== undefined) it.b = jamEnd(doc, p, raw.to, 'to');
+    if (raw.style !== undefined) {
+      it.style = CONN_STYLES.includes(raw.style) ? raw.style : fail(`стиля линии «${raw.style}» не бывает. Допустимо: ${CONN_STYLES.join(', ')}`);
+    }
+    for (const [k, f] of [['cap_start', 'capA'], ['cap_end', 'capB']]) {
+      if (raw[k] === undefined) continue;
+      it[f] = CAPS.includes(raw[k]) ? raw[k] : fail(`наконечника «${raw[k]}» не бывает. Допустимо: ${CAPS.join(', ')}`);
+    }
+  }
+  return it;
+}
+function jamDefault(kind) {
+  if (kind === 'sticky') return { w: 180, h: 180, fill: '#ffd93b' };
+  if (kind === 'text') return { w: 300, h: 56 };
+  if (kind === 'section') return { w: 600, h: 400, fill: '#f2f4f9' };
+  if (kind === 'shape') return { w: 220, h: 120, fill: '#c9e3ff', stroke: '#7fa8d8' };
+  return { w: 0, h: 0 };
+}
+
+export function jamAdd(doc, pageId, list) {
+  const p = jamPage(doc, pageId);
+  const made = [];
+  for (const raw of list || []) {
+    const kind = String(raw.kind || '');
+    if (!JAM_KINDS.includes(kind)) fail(`объекта «${kind}» не бывает. Допустимо: ${JAM_KINDS.join(', ')}`);
+    const it = { id: uid('i'), kind };
+    Object.assign(it, jamDefault(kind));
+    if (kind === 'conn') { it.style = 'curve'; it.capB = 'arrow'; it.stroke = '#5a6172'; it.sw = 2; }
+    if (kind === 'draw' && !raw.points) fail('у рисунка нужны points — пары «x,y» через пробел, относительно x/y объекта');
+    jamApply(doc, p, it, raw, true);
+    // Порядок в массиве — это порядок наложения: новое ложится сверху.
+    p.jam.items.push(it);
+    made.push({ id: it.id, kind: it.kind });
+  }
+  return made;
+}
+
+export function jamUpdate(doc, pageId, list) {
+  const p = jamPage(doc, pageId);
+  const done = [];
+  for (const raw of list || []) {
+    const it = jamFind(p, String(raw.id || ''));
+    jamApply(doc, p, it, raw, false);
+    done.push(it.id);
+  }
+  return done;
+}
+
+export function jamDelete(doc, pageId, ids) {
+  const p = jamPage(doc, pageId);
+  const kill = new Set((ids || []).map(String));
+  const before = p.jam.items.length;
+  p.jam.items = p.jam.items.filter(x => !kill.has(x.id));
+  // removed считается ДО уборки коннекторов: иначе они попадали бы в оба числа
+  // сразу, и «удалил один объект» читалось бы как «удалил три».
+  const removed = before - p.jam.items.length;
+  // Коннектор без конца не имеет смысла — уходит вместе с тем, к чему он шёл.
+  const orphans = p.jam.items.filter(x => x.kind === 'conn'
+    && (kill.has((x.a || {}).item) || kill.has((x.b || {}).item))).map(x => x.id);
+  if (orphans.length) p.jam.items = p.jam.items.filter(x => !orphans.includes(x.id));
+  return { removed, connectors_removed: orphans.length };
+}
+
+export function jamRead(doc, pageId) {
+  const p = jamPage(doc, pageId);
+  return p.jam.items.map(it => {
+    const o = { id: it.id, kind: it.kind, x: it.x, y: it.y };
+    if (it.w) o.w = it.w;
+    if (it.h) o.h = it.h;
+    if (it.text) o.text = it.text;
+    if (it.fill) o.fill = it.fill;
+    if (it.stroke) o.stroke = it.stroke;
+    if (it.sw) o.sw = it.sw;
+    if (it.rot) o.rotation = it.rot;
+    if (it.lock) o.lock = 1;
+    if (it.shape) o.shape = it.shape;
+    if (it.d) o.points = it.d;
+    if (it.kind === 'conn') {
+      const ref = e => (!e ? null : e.item ? e.item : e.node ? 'node:' + e.node : `${e.x},${e.y}`);
+      o.from = ref(it.a); o.to = ref(it.b);
+      o.style = it.style || 'curve';
+      if (it.capA) o.cap_start = it.capA;
+      if (it.capB) o.cap_end = it.capB;
+    }
+    return o;
+  });
+}
+
+// Раскладка объектов. Один инструмент с перечислением операций вместо восьми
+// почти одинаковых имён: модель хорошо работает с enum, а реестр не раздувается.
+export function jamArrange(doc, pageId, ids, op, gap) {
+  const p = jamPage(doc, pageId);
+  const all = p.jam.items;
+  const sel = (ids && ids.length) ? all.filter(x => ids.includes(x.id)) : all.filter(x => x.kind !== 'conn');
+  if (!sel.length) fail('нечего раскладывать: объекты не найдены');
+  const g = Math.max(0, Math.round(+gap || 40));
+  const box = it => ({ x: +it.x || 0, y: +it.y || 0, w: +it.w || 0, h: +it.h || 0 });
+  if (op === 'front' || op === 'back') {
+    const keep = sel.map(x => x.id);
+    const rest = all.filter(x => !keep.includes(x.id));
+    const moved = all.filter(x => keep.includes(x.id));
+    p.jam.items = op === 'front' ? rest.concat(moved) : moved.concat(rest);
+    return { count: moved.length };
+  }
+  const movable = sel.filter(x => x.kind !== 'conn' && x.kind !== 'draw');
+  if (!movable.length) fail('коннекторы и рисунки не выравниваются: у них нет своего прямоугольника');
+  const bs = movable.map(box);
+  if (op === 'align_left') { const v = Math.min(...bs.map(b => b.x)); movable.forEach(it => it.x = v); }
+  else if (op === 'align_right') { const v = Math.max(...bs.map(b => b.x + b.w)); movable.forEach(it => it.x = v - (+it.w || 0)); }
+  else if (op === 'align_top') { const v = Math.min(...bs.map(b => b.y)); movable.forEach(it => it.y = v); }
+  else if (op === 'align_bottom') { const v = Math.max(...bs.map(b => b.y + b.h)); movable.forEach(it => it.y = v - (+it.h || 0)); }
+  else if (op === 'stack_h') {
+    let x = Math.min(...bs.map(b => b.x)); const y = Math.min(...bs.map(b => b.y));
+    movable.sort((a, b) => (+a.x || 0) - (+b.x || 0)).forEach(it => { it.x = x; it.y = y; x += (+it.w || 0) + g; });
+  } else if (op === 'stack_v') {
+    const x = Math.min(...bs.map(b => b.x)); let y = Math.min(...bs.map(b => b.y));
+    movable.sort((a, b) => (+a.y || 0) - (+b.y || 0)).forEach(it => { it.y = y; it.x = x; y += (+it.h || 0) + g; });
+  } else if (op === 'grid') {
+    const cols = Math.max(1, Math.ceil(Math.sqrt(movable.length)));
+    const x0 = Math.min(...bs.map(b => b.x)), y0 = Math.min(...bs.map(b => b.y));
+    const w = Math.max(...bs.map(b => b.w)) + g, h = Math.max(...bs.map(b => b.h)) + g;
+    movable.forEach((it, i) => { it.x = x0 + (i % cols) * w; it.y = y0 + Math.floor(i / cols) * h; });
+  } else fail(`операции «${op}» не бывает`);
+  return { count: movable.length };
+}
+
 export { uid };

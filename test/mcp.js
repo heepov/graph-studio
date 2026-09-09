@@ -188,7 +188,7 @@ async function json(path, opts = {}) {
     // Число ТОЧНОЕ, а не «хотя бы столько»: мягкая проверка означала, что реестр
     // можно нечаянно урезать или раздуть, и никто не заметит. Добавили инструмент —
     // поправьте здесь, это одна строка и осознанное действие.
-    const TOOLS_EXPECTED = 24;
+    const TOOLS_EXPECTED = 29;
     (names.length === TOOLS_EXPECTED && names.includes('add_nodes') && names.includes('place_nodes') && names.includes('edit_schema'))
       ? ok('инструменты объявлены', names.length + ' шт.')
       : bad(`инструментов ${names.length}, а ожидалось ${TOOLS_EXPECTED}`, names.join(', '));
@@ -312,6 +312,100 @@ async function json(path, opts = {}) {
     (jamPage && jamPage.jam_items === 0)
       ? ok('в структуре доски видно число объектов, а не они сами')
       : bad('счётчик объектов доски не отдаётся', JSON.stringify(jamPage));
+
+    /* ---------- свободная доска через коннектор ---------- */
+    const jadd = await call('jam_add', { board: B, page: jam.id, items: [
+      { kind: 'section', x: 0, y: 0, w: 900, h: 600, text: 'Спринт 1' },
+      { kind: 'sticky', x: 40, y: 60, text: 'Проверить у юристов', fill: '#ffd93b' },
+      { kind: 'shape', x: 320, y: 60, shape: 'roundrect', text: 'Этап 1' },
+      { kind: 'draw', x: 40, y: 400, points: '0,0 20,18 44,6', stroke: '#e0432f', sw: 4 },
+    ] });
+    jadd.count === 4 ? ok('объекты кладутся на доску', jadd.added.map(i => i.kind).join('/'))
+                     : bad('jam_add не сработал', JSON.stringify(jadd));
+    const [SEC, STK, SHP] = jadd.added.map(i => i.id);
+
+    // Коннектор доски ссылается на объект по id, а на узел графа — через node:<id>.
+    const jconn = await call('jam_add', { board: B, page: jam.id, items: [
+      { kind: 'conn', from: STK, to: SHP, style: 'ortho', cap_end: 'arrow' },
+    ] });
+    jconn.count === 1 ? ok('коннектор между объектами доски создаётся') : bad('коннектор не создался', JSON.stringify(jconn));
+
+    // Стрелки на доске могут ходить по кругу: это линии, а не зависимости.
+    const jback = await call('jam_add', { board: B, page: jam.id, items: [
+      { kind: 'conn', from: SHP, to: STK },
+    ] });
+    jback.count === 1 ? ok('встречный коннектор разрешён — на доске цикл законен')
+                      : bad('доска отвергла встречную стрелку', JSON.stringify(jback));
+
+    let jamBadRef = '';
+    try { await call('jam_add', { board: B, page: jam.id, items: [{ kind: 'conn', from: STK, to: 'нет_такого' }] }); }
+    catch (e) { jamBadRef = e.message; }
+    /нет на этой доске/.test(jamBadRef) ? ok('коннектор в несуществующий объект отклоняется')
+                                        : bad('ссылка в никуда принята', jamBadRef || 'ошибки не было');
+
+    const jread = await call('jam_read', { board: B, page: jam.id });
+    const rs = jread.items.find(i => i.id === STK);
+    const rc = jread.items.find(i => i.kind === 'conn');
+    (jread.count === 6 && rs.text === 'Проверить у юристов' && rs.w === 180 && rc.from === STK && rc.style === 'ortho')
+      ? ok('доска читается обратно тем же, чем записана', jread.count + ' объектов')
+      : bad('чтение доски расходится с записью', JSON.stringify(jread.items.slice(0, 3)));
+
+    await call('jam_update', { board: B, page: jam.id, items: [{ id: STK, fill: '#ffc0cb' }] });
+    const jr2 = await call('jam_read', { board: B, page: jam.id });
+    const s2 = jr2.items.find(i => i.id === STK);
+    (s2.fill === '#ffc0cb' && s2.text === 'Проверить у юристов' && s2.w === 180)
+      ? ok('jam_update меняет только присланное поле')
+      : bad('правка затёрла соседние поля', JSON.stringify(s2));
+
+    // То же правило, что для узлов: незнакомые поля объекта переживают правку.
+    const jamKeep = await (async () => {
+      execSync(`docker compose exec -T api node -e "
+        const db = require('better-sqlite3')('/data/graphstudio.sqlite');
+        const r = db.prepare('SELECT doc FROM boards WHERE id = ?').get('${B}');
+        const d = JSON.parse(r.doc);
+        const pg = d.pages.find(p => p.id === '${jam.id}');
+        pg.jam.items.find(i => i.id === '${STK}').myJamField = 'не трогать';
+        db.prepare('UPDATE boards SET doc = ? WHERE id = ?').run(JSON.stringify(d), '${B}');
+      "`);
+      await call('jam_update', { board: B, page: jam.id, items: [{ id: STK, text: 'Уточнили' }] });
+      return execSync(`docker compose exec -T api node -e "
+        const db = require('better-sqlite3')('/data/graphstudio.sqlite');
+        const d = JSON.parse(db.prepare('SELECT doc FROM boards WHERE id = ?').get('${B}').doc);
+        const pg = d.pages.find(p => p.id === '${jam.id}');
+        const it = pg.jam.items.find(i => i.id === '${STK}');
+        console.log(JSON.stringify({ keep: it.myJamField || 'ПОТЕРЯНО', text: it.text }));
+      "`).toString().trim();
+    })();
+    const jk = JSON.parse(jamKeep);
+    (jk.keep === 'не трогать' && jk.text === 'Уточнили')
+      ? ok('неизвестные поля объекта доски переживают правку из MCP')
+      : bad('правка доски затирает незнакомые поля', jamKeep);
+
+    const jarr = await call('jam_arrange', { board: B, page: jam.id, items: [STK, SHP], op: 'align_top' });
+    const jr3 = await call('jam_read', { board: B, page: jam.id });
+    const a1 = jr3.items.find(i => i.id === STK), a2 = jr3.items.find(i => i.id === SHP);
+    (jarr.count === 2 && a1.y === a2.y) ? ok('jam_arrange выравнивает объекты', 'y = ' + a1.y)
+                                        : bad('выравнивание не сработало', JSON.stringify({ jarr, y1: a1.y, y2: a2.y }));
+
+    // Счётчики в get_board должны видеть содержимое, но НЕ тащить его.
+    const jsum = await call('get_board', { board: B, pages_only: true });
+    const jp = jsum.pages.find(p => p.id === jam.id);
+    (jp.jam_items === 6 && jp.jam_kinds && jp.jam_kinds.conn === 2 && !jp.items)
+      ? ok('в get_board видно, что на доске, но не сами объекты', JSON.stringify(jp.jam_kinds))
+      : bad('счётчики доски неверны', JSON.stringify(jp));
+
+    // Удаление объекта уносит коннекторы, которые к нему шли.
+    const jdel = await call('jam_delete', { board: B, page: jam.id, items: [SHP] });
+    (jdel.removed === 1 && jdel.connectors_removed === 2)
+      ? ok('удаление объекта уносит висячие коннекторы', `${jdel.connectors_removed} шт.`)
+      : bad('висячие коннекторы остались', JSON.stringify(jdel));
+
+    let jamOnCanvas = '';
+    const canvasId = pages.pages.find(p => p.kind === 'canvas').id;
+    try { await call('jam_add', { board: B, page: canvasId, items: [{ kind: 'sticky', x: 0, y: 0 }] }); }
+    catch (e) { jamOnCanvas = e.message; }
+    /не доска/.test(jamOnCanvas) ? ok('на холст-граф объекты доски не кладутся')
+                                 : bad('объект доски принят не на доску', jamOnCanvas || 'ошибки не было');
 
     const canvasPage = pages.pages.find(p => p.kind === 'canvas');
     await call('update_page', { board: B, page: canvasPage.id, lanes: ['сейчас', 'потом', 'когда-нибудь'] });
