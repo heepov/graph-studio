@@ -296,10 +296,20 @@ async function json(path, opts = {}) {
     const laid = lay.nodes.find(n => n.id === n1);
     const spacePage = lay.pages.find(p => p.kind === 'space');
     (laid.lane === 2 && laid.positions && laid.positions[page.id] && laid.positions[page.id].x === 100
-      && spacePage.nodes_pinned === 3)
+      && spacePage.nodes_pinned === 3 && spacePage.nodes_visible === 3)
       ? ok('видно колонку узла, его координаты и сколько закреплено на холсте',
           `lane ${laid.lane}, закреплено ${spacePage.nodes_pinned}`)
       : bad('раскладка не отдаётся', JSON.stringify({ laid, spacePage }).slice(0, 250));
+
+    // Закреплено и видно — РАЗНЫЕ числа: фильтр страницы отсекает часть узлов,
+    // а их координаты остаются в документе. Путать их нельзя.
+    await call('update_page', { board: B, page: page.id, filter: { statuses: ['не начато'] } });
+    const filtered = await call('get_board', { board: B, include_layout: true });
+    const sp2 = filtered.pages.find(p => p.id === page.id);
+    (sp2.nodes_pinned === 3 && sp2.nodes_visible < 3)
+      ? ok('фильтр страницы виден в счётчике', `закреплено ${sp2.nodes_pinned}, показывается ${sp2.nodes_visible}`)
+      : bad('счётчик не учитывает фильтр', JSON.stringify(sp2));
+    await call('update_page', { board: B, page: page.id, filter: { statuses: [] } });
 
     // Узел не должен потеряться, если колонку, за которой он закреплён, убрали.
     await call('update_page', { board: B, page: canvasPage.id, lanes: ['сейчас', 'потом'] });
@@ -309,10 +319,17 @@ async function json(path, opts = {}) {
       : bad('узел остался в несуществующей колонке', JSON.stringify(shrunk.nodes.find(n => n.id === n1)));
 
     /* ---------- связи не теряются ---------- */
+    const verBefore = (await call('get_board', { board: B, pages_only: true })).version;
     const dupe = await call('link_nodes', { board: B, links: [{ from: n1, to: n2 }] });
     (dupe.added.length === 0 && dupe.skipped.length === 1)
       ? ok('повторная связь пропускается, а не роняет вызов')
       : bad('повтор связи обработан неверно', JSON.stringify(dupe));
+    // Вызов, который ничего не изменил, не должен плодить версии: история из пустых
+    // записей перестаёт быть историей.
+    const verAfter = (await call('get_board', { board: B, pages_only: true })).version;
+    (dupe.changed === false && verAfter === verBefore)
+      ? ok('пустая правка не создаёт версию', 'версия осталась ' + verAfter)
+      : bad('версия выросла на пустом месте', `${verBefore} → ${verAfter}, changed=${dupe.changed}`);
 
     // n1 → n3 в обход n2: не круг, просто ещё одна стрелка
     const newType = await call('link_nodes', { board: B, links: [{ from: n1, to: n3, type: 'flow' }] });
@@ -398,6 +415,20 @@ async function json(path, opts = {}) {
     (imported.pages.length === 2 && !imported.pages.some(p => p.kind === 'space'))
       ? ok('лишних страниц импорт не создаёт')
       : bad('импорт создал лишние страницы', JSON.stringify(imported.pages.map(p => p.kind)));
+
+    // Пустая страница в самом файле: импорт её не выбрасывает молча, но говорит
+    // о ней, а выбросить можно одним параметром — не правя JSON руками.
+    const withEmpty = { ...source, pages: [...source.pages,
+      { id: 'p_empty', name: 'Новая страница', kind: 'space' }] };
+    const warn = await call('import_board', { doc: withEmpty, dry_run: true });
+    (warn.pages_created.length === 3 && warn.warnings.some(w => /p_empty/.test(w) && /drop_pages/.test(w)))
+      ? ok('пустая страница из файла отмечена в отчёте с подсказкой, как убрать')
+      : bad('про пустую страницу не сказано', JSON.stringify(warn.warnings));
+
+    const cleaned = await call('import_board', { doc: withEmpty, dry_run: true, drop_pages: ['p_empty'] });
+    (cleaned.pages_created.length === 2 && cleaned.pages_dropped.length === 1)
+      ? ok('drop_pages убирает лишнюю страницу при импорте', cleaned.pages_dropped[0].name)
+      : bad('drop_pages не сработал', JSON.stringify(cleaned.pages_dropped));
 
     let badKind = false;
     try {

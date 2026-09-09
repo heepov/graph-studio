@@ -103,10 +103,14 @@ export function summarize(doc, opts = {}) {
         filter: filterSummary(p.filter),
       };
       if (opts.layout && (p.kind === 'canvas' || p.kind === 'space')) {
+        // Два РАЗНЫХ числа, и путать их нельзя: закреплённых позиций может быть
+        // больше, чем узлов на странице, — фильтр страницы отсекает часть из них,
+        // а координаты у отсечённых остаются лежать в документе.
         o.nodes_pinned = pinnedOn(p.id);
-        // Камера обычно живёт в браузере, а не в документе: она у каждого своя.
-        // В документе она бывает у файлов старых версий — тогда и отдаём.
-        if (p.view && isFinite(p.view.k)) o.view = { x: p.view.x, y: p.view.y, k: p.view.k };
+        o.nodes_visible = visibleOn(doc, p).length;
+        // Камера у каждого своя и живёт в браузере. В документе она встречается
+        // как остаток от файлов старых версий — тогда и отдаём, пометив.
+        if (p.view && isFinite(p.view.k)) o.view = { x: p.view.x, y: p.view.y, k: p.view.k, legacy: true };
       }
       return o;
     }),
@@ -117,6 +121,40 @@ export function summarize(doc, opts = {}) {
   out.frames = (doc.frames || []).map(f => ({ id: f.id, name: f.name, x: f.x, y: f.y, w: f.w, h: f.h }));
   out.notes = (doc.notes || []).map(t => ({ id: t.id, text: t.text, x: t.x, y: t.y }));
   return out;
+}
+
+// Кто попадает на страницу. Повторяет matchFilter/pageNodes приложения: число
+// «узлов на странице» обязано совпадать с тем, что человек видит на экране,
+// иначе им нельзя пользоваться как проверкой.
+export function visibleOn(doc, page) {
+  const flt = page.filter;
+  const blockingKeys = new Set((doc.schema.linkTypes || []).filter(t => t.blocking).map(t => t.key));
+  const blockersOf = n => (doc.links || []).filter(l => l.to === n.id && blockingKeys.has(l.type)).length;
+  const match = n => {
+    if (!flt) return true;
+    if (flt.cats && flt.cats.length && !flt.cats.includes(n.cat)) return false;
+    if (flt.statuses && flt.statuses.length && !flt.statuses.includes(n.status)) return false;
+    if (flt.types && flt.types.length && !flt.types.includes(n.type)) return false;
+    if (flt.blockersOnly && !blockersOf(n)) return false;
+    if (flt.f) for (const k in flt.f) {
+      const want = flt.f[k];
+      if (!want || !want.length) continue;
+      const v = (n.f || {})[k];
+      if (Array.isArray(v)) { if (!v.some(x => want.includes(x))) return false; }
+      else if (!want.includes(v)) return false;
+    }
+    if (flt.q) {
+      const q = String(flt.q).toLowerCase();
+      const hay = [n.name, n.sub, n.id, n.body, ...Object.values(n.f || {}).flat(),
+        ...(n.checks || []).map(c => c.t + ' ' + c.z)].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  };
+  // На свободной схеме присутствие узла — это наличие его позиции: иначе туда
+  // вываливались бы все узлы доски кучей.
+  const list = (doc.nodes || []).filter(match);
+  return page.kind === 'space' ? list.filter(n => n.p && n.p[page.id]) : list;
 }
 
 function filterSummary(f) {

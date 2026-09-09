@@ -95,10 +95,21 @@ export function registerMcp(app, db, deps) {
     function edit(ref, fn) {
       const { board, role, doc } = load(ref);
       if (!boards.canEdit(role)) throw new DocError(`доску «${board.name}» вам разрешено только смотреть`);
+      // Слепок ДО правки и ДО того, как проставлена дата: иначе «ничего не поменялось»
+      // никогда не наступит, потому что дата меняется всегда.
+      const before = JSON.stringify(doc);
       const out = fn(doc) || {};
+      if (JSON.stringify(doc) === before) {
+        // Вызов ничего не изменил — например, связь уже была. Сохранять нечего:
+        // версия и строчка в истории на пустом месте превращают историю в шум,
+        // а повторный вызов перестаёт быть безопасным.
+        return { board: board.name, version: board.version, url: publicUrl + '/b/' + board.id,
+          changed: false, ...(out.result || {}) };
+      }
       doc.updated = new Date().toISOString().slice(0, 10);
       const saved = boards.saveBoard(board, user, doc, { summary: out.summary || 'правка из Claude' });
-      return { board: board.name, version: saved.version, url: publicUrl + '/b/' + board.id, ...(out.result || {}) };
+      return { board: board.name, version: saved.version, url: publicUrl + '/b/' + board.id,
+        changed: true, ...(out.result || {}) };
     }
 
     return { db, user, boards, publicUrl, newToken, load, edit, resolve };

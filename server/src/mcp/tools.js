@@ -60,7 +60,7 @@ export const TOOLS = [
       board: BOARD,
       include_body: B('Включить развёрнутые описания узлов (по умолчанию нет: они длинные)'),
       include_metrics: B('Посчитать вес узлов, что чем заблокировано и что можно брать сейчас'),
-      include_layout: B('Включить раскладку: колонку узла (lane), его закреплённые координаты по страницам, и сколько узлов закреплено на каждом холсте. Нужно, чтобы увидеть доску так же, как её видит человек'),
+      include_layout: B('Включить раскладку: колонку узла (lane), его закреплённые координаты и размеры по страницам, а у холстов — nodes_pinned (сколько узлов имеют сохранённую позицию) и nodes_visible (сколько реально показывается с учётом фильтра страницы). Эти два числа различаются, если фильтр отсекает часть узлов'),
       pages_only: B('Только схема и страницы, без узлов и связей — быстро проверить структуру'),
     }, ['board']),
     handler: (ctx, a) => {
@@ -108,6 +108,7 @@ export const TOOLS = [
       json: S('То же самое строкой JSON — если удобнее передать текстом файла'),
       name: S('Название доски. По умолчанию берётся из документа'),
       dry_run: B('Ничего не создавать, только вернуть отчёт: что получилось бы'),
+      drop_pages: A('id страниц из файла, которые не надо создавать. Пустые страницы отмечаются в warnings при dry_run — чистить исходный JSON руками не нужно', S('id страницы')),
     }),
     handler: (ctx, a) => {
       let src = a.doc;
@@ -115,7 +116,7 @@ export const TOOLS = [
         try { src = JSON.parse(a.json); }
         catch (e) { throw new D.DocError('не разобрал JSON: ' + e.message); }
       }
-      const { doc, report } = importDoc(src, { name: a.name });
+      const { doc, report } = importDoc(src, { name: a.name, dropPages: a.drop_pages });
       if (a.dry_run) return { dry_run: true, name: doc.name, ...report };
       const r = ctx.boards.createBoard(ctx.user, doc, { summary: 'импорт из Claude' });
       return { id: r.id, name: doc.name, url: ctx.publicUrl + '/b/' + r.id, ...report };

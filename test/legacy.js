@@ -152,11 +152,19 @@ E.projects[0].id = 'old_bundle';
     (aDeep.weight === 1 && aDeep.layer === 1)
       ? ok('A: метрики графа считаются', `вес LIC=${aDeep.weight}, слой RKO=${aDeep.layer}`)
       : bad('A: метрики графа сломались', JSON.stringify(aDeep));
+    // Камера из старого файла обязана подхватиться — но осесть в браузере, а не
+    // остаться в документе: иначе чужой зум годичной давности ездит в каждом
+    // экспорте и в каждой копии доски и никогда не обновляется.
     const aView = await c.eval(`(() => { UI.page='p_main'; delete UI.view['p_main'];
-      localStorage.removeItem('gs_view:' + P.id + ':p_main'); return JSON.parse(JSON.stringify(view())); })()`);
-    (aView.x === 120 && aView.y === 40 && aView.k === 0.9)
-      ? ok('A: камера из page.view подхватилась', JSON.stringify(aView))
-      : bad('A: камера из старого файла потеряна', JSON.stringify(aView));
+      return {view: JSON.parse(JSON.stringify(view())),
+              inDoc: !!pageById('p_main').view,
+              stored: localStorage.getItem('gs_view:' + P.id + ':p_main')}; })()`);
+    (aView.view.x === 120 && aView.view.y === 40 && aView.view.k === 0.9)
+      ? ok('A: камера из старого файла подхватилась', JSON.stringify(aView.view))
+      : bad('A: камера из старого файла потеряна', JSON.stringify(aView.view));
+    (!aView.inDoc && aView.stored)
+      ? ok('A: камера переехала в браузер и убрана из документа')
+      : bad('A: камера осталась в документе и поедет в экспорт', JSON.stringify(aView));
 
     // --- B: легаси-позиции x/y без n.p ------------------------------------
     const b = await openFixture('B · легаси x/y', B);

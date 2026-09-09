@@ -25,6 +25,7 @@ const DEF_STATUSES = [
 ];
 
 export function importDoc(src, opts = {}) {
+  const drop = new Set((opts.dropPages || []).map(String));
   if (!src || typeof src !== 'object') fail('нужен документ проекта — объект JSON');
   if (!Array.isArray(src.nodes)) fail('в документе нет массива nodes: это не проект Graph Studio');
   // Старый формат Roadmap Studio разбирает приложение (fromLegacy в main.js).
@@ -55,12 +56,16 @@ export function importDoc(src, opts = {}) {
   };
 
   /* ---- страницы: ровно те, что в файле ---- */
-  const pageIds = new Set();
+  const pageIds = new Set(), dropped_pages = [];
   for (const p of (Array.isArray(src.pages) ? src.pages : [])) {
     const kind = String(p.kind || 'canvas');
     if (!PAGE_KINDS.includes(kind)) {
       fail(`страница «${p.name || p.id}»: вида «${kind}» не бывает. Допустимо: ${PAGE_KINDS.join(', ')}`);
     }
+    // Выбросить страницу можно только по явному указанию: решать за человека,
+    // что в его файле лишнее, нельзя — но и заставлять править JSON руками,
+    // когда лишнее очевидно, тоже не дело.
+    if (p.id && drop.has(String(p.id))) { dropped_pages.push({ id: String(p.id), name: p.name || '' }); continue; }
     const id = p.id && !pageIds.has(String(p.id)) ? String(p.id) : uid('p');
     pageIds.add(id);
     const out = { ...p, id, kind, name: String(p.name || 'Страница') };
@@ -162,6 +167,20 @@ export function importDoc(src, opts = {}) {
   for (const f of (Array.isArray(src.frames) ? src.frames : [])) doc.frames.push({ ...f, id: f.id || uid('f') });
   for (const t of (Array.isArray(src.notes) ? src.notes : [])) doc.notes.push({ ...t, id: t.id || uid('t') });
 
+  // Пустой холст в файле — почти всегда след «создал и забыл». Сами не удаляем,
+  // но говорим: dry_run для того и нужен, чтобы это увидеть до создания доски.
+  for (const p of doc.pages) {
+    if (p.kind !== 'canvas' && p.kind !== 'space') continue;
+    const pinned = doc.nodes.filter(n => n.p && n.p[p.id]).length;
+    const cfg = p.canvas || p.space || {};
+    if (p.kind === 'space' && !pinned) {
+      warnings.push(`страница «${p.name}» (${p.id}) — пустая свободная схема: на ней нет ни одного узла. ` +
+        'Если она не нужна, передайте её id в drop_pages');
+    } else if (p.kind === 'canvas' && !pinned && !cfg.intro && !(cfg.lanes || []).length) {
+      warnings.push(`страница «${p.name}» (${p.id}) — холст без настроек и без закреплённых узлов`);
+    }
+  }
+
   return {
     doc,
     report: {
@@ -170,6 +189,7 @@ export function importDoc(src, opts = {}) {
       links_created: doc.links.length,
       links_dropped: dropped,
       pages_created: doc.pages.map(p => ({ id: p.id, name: p.name, kind: p.kind })),
+      pages_dropped: dropped_pages,
       frames_created: doc.frames.length,
       notes_created: doc.notes.length,
       warnings,
