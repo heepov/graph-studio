@@ -19,6 +19,11 @@ services:
       # Прочитать: docker compose logs api | grep -A3 'ПЕРВЫЙ ЗАПУСК'
       ADMIN_EMAIL: "${GRAPH_STUDIO_ADMIN:-kaitnik@gmail.com}"
       DB_PATH: /data/graphstudio.sqlite
+      # Внешний адрес сервиса. Он же issuer для OAuth и имя ресурса для MCP:
+      # токен привязывается к нему, и разъехавшийся адрес означает, что коннектор
+      # перестанет принимать собственные токены. Локально переопределяется
+      # переменной GRAPH_STUDIO_PUBLIC_URL (см. scripts/verify.sh).
+      PUBLIC_URL: "${GRAPH_STUDIO_PUBLIC_URL:-https://graph.heeprod.ru}"
       BACKUP_DIR: /data/backups
       LOG_LEVEL: info
     # Секреты, если появятся, кладутся сюда. Файла может не быть — тогда работают

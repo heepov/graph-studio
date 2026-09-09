@@ -1,0 +1,439 @@
+// Инструменты MCP: всё, что можно сделать с доской из приложения, можно сделать
+// и отсюда — доски, страницы-холсты, схема, узлы, связи, области, заметки,
+// расстановка на холсте, история.
+//
+// Каждый инструмент правит документ и сохраняет его тем же путём, что и браузер
+// (boards.saveBoard): версия, запись в историю и рассылка живой правки достаются
+// бесплатно. Открытая вкладка обновляется на глазах, пока Claude правит доску.
+import * as D from './doc.js';
+
+const S = (desc, extra = {}) => ({ type: 'string', description: desc, ...extra });
+const N = (desc) => ({ type: 'number', description: desc });
+const B = (desc) => ({ type: 'boolean', description: desc });
+const A = (desc, items) => ({ type: 'array', description: desc, items });
+const O = (desc, properties, required) => ({ type: 'object', description: desc, properties, ...(required ? { required } : {}) });
+
+const BOARD = S('Доска: её id или название. Название можно неточное — совпадение по началу.');
+
+// Описания узла в двух видах: при создании имя обязательно, при правке — id.
+const NODE_FIELDS = {
+  name: S('Название'),
+  sub: S('Подпись под названием — одна строка уточнения'),
+  body: S('Развёрнутое описание'),
+  status: S('Статус: ключ или название из схемы доски'),
+  category: S('Категория: ключ или название из схемы доски'),
+  type: S('Тип узла: ключ или название из схемы доски'),
+  draft: B('Черновик — узел виден, но помечен как непроработанный'),
+  fields: O('Свои поля доски: {ключ_или_подпись: значение}', {}),
+  checks: A('Вехи внутри узла', O('Веха', {
+    text: S('Что должно случиться'),
+    status: S('Статус вехи'),
+    blocking: B('Веха держит весь узел'),
+    note: S('Пояснение'),
+  }, ['text'])),
+};
+
+export const TOOLS = [
+  /* ---------- доски ---------- */
+  {
+    name: 'list_boards',
+    title: 'Список досок',
+    description: 'Все доски: свои и те, к которым дали доступ. Начинать стоит отсюда — дальше доска указывается по названию или id.',
+    inputSchema: O('', {}),
+    handler: (ctx) => {
+      const mine = ctx.db.prepare(`SELECT id, name, nodes_count, links_count, updated_at, 'owner' AS role
+        FROM boards WHERE owner_id = ? AND deleted = 0 ORDER BY updated_at DESC`).all(ctx.user.id);
+      const shared = ctx.db.prepare(`SELECT b.id, b.name, b.nodes_count, b.links_count, b.updated_at, m.role
+        FROM board_members m JOIN boards b ON b.id = m.board_id
+        WHERE m.user_id = ? AND b.deleted = 0 AND b.owner_id != ? ORDER BY b.updated_at DESC`).all(ctx.user.id, ctx.user.id);
+      const row = b => ({ id: b.id, name: b.name, nodes: b.nodes_count, links: b.links_count,
+        role: b.role, updated: new Date(b.updated_at).toISOString() });
+      return { boards: [...mine.map(row), ...shared.map(row)] };
+    },
+  },
+  {
+    name: 'get_board',
+    title: 'Прочитать доску',
+    description: 'Содержимое доски: схема, страницы, узлы, связи, области, заметки. По умолчанию без длинных описаний узлов — их можно запросить отдельно.',
+    inputSchema: O('', {
+      board: BOARD,
+      include_body: B('Включить развёрнутые описания узлов (по умолчанию нет: они длинные)'),
+      include_metrics: B('Посчитать вес узлов, что чем заблокировано и что можно брать сейчас'),
+    }, ['board']),
+    handler: (ctx, a) => {
+      const { doc } = ctx.load(a.board);
+      const out = D.summarize(doc, { body: !!a.include_body });
+      if (a.include_metrics) out.metrics = D.metrics(doc);
+      return out;
+    },
+  },
+  {
+    name: 'create_board',
+    title: 'Создать доску',
+    description: 'Новая пустая доска с нужной схемой и страницами. Узлы добавляются отдельно — add_nodes.',
+    inputSchema: O('', {
+      name: S('Название доски'),
+      description: S('Описание'),
+      statuses: A('Статусы. Если не задать — «готово / в работе / заблокировано / не начато»',
+        O('', { name: S('Название'), color: S('Цвет #rrggbb') }, ['name'])),
+      categories: A('Категории (направления). Если не задать — одна «Общее»',
+        O('', { name: S('Название'), color: S('Цвет #rrggbb') }, ['name'])),
+      node_types: A('Типы узлов. Если не задать — «Узел» и «Гейт»',
+        O('', { name: S('Название'), shape: S('rect | pill | diamond') }, ['name'])),
+      pages: A('Страницы. Если не задать — холст, таблица и дашборд',
+        O('', { name: S('Название'), kind: S('canvas | space | table | board | dash') }, ['name', 'kind'])),
+    }, ['name']),
+    handler: (ctx, a) => {
+      const doc = blankDoc(a);
+      const r = ctx.boards.createBoard(ctx.user, doc, { summary: 'создана из Claude' });
+      return { id: r.id, name: doc.name, url: ctx.publicUrl + '/b/' + r.id,
+        pages: doc.pages.map(p => ({ id: p.id, name: p.name, kind: p.kind })) };
+    },
+  },
+  {
+    name: 'update_board',
+    title: 'Переименовать доску',
+    description: 'Название и описание доски.',
+    inputSchema: O('', { board: BOARD, name: S('Новое название'), description: S('Новое описание') }, ['board']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      if (a.name !== undefined) doc.name = String(a.name);
+      if (a.description !== undefined) doc.desc = String(a.description);
+      return { summary: 'переименована', result: { name: doc.name } };
+    }),
+  },
+  {
+    name: 'delete_board',
+    title: 'Убрать доску в корзину',
+    description: 'Доска уходит в корзину — оттуда её можно вернуть. Совсем удалить можно только в приложении.',
+    inputSchema: O('', { board: BOARD }, ['board']),
+    handler: (ctx, a) => {
+      const { board, role } = ctx.load(a.board);
+      if (role !== 'owner') throw new D.DocError('удалять доску может только владелец');
+      ctx.db.prepare('UPDATE boards SET deleted = 1, updated_at = ? WHERE id = ?').run(Date.now(), board.id);
+      return { deleted: board.name };
+    },
+  },
+
+  /* ---------- узлы ---------- */
+  {
+    name: 'add_nodes',
+    title: 'Добавить узлы',
+    description: 'Добавляет узлы на доску. Узлы общие для всех страниц: страница — это фильтр и способ показа, а не отдельный набор данных.',
+    inputSchema: O('', {
+      board: BOARD,
+      nodes: A('Узлы', O('Узел', NODE_FIELDS, ['name'])),
+    }, ['board', 'nodes']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const made = D.addNodes(doc, a.nodes);
+      return { summary: `+${made.length} узл. из Claude`, result: { added: made } };
+    }),
+  },
+  {
+    name: 'update_nodes',
+    title: 'Изменить узлы',
+    description: 'Меняет поля существующих узлов. Присылать нужно только то, что меняется — остальное останется как было.',
+    inputSchema: O('', {
+      board: BOARD,
+      nodes: A('Узлы', O('Узел', { id: S('id узла'), ...NODE_FIELDS }, ['id'])),
+    }, ['board', 'nodes']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const ids = D.updateNodes(doc, a.nodes);
+      return { summary: `изменено ${ids.length} узл. из Claude`, result: { updated: ids } };
+    }),
+  },
+  {
+    name: 'delete_nodes',
+    title: 'Удалить узлы',
+    description: 'Удаляет узлы вместе с их связями.',
+    inputSchema: O('', { board: BOARD, ids: A('id узлов', S('id')) }, ['board', 'ids']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const r = D.deleteNodes(doc, a.ids);
+      return { summary: `−${r.nodes.length} узл. из Claude`, result: r };
+    }),
+  },
+
+  /* ---------- связи ---------- */
+  {
+    name: 'link_nodes',
+    title: 'Связать узлы',
+    description: 'Создаёт зависимости. Направление: from держит to — то есть to нельзя закрыть, пока не закрыт from. Связь, замыкающая круг, отклоняется: в круге ни один узел нельзя сделать первым.',
+    inputSchema: O('', {
+      board: BOARD,
+      links: A('Связи', O('', { from: S('id узла, который держит'), to: S('id узла, который ждёт'), type: S('Тип связи из схемы') }, ['from', 'to'])),
+    }, ['board', 'links']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const made = D.addLinks(doc, a.links);
+      return { summary: `+${made.length} связ. из Claude`, result: { added: made } };
+    }),
+  },
+  {
+    name: 'unlink_nodes',
+    title: 'Убрать связи',
+    description: 'Удаляет зависимости между узлами.',
+    inputSchema: O('', {
+      board: BOARD,
+      links: A('Связи', O('', { from: S('id'), to: S('id') }, ['from', 'to'])),
+    }, ['board', 'links']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const n = D.deleteLinks(doc, a.links);
+      return { summary: `−${n} связ. из Claude`, result: { removed: n } };
+    }),
+  },
+
+  /* ---------- страницы ---------- */
+  {
+    name: 'add_page',
+    title: 'Добавить страницу',
+    description: 'Новый вид на те же узлы: canvas — карта зависимостей по колонкам, space — свободная схема, table — таблица, board — канбан, dash — дашборд.',
+    inputSchema: O('', {
+      board: BOARD,
+      name: S('Название страницы'),
+      kind: S('canvas | space | table | board | dash'),
+      layout: S('Только для canvas: auto (раскладка по зависимостям) или free (руками)'),
+      lanes: A('Только для canvas: подписи колонок', S('')),
+      groupBy: S('Только для board: по чему раскладывать колонки (status, cat, type, step или f.<поле>)'),
+      columns: A('Только для table: колонки', S('')),
+      filter: O('Что показывать на странице', {
+        query: S('Текстовый поиск'),
+        categories: A('Категории', S('')),
+        statuses: A('Статусы', S('')),
+        types: A('Типы узлов', S('')),
+        blockersOnly: B('Только блокеры'),
+        fields: O('Свои поля: {ключ: [значения]}', {}),
+      }),
+    }, ['board', 'name', 'kind']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const p = D.addPage(doc, a);
+      return { summary: 'добавлена страница из Claude', result: p };
+    }),
+  },
+  {
+    name: 'update_page',
+    title: 'Изменить страницу',
+    description: 'Название, фильтр, раскладка, колонки, пояснение над холстом.',
+    inputSchema: O('', {
+      board: BOARD, page: S('id страницы'),
+      name: S('Новое название'),
+      layout: S('canvas: auto | free'),
+      lanes: A('canvas: подписи колонок', S('')),
+      intro: S('Пояснение над холстом — HTML допускается'),
+      groupBy: S('board: по чему колонки'),
+      columns: A('table: колонки', S('')),
+      sort: S('table: по какой колонке сортировать'),
+      group: S('table: по чему группировать'),
+      filter: O('Фильтр страницы', {}),
+    }, ['board', 'page']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const p = D.updatePage(doc, a.page, a);
+      return { summary: 'изменена страница из Claude', result: p };
+    }),
+  },
+  {
+    name: 'delete_page',
+    title: 'Удалить страницу',
+    description: 'Удаляет вид. Узлы остаются — пропадает только страница.',
+    inputSchema: O('', { board: BOARD, page: S('id страницы') }, ['board', 'page']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const p = D.deletePage(doc, a.page);
+      return { summary: 'убрана страница из Claude', result: p };
+    }),
+  },
+  {
+    name: 'reorder_pages',
+    title: 'Порядок страниц',
+    description: 'Переставляет страницы. Не перечисленные остаются в конце.',
+    inputSchema: O('', { board: BOARD, order: A('id страниц по порядку', S('')) }, ['board', 'order']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => ({
+      summary: 'порядок страниц из Claude', result: { pages: D.reorderPages(doc, a.order) },
+    })),
+  },
+
+  /* ---------- расстановка на холсте ---------- */
+  {
+    name: 'place_nodes',
+    title: 'Расставить узлы на холсте',
+    description: 'Ставит узлы в конкретные координаты на конкретной странице-холсте и закрепляет их там. Координаты в единицах холста, шаг сетки 20; узел по умолчанию 210×64. Позиция своя у каждой страницы.',
+    inputSchema: O('', {
+      board: BOARD, page: S('id страницы-холста'),
+      positions: A('Куда какой узел', O('', {
+        node: S('id узла'), x: N('X'), y: N('Y'), w: N('Ширина'), h: N('Высота'),
+      }, ['node', 'x', 'y'])),
+    }, ['board', 'page', 'positions']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const ids = D.placeNodes(doc, a.page, a.positions);
+      return { summary: `расставлено ${ids.length} узл. из Claude`, result: { placed: ids } };
+    }),
+  },
+  {
+    name: 'auto_layout',
+    title: 'Вернуть авто-раскладку',
+    description: 'Снимает ручные позиции на странице — узлы снова раскладываются по глубине зависимости.',
+    inputSchema: O('', { board: BOARD, page: S('id страницы'), ids: A('Только эти узлы (по умолчанию все)', S('')) }, ['board', 'page']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const n = D.unplaceNodes(doc, a.page, a.ids);
+      return { summary: 'авто-раскладка из Claude', result: { unpinned: n } };
+    }),
+  },
+
+  /* ---------- схема ---------- */
+  {
+    name: 'edit_schema',
+    title: 'Править схему доски',
+    description: 'Типы узлов, статусы, категории и типы связей. При удалении узлы переезжают на первое оставшееся значение, а не теряются.',
+    inputSchema: O('', {
+      board: BOARD,
+      op: S('add | update | delete'),
+      kind: S('nodeType | status | category | linkType'),
+      key: S('Ключ — для update и delete'),
+      name: S('Название'),
+      color: S('Цвет #rrggbb'),
+      shape: S('nodeType: rect | pill | diamond'),
+      style: S('linkType: solid | dashed'),
+      blocking: B('linkType: считается зависимостью (по умолчанию да). Мягкая связь рисуется, но в вес узла не идёт'),
+    }, ['board', 'op', 'kind']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      let result;
+      if (a.op === 'add') result = D.addSchemaItem(doc, a.kind, a);
+      else if (a.op === 'update') result = D.updateSchemaItem(doc, a.kind, a.key, a);
+      else if (a.op === 'delete') result = D.deleteSchemaItem(doc, a.kind, a.key);
+      else throw new D.DocError('op должен быть add, update или delete');
+      return { summary: 'правка схемы из Claude', result };
+    }),
+  },
+  {
+    name: 'edit_fields',
+    title: 'Свои поля доски',
+    description: 'Добавляет или убирает произвольные поля узлов (срок, ответственный, волна и что угодно ещё).',
+    inputSchema: O('', {
+      board: BOARD,
+      op: S('add | delete'),
+      key: S('Ключ поля — для delete'),
+      label: S('Подпись поля'),
+      type: S('text | longtext | select | list | number | date'),
+      options: A('Для select: варианты', S('')),
+      showOnCard: B('Показывать прямо на карточке узла'),
+    }, ['board', 'op']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const result = a.op === 'add' ? D.addField(doc, a) : D.deleteField(doc, a.key);
+      return { summary: 'правка полей из Claude', result };
+    }),
+  },
+
+  /* ---------- области и заметки ---------- */
+  {
+    name: 'edit_frames',
+    title: 'Области на холсте',
+    description: 'Прямоугольные области, которыми группируют узлы на холсте.',
+    inputSchema: O('', {
+      board: BOARD, op: S('add | update | delete'), id: S('id области — для update и delete'),
+      name: S('Подпись'), x: N('X'), y: N('Y'), w: N('Ширина'), h: N('Высота'), color: S('Цвет #rrggbb'),
+    }, ['board', 'op']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const result = a.op === 'add' ? D.addFrame(doc, a)
+        : a.op === 'update' ? D.updateFrame(doc, a.id, a) : D.deleteFrame(doc, a.id);
+      return { summary: 'правка областей из Claude', result };
+    }),
+  },
+  {
+    name: 'edit_notes',
+    title: 'Заметки на холсте',
+    description: 'Свободные заметки поверх холста.',
+    inputSchema: O('', {
+      board: BOARD, op: S('add | update | delete'), id: S('id заметки — для update и delete'),
+      text: S('Текст'), x: N('X'), y: N('Y'), w: N('Ширина'), h: N('Высота'), color: S('Цвет #rrggbb'),
+    }, ['board', 'op']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const result = a.op === 'add' ? D.addNote(doc, a)
+        : a.op === 'update' ? D.updateNote(doc, a.id, a) : D.deleteNote(doc, a.id);
+      return { summary: 'правка заметок из Claude', result };
+    }),
+  },
+
+  /* ---------- история и доступ ---------- */
+  {
+    name: 'board_history',
+    title: 'История доски',
+    description: 'Кто и когда что менял. Любую версию можно вернуть — restore_version.',
+    inputSchema: O('', { board: BOARD }, ['board']),
+    handler: (ctx, a) => {
+      const { board } = ctx.load(a.board);
+      return {
+        current: board.version,
+        versions: ctx.db.prepare(`SELECT v.version, v.at, v.summary, v.nodes, v.links, u.email AS author
+          FROM board_versions v LEFT JOIN users u ON u.id = v.actor_id
+          WHERE v.board_id = ? ORDER BY v.version DESC LIMIT 40`).all(board.id)
+          .map(v => ({ version: v.version, at: new Date(v.at).toISOString(), summary: v.summary,
+            nodes: v.nodes, links: v.links, author: v.author })),
+      };
+    },
+  },
+  {
+    name: 'restore_version',
+    title: 'Вернуть версию',
+    description: 'Возвращает доску к прежней версии. История при этом не стирается: поверх ложится новая версия.',
+    inputSchema: O('', { board: BOARD, version: N('Номер версии') }, ['board', 'version']),
+    handler: (ctx, a) => {
+      const { board, role } = ctx.load(a.board);
+      if (!ctx.boards.canEdit(role)) throw new D.DocError('эту доску вам разрешено только смотреть');
+      const row = ctx.db.prepare('SELECT * FROM board_versions WHERE board_id = ? AND version = ?').get(board.id, +a.version);
+      if (!row) throw new D.DocError('этой версии уже нет в истории');
+      const r = ctx.boards.saveBoard(board, ctx.user, JSON.parse(row.doc), { summary: `возврат к версии ${row.version} из Claude` });
+      return { restored: row.version, version: r.version };
+    },
+  },
+  {
+    name: 'share_board',
+    title: 'Ссылка на доску',
+    description: 'Создаёт ссылку: на просмотр (открывается без входа) или на правку (требует входа, чтобы у изменений был автор).',
+    inputSchema: O('', {
+      board: BOARD,
+      role: S('viewer — только смотреть, editor — можно править'),
+      days: N('Через сколько дней ссылка перестанет работать (0 — бессрочно)'),
+    }, ['board']),
+    handler: (ctx, a) => {
+      const { board, role } = ctx.load(a.board);
+      if (role !== 'owner' && role !== 'admin') throw new D.DocError('делиться доской может только владелец');
+      const wanted = a.role === 'editor' ? 'editor' : 'viewer';
+      const token = ctx.newToken();
+      const days = +(a.days || 0);
+      ctx.db.prepare('INSERT INTO share_links (token, board_id, role, created_by, created_at, expires_at) VALUES (?,?,?,?,?,?)')
+        .run(token, board.id, wanted, ctx.user.id, Date.now(), days > 0 ? Date.now() + days * 864e5 : null);
+      return { url: ctx.publicUrl + (wanted === 'editor' ? '/e/' : '/s/') + token, role: wanted };
+    },
+  },
+];
+
+/* ---------- заготовка новой доски ---------- */
+function blankDoc(a) {
+  const mk = (list, fallback, extra) => (Array.isArray(list) && list.length ? list : fallback)
+    .map((x, i) => {
+      const name = String(x.name || x);
+      return { key: D.keyFrom(name, []) + (i ? '_' + i : ''), name, ...extra(x, i) };
+    });
+  const statuses = mk(a.statuses, [
+    { name: 'готово', color: '#18a558' }, { name: 'в работе', color: '#8a5d00' },
+    { name: 'заблокировано', color: '#b3261e' }, { name: 'не начато', color: '#5f6673' },
+  ], x => ({ color: /^#[0-9a-f]{6}$/i.test(x.color || '') ? x.color : '#9aa1b2' }));
+  const categories = mk(a.categories, [{ name: 'Общее', color: '#2f6fed' }],
+    x => ({ color: /^#[0-9a-f]{6}$/i.test(x.color || '') ? x.color : '#2f6fed' }));
+  const nodeTypes = mk(a.node_types, [{ name: 'Узел', shape: 'rect' }, { name: 'Гейт', shape: 'pill' }],
+    x => ({ shape: D.SHAPES.includes(x.shape) ? x.shape : 'rect' }));
+
+  const doc = {
+    name: String(a.name), desc: String(a.description || ''),
+    created: new Date().toISOString().slice(0, 10), updated: new Date().toISOString().slice(0, 10),
+    schema: {
+      nodeTypes, statuses, categories,
+      linkTypes: [
+        { key: 'hard', name: 'Жёсткая блокировка', color: '#9aa1b2', style: 'solid', blocking: 1 },
+        { key: 'soft', name: 'Мягкая связь', color: '#c9a227', style: 'dashed', blocking: 0 },
+      ],
+      fields: [],
+    },
+    nodes: [], links: [], frames: [], notes: [], pages: [],
+  };
+  const pages = Array.isArray(a.pages) && a.pages.length ? a.pages
+    : [{ name: 'Карта', kind: 'canvas' }, { name: 'Все узлы', kind: 'table' }, { name: 'Обзор', kind: 'dash' }];
+  for (const p of pages) D.addPage(doc, p);
+  return doc;
+}

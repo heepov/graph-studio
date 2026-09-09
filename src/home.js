@@ -127,6 +127,7 @@ export function accountMenu(ev) {
     ['—'],
     ['Мои доски', () => showHome('all')],
     ['Сменить пароль…', changePassword],
+    ['Приложения…', showGrants],
     [H.isDark() ? 'Светлая тема' : 'Тёмная тема', () => { H.toggleTheme(); paintAvatars(); }],
     ['Справка', () => H.showHelp()],
   ];
@@ -137,6 +138,36 @@ export function accountMenu(ev) {
     H.onSignedOut();
   }]);
   H.showCtx(r.right - 240, r.bottom + 8, items);
+}
+
+// Доступы, выданные по OAuth: коннектор Claude и что там ещё появится.
+// Доступ, который нельзя отозвать, выдавать нельзя — поэтому этот экран
+// появился одновременно с самой выдачей.
+async function showGrants(msg) {
+  let list = [];
+  try { list = (await api.grants()).grants || []; } catch (e) { H.toast(errText(e)); return; }
+  const when = t => t ? new Date(t).toLocaleString('ru-RU').slice(0, 16) : '—';
+  H.modal(`<h3>Приложения с доступом</h3>
+    <div class="kv hint" style="margin-bottom:10px">Это приложения, которым вы разрешили работать
+      с вашими досками от вашего имени — например, коннектор Claude.</div>
+    ${msg ? `<div class="kv" style="color:var(--green);font-size:12.5px">${esc(msg)}</div>` : ''}
+    ${list.length ? list.map(g => `<div class="lrw" style="align-items:center;gap:10px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:650">${esc(g.name || g.client_id)}</div>
+        <div class="hint">доступ выдан ${esc(when(g.created_at))}${
+          g.last_used ? ' · был ' + esc(when(g.last_used)) : ' · ещё не пользовались'}</div>
+      </div>
+      <button class="btn sm dgr" data-revoke="${esc(g.client_id)}">Отозвать</button>
+    </div>`).join('') : '<div class="hint">Пока ни одному приложению доступ не выдан.</div>'}
+    <div class="hint" style="margin-top:12px">Как подключить Claude: добавьте коннектор
+      по адресу <b>${esc(location.origin)}/mcp</b> и войдите — доски станут доступны в чате.</div>
+    <div class="mfoot"><button class="btn" data-a="c">Закрыть</button></div>`, b => {
+    b.querySelector('[data-a=c]').onclick = H.closeModal;
+    b.querySelectorAll('[data-revoke]').forEach(el => el.onclick = async () => {
+      try { await api.grantRevoke(el.dataset.revoke); showGrants('Доступ отозван'); }
+      catch (e) { H.toast(errText(e)); }
+    });
+  });
 }
 
 function changePassword() {

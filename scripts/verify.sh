@@ -8,6 +8,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PORT="${GRAPH_STUDIO_PORT:-8081}"
+# Локально сервис живёт по этому адресу — от него зависят issuer OAuth и имя
+# ресурса MCP. Без переопределения контейнер выдавал бы токены для боевого адреса
+# и сам же их не принимал.
+export GRAPH_STUDIO_PUBLIC_URL="${GRAPH_STUDIO_PUBLIC_URL:-http://127.0.0.1:${PORT}}"
 
 echo "── сборка образа"
 docker compose up -d --build
@@ -43,6 +47,9 @@ node test/live.js
 
 echo "── холст пальцем"
 node test/touch.js
+
+echo "── коннектор для Claude: OAuth и MCP"
+node test/mcp.js
 
 echo "── совместимость со старыми файлами"
 node test/legacy.js

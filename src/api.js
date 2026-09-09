@@ -79,6 +79,10 @@ export const api = {
   adminUserPassword: (id, password) => req('POST', `/admin/users/${encodeURIComponent(id)}/password`, {password}),
   adminUserBlock: (id, blocked) => req('POST', `/admin/users/${encodeURIComponent(id)}/block`, {blocked}),
   adminBackup: () => req('POST', '/admin/backup', {}),
+
+  // Приложения, которым выдан доступ по OAuth (коннектор Claude и подобные).
+  grants: () => req('GET', '/oauth/grants'),
+  grantRevoke: clientId => req('DELETE', '/oauth/grants/' + encodeURIComponent(clientId)),
 };
 
 // Разбор адреса. Приложение получило собственные адреса, и открытая ссылка должна

@@ -99,17 +99,7 @@ export function registerBoards(app, db, deps) {
   app.post('/api/boards', { preHandler: requireUser }, async (req, reply) => {
     const doc = req.body && req.body.doc;
     if (!doc || typeof doc !== 'object') return reply.code(400).send({ error: 'нужен документ доски' });
-    const text = JSON.stringify(doc);
-    const c = counts(text);
-    const id = newId('b');
-    const t = now();
-    db.prepare(`INSERT INTO boards (id, owner_id, name, doc, version, nodes_count, links_count, preview, created_at, updated_at, updated_by)
-      VALUES (?,?,?,?,1,?,?,?,?,?,?)`).run(id, req.user.id, nameOf(text) || 'Доска', text, c.n, c.l,
-        previewOf((req.body || {}).preview, null), t, t, req.user.id);
-    db.prepare('INSERT INTO board_members (board_id, user_id, role, added_at) VALUES (?,?,?,?)')
-      .run(id, req.user.id, 'owner', t);
-    keepVersion(id, 1, t, req.user.id, 'доска создана', c, text);
-    return { id, version: 1 };
+    return createBoard(req.user, doc, { preview: (req.body || {}).preview });
   });
 
   /* ---------- чтение ---------- */
@@ -123,6 +113,39 @@ export function registerBoards(app, db, deps) {
       updated_at: board.updated_at,
     };
   });
+
+  /* ---------- запись одним местом ----------
+     Через это проходит и обычное сохранение из браузера, и правка из MCP.
+     Две реализации записи означали бы, что история или рассылка живой правки
+     работают только для одной из них — и никто не заметит, для какой. */
+  function saveBoard(board, user, doc, { summary = null, preview } = {}) {
+    const text = JSON.stringify(doc);
+    const c = counts(text);
+    const t = now();
+    const v = board.version + 1;
+    db.prepare(`UPDATE boards SET doc = ?, version = ?, name = ?, nodes_count = ?, links_count = ?,
+      preview = ?, updated_at = ?, updated_by = ? WHERE id = ?`)
+      .run(text, v, nameOf(text) || board.name, c.n, c.l,
+        previewOf(preview, board.preview), t, user.id, board.id);
+    keepVersion(board.id, v, t, user.id, summaryOf(summary), c, text);
+    broadcast(board.id, updateMessage(v, t,
+      { id: user.id, name: user.name || user.email, email: user.email }, text, summaryOf(summary)), null);
+    return { version: v, updated_at: t };
+  }
+
+  function createBoard(user, doc, { preview, summary = 'доска создана' } = {}) {
+    const text = JSON.stringify(doc);
+    const c = counts(text);
+    const id = newId('b');
+    const t = now();
+    db.prepare(`INSERT INTO boards (id, owner_id, name, doc, version, nodes_count, links_count, preview, created_at, updated_at, updated_by)
+      VALUES (?,?,?,?,1,?,?,?,?,?,?)`).run(id, user.id, nameOf(text) || 'Доска', text, c.n, c.l,
+        previewOf(preview, null), t, t, user.id);
+    db.prepare('INSERT INTO board_members (board_id, user_id, role, added_at) VALUES (?,?,?,?)')
+      .run(id, user.id, 'owner', t);
+    keepVersion(id, 1, t, user.id, summary, c, text);
+    return { id, version: 1 };
+  }
 
   /* ---------- запись ---------- */
   // Оптимистическая блокировка: клиент присылает версию, от которой правил.
@@ -144,22 +167,9 @@ export function registerBoards(app, db, deps) {
         updated_at: board.updated_at,
       });
     }
-    const text = JSON.stringify(doc);
-    const c = counts(text);
-    const t = now();
-    const v = board.version + 1;
-    db.prepare(`UPDATE boards SET doc = ?, version = ?, name = ?, nodes_count = ?, links_count = ?,
-      preview = ?, updated_at = ?, updated_by = ? WHERE id = ?`)
-      .run(text, v, nameOf(text) || board.name, c.n, c.l,
-        previewOf((req.body || {}).preview, board.preview), t, req.user.id, board.id);
-    const sum = summaryOf((req.body || {}).summary);
-    keepVersion(board.id, v, t, req.user.id, sum, c, text);
-    // Открытым вкладкам чужая правка приезжает сразу, а не когда они сами решат
-    // сохранить. Документ идёт ВМЕСТЕ с сообщением: иначе каждая правка
-    // превращалась бы в N ответных GET на те же байты, только с задержкой.
-    broadcast(board.id, updateMessage(v, t,
-      { id: req.user.id, name: req.user.name || req.user.email, email: req.user.email }, text, sum), null);
-    return { version: v, updated_at: t };
+    // Открытым вкладкам правка приезжает сразу — это делает saveBoard.
+    return saveBoard(board, req.user, doc,
+      { summary: (req.body || {}).summary, preview: (req.body || {}).preview });
   });
 
   /* ---------- история ---------- */
@@ -279,5 +289,5 @@ export function registerBoards(app, db, deps) {
     return { id: b.id, role: 'viewer', name: b.name, doc: JSON.parse(b.doc), version: b.version };
   });
 
-  return { access, canEdit, canRead };
+  return { access, canEdit, canRead, saveBoard, createBoard };
 }

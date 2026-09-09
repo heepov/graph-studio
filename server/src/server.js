@@ -9,6 +9,8 @@ import { join } from 'node:path';
 import { registerBoards } from './boards.js';
 import { registerAdmin } from './admin.js';
 import { registerLive } from './live.js';
+import { registerOAuth } from './oauth.js';
+import { registerMcp } from './mcp/server.js';
 
 const db = getDb();
 const now = () => Date.now();
@@ -28,6 +30,15 @@ const app = Fastify({
 app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
   if (!body || !String(body).trim()) return done(null, {});
   try { done(null, JSON.parse(body)); } catch (e) { e.statusCode = 400; done(e, undefined); }
+});
+
+// Формы и OAuth говорят urlencoded, а не JSON: и страница согласия, и обмен кода
+// на токен приходят именно так. Свой разборщик на пять строк вместо ещё одного
+// пакета — здесь ровно тот случай, когда это оправдано.
+app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (req, body, done) => {
+  const out = {};
+  for (const [k, v] of new URLSearchParams(String(body || ''))) out[k] = v;
+  done(null, out);
 });
 
 await app.register(cookie);
@@ -185,6 +196,12 @@ app.get('/api/invites/:token', async (req, reply) => {
 const boards = registerBoards(app, db, { requireUser, requireAdmin });
 registerAdmin(app, db, { requireUser, requireAdmin });
 registerLive(app, db, boards);
+
+// Коннектор для Claude: свой OAuth (иначе доски были бы открыты любому, кто узнал
+// адрес) и MCP-эндпоинт поверх него.
+const PUBLIC_URL = (process.env.PUBLIC_URL || 'https://graph.heeprod.ru').replace(/\/+$/, '');
+const oauth = registerOAuth(app, db, { publicUrl: PUBLIC_URL, requireUser, startSession });
+registerMcp(app, db, { boards, oauth, publicUrl: PUBLIC_URL });
 
 /* ---------- 404 под /api/ отдаёт JSON, а не HTML ---------- */
 // Иначе клиентский res.json() падает с «Unexpected token '<'», а настоящая причина
