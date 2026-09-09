@@ -458,6 +458,75 @@ async function json(path, opts = {}) {
     /\/s\//.test(share.url) ? ok('ссылка на просмотр выдаётся', share.url.slice(0, 48) + '…')
                             : bad('share_board сломан', JSON.stringify(share));
 
+    /* ---------- сколько истории переживает время ---------- */
+    // Потолок «последние 40 версий» — это один вечер работы. Проверяем, что теперь
+    // недавнее хранится целиком, старое прореживается, а первая версия не пропадает.
+    const hist2 = await call('board_history', { board: B });
+    const curVer = hist2.current;
+    const seed = execSync(`docker compose exec -T api node -e "
+      const zlib = require('zlib');
+      const db = require('better-sqlite3')('/data/graphstudio.sqlite');
+      const doc = db.prepare('SELECT doc FROM boards WHERE id = ?').get('${B}').doc;
+      const gz = zlib.gzipSync(doc);
+      const ins = db.prepare('INSERT OR REPLACE INTO board_versions (board_id, version, at, actor_id, summary, nodes, links, doc, doc_gz) VALUES (?,?,?,?,?,?,?,?,?)');
+      const DAY = 86400000, now = Date.now();
+      let v = 1000;
+      // по 6 версий в час за последние 20 дней и по 4 в день за прошедший год
+      for (let h = 0; h < 20 * 24; h++) for (let k = 0; k < 6; k++)
+        ins.run('${B}', v++, now - h * 3600000 - k * 600000, null, 'старая правка', 1, 0, '', gz);
+      for (let d = 20; d < 365; d++) for (let k = 0; k < 4; k++)
+        ins.run('${B}', v++, now - d * DAY - k * 6 * 3600000, null, 'древняя правка', 1, 0, '', gz);
+      console.log(db.prepare('SELECT COUNT(*) c FROM board_versions WHERE board_id = ?').get('${B}').c);
+    "`).toString().trim();
+    const seeded = +seed;
+    (seeded > 3000) ? ok('в историю засеяно много версий', seeded + ' версий')
+                    : bad('засеять историю не вышло', seed);
+
+    // Любая правка запускает прореживание — берём ту, что не зависит от узлов:
+    // выше по прогону доска уже возвращалась к пустой версии.
+    await call('update_board', { board: B, description: 'толкаем прореживание' });
+    const thinned = execSync(`docker compose exec -T api node -e "
+      const db = require('better-sqlite3')('/data/graphstudio.sqlite');
+      const DAY = 86400000, now = Date.now();
+      const rows = db.prepare('SELECT version, at, doc, doc_gz FROM board_versions WHERE board_id = ? ORDER BY at').all('${B}');
+      const age = r => now - r.at;
+      console.log(JSON.stringify({
+        total: rows.length,
+        recent: rows.filter(r => age(r) <= 7 * DAY).length,
+        hourly: rows.filter(r => age(r) > 7 * DAY && age(r) <= 30 * DAY).length,
+        old: rows.filter(r => age(r) > 30 * DAY).length,
+        first: rows[0].version,
+        gz: rows.every(r => r.doc_gz && !r.doc),
+      }));
+    "`).toString().trim();
+    const a = JSON.parse(thinned);
+    // Засеяно: 6 версий в час за 20 дней и 4 в день за год. После прореживания
+    // недавняя неделя обязана остаться целиком, неделя–месяц схлопнуться до часа,
+    // старше месяца — до дня.
+    (a.total < seeded && a.hourly < 700)
+      ? ok('старые версии прорежены, недавние остались', `${seeded} → ${a.total}`)
+      : bad('прореживание сработало не так', JSON.stringify(a));
+    // В этой полосе засеяно 1872 версии (312 часов по 6) плюс 40 суточных —
+    // после схлопывания по часу должно остаться около 350.
+    (a.hourly > 250 && a.hourly < 450)
+      ? ok('от недели до месяца остаётся примерно по одной версии в час', a.hourly + ' шт.')
+      : bad('часовое прореживание неверно', String(a.hourly));
+    // за 7 дней сеялось 6 версий в час — все они обязаны уцелеть
+    (a.recent >= 7 * 24 * 6)
+      ? ok('за последнюю неделю сохранена каждая версия', a.recent + ' шт.')
+      : bad('недавние версии потерялись', String(a.recent));
+    // за год сеялось по 4 в день — должно остаться примерно по одной
+    (a.old > 300 && a.old < 400)
+      ? ok('старше месяца остаётся примерно по одной версии в день', a.old + ' шт.')
+      : bad('старая история прорежена неверно', String(a.old));
+    a.gz ? ok('документы версий лежат сжатыми') : bad('версии хранятся без сжатия');
+
+    // Сжатие не должно мешать вернуть версию.
+    const backOld = await call('restore_version', { board: B, version: curVer });
+    (backOld.restored === curVer)
+      ? ok('версия из сжатой истории возвращается', 'v' + curVer)
+      : bad('возврат сжатой версии сломан', JSON.stringify(backOld));
+
     /* ---------- чужой ресурс и отзыв ---------- */
     const wrongAud = await json('/mcp', {
       method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token,

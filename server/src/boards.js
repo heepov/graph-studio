@@ -5,6 +5,7 @@
 // и будет меняться, а сервер не должен ломаться от каждого нового поля.
 import { newToken, newId } from './auth.js';
 import { broadcast, updateMessage } from './live.js';
+import { gzipSync, gunzipSync } from 'node:zlib';
 
 const now = () => Date.now();
 
@@ -62,16 +63,63 @@ export function registerBoards(app, db, deps) {
      Полный документ на каждую версию: без него «вернуть как было» — обещание,
      а не кнопка. Держим последние VERSIONS_KEEP: документы по сотне-другой
      килобайт, и вечное хранение незаметно раздуло бы базу и бэкапы. */
-  const VERSIONS_KEEP = 40;
   const insVersion = db.prepare(`INSERT OR REPLACE INTO board_versions
-    (board_id, version, at, actor_id, summary, nodes, links, doc) VALUES (?,?,?,?,?,?,?,?)`);
-  const pruneVersions = db.prepare(`DELETE FROM board_versions WHERE board_id = ? AND version NOT IN
-    (SELECT version FROM board_versions WHERE board_id = ? ORDER BY version DESC LIMIT ?)`);
+    (board_id, version, at, actor_id, summary, nodes, links, doc, doc_gz) VALUES (?,?,?,?,?,?,?,'',?)`);
+  const qVersionRows = db.prepare('SELECT version, at FROM board_versions WHERE board_id = ? ORDER BY at');
+  const qVersionCount = db.prepare('SELECT COUNT(*) c FROM board_versions WHERE board_id = ?');
+  const delVersion = db.prepare('DELETE FROM board_versions WHERE board_id = ? AND version = ?');
+
+  // Документ версии лежит сжатым. Старые строки писались текстом — читаем и те, и те.
+  const versionDoc = row => (row.doc_gz ? gunzipSync(row.doc_gz).toString('utf8') : row.doc);
+
+  /* ---------- сколько истории держим ----------
+     Потолок «последние 40 версий» был неверной идеей: сорок версий — это один
+     вечер работы, после которого начало дня исчезает. Но и хранить каждую правку
+     вечно нельзя: сохранение уходит на сервер раз в секунду активной правки,
+     это сотни версий в день на доску.
+
+     Поэтому храним по-разному в зависимости от возраста: недавнее — целиком,
+     старое — прореженным. Так работает любая система, которая обещает историю
+     и при этом влезает на диск.
+
+     Первую версию не удаляем никогда: «как это выглядело в самом начале» —
+     единственный вопрос, на который больше нечем ответить. */
+  const HOUR = 3600e3, DAY = 24 * HOUR;
+  const RECENT = 7 * DAY;        // всё
+  const HOURLY = 30 * DAY;       // по одной в час
+  const DAILY = 365 * DAY;       // по одной в день
+  const THIN_AFTER = 150;        // до этого числа версий не прореживаем вообще
+
+  function bucketOf(age) {
+    if (age <= RECENT) return null;                       // ничего не схлопываем
+    if (age <= HOURLY) return 'h' + Math.floor(age / HOUR);
+    if (age <= DAILY) return 'd' + Math.floor(age / DAY);
+    return 'w' + Math.floor(age / (7 * DAY));
+  }
+
+  function thinVersions(boardId) {
+    const rows = qVersionRows.all(boardId);
+    if (rows.length < 2) return;
+    const now = Date.now();
+    const keep = new Set([rows[0].version, rows[rows.length - 1].version]);
+    const byBucket = new Map();
+    for (const r of rows) {
+      const b = bucketOf(now - r.at);
+      if (b === null) { keep.add(r.version); continue; }
+      // В корзине оставляем последнюю версию: она содержит все правки предыдущих.
+      const cur = byBucket.get(b);
+      if (!cur || r.version > cur) byBucket.set(b, r.version);
+    }
+    for (const v of byBucket.values()) keep.add(v);
+    for (const r of rows) if (!keep.has(r.version)) delVersion.run(boardId, r.version);
+  }
 
   function keepVersion(boardId, version, at, actorId, summary, c, text) {
     try {
-      insVersion.run(boardId, version, at, actorId, summary || null, c.n, c.l, text);
-      pruneVersions.run(boardId, boardId, VERSIONS_KEEP);
+      insVersion.run(boardId, version, at, actorId, summary || null, c.n, c.l, gzipSync(text));
+      // Прореживание — операция не бесплатная, а сохранение идёт раз в секунду.
+      // Пока версий немного, трогать нечего.
+      if (qVersionCount.get(boardId).c > THIN_AFTER) thinVersions(boardId);
     } catch (e) {
       // История — полезная, но не критичная часть: если она не записалась,
       // это не повод отказать в сохранении самой доски.
@@ -192,7 +240,7 @@ export function registerBoards(app, db, deps) {
     const row = db.prepare('SELECT * FROM board_versions WHERE board_id = ? AND version = ?')
       .get(board.id, +req.params.v);
     if (!row) return reply.code(404).send({ error: 'этой версии уже нет в истории' });
-    return { version: row.version, at: row.at, summary: row.summary, doc: JSON.parse(row.doc) };
+    return { version: row.version, at: row.at, summary: row.summary, doc: JSON.parse(versionDoc(row)) };
   });
 
   // Возврат НЕ стирает историю: старая версия остаётся, поверх ложится новая.
@@ -205,7 +253,7 @@ export function registerBoards(app, db, deps) {
       .get(board.id, +req.params.v);
     if (!row) return reply.code(404).send({ error: 'этой версии уже нет в истории' });
 
-    const text = row.doc;
+    const text = versionDoc(row);
     const c = counts(text);
     const t = now();
     const v = board.version + 1;
@@ -290,5 +338,5 @@ export function registerBoards(app, db, deps) {
     return { id: b.id, role: 'viewer', name: b.name, doc: JSON.parse(b.doc), version: b.version };
   });
 
-  return { access, canEdit, canRead, saveBoard, createBoard };
+  return { access, canEdit, canRead, saveBoard, createBoard, versionDoc };
 }

@@ -371,14 +371,21 @@ function paintSave() {
     const b = cloud.CLOUD.board;
     where = UI.cloudError
       ? '<br><span style="color:var(--red)" title="' + esc(UI.cloudError) + '">⚠ не ушло на сервер</span>'
-      : '<br><span title="доска на сервере, версия ' + (b.version || '?') + '">☁ на сервере' +
+      // Номер версии — сам по себе вход в историю: человек, который спрашивает
+      // «а что тут менялось», смотрит именно на него.
+      : '<br><span class="verlink" title="версия ' + (b.version || '?') + ' · открыть историю изменений">' +
+        '☁ на сервере · v' + (b.version || '?') +
         (b.role === 'viewer' ? ' · только просмотр' : '') + (b.asAdmin ? ' · вы админ' : '') + '</span>';
   } else if (cloud.CLOUD.account) {
     where = '<br><span style="color:var(--muted)" title="проект хранится только в этом браузере">только здесь</span>';
   }
   el.innerHTML = `${nOf(P ? P.nodes.length : 0, NODES)} · ${nOf(P ? P.links.length : 0, LINKS)}<br>сохранено ${UI.lastSave ? UI.lastSave.toLocaleTimeString('ru-RU').slice(0, 5) : '—'}${where}`;
+  const vl = qs('.verlink', el);
+  if (vl) vl.onclick = () => showHistory();
   const nm = $('bName');
   if (nm) { nm.textContent = P ? (P.name || 'Без названия') : '—'; nm.title = ro() ? (P ? P.name : '') : 'Переименовать доску'; }
+  const nh = $('navHistory');
+  if (nh) nh.classList.toggle('hidden', !cloud.boundToServer());
   const sh = $('bShare');
   if (sh) sh.classList.toggle('hidden', !cloud.boundToServer() || cloud.CLOUD.board.role === 'viewer');
   // В режиме просмотра (демо, ссылка-просмотр) вместо органов правки предлагаем вход:
@@ -2482,6 +2489,7 @@ function openPalette() {
     cmd('Свернуть боковую панель', 'команда · Ctrl+B', toggleSideRail);
     cmd('Тёмная или светлая тема', 'команда', toggleTheme);
     cmd('Справка', 'команда', showHelp);
+    if (cloud.boundToServer()) cmd('История изменений', 'команда', () => showHistory());
     cmd('Показать всё на холсте', 'команда', () => {if (isSpatial(curPage())) fitAll();});
   }
   $('pal').classList.add('open'); $('palin').value = ''; palIdx = 0; palRender('');
@@ -3535,6 +3543,10 @@ function showExport() {
   });
 }
 $('navExport').onclick = showExport;
+// История — не про файлы, и её место не внутри «Экспорта и импорта». Отдельный пункт
+// рядом со «Схемой проекта»: искать «кто это поменял» идут в панель, а не в диалог
+// про JSON и CSV.
+if ($('navHistory')) $('navHistory').onclick = () => showHistory();
 async function backupAll() {
   // Копия ВСЕГО, что у человека есть, одним файлом.
   //
@@ -3603,8 +3615,10 @@ async function showHistory(msg) {
     <div class="kv" style="font-size:12.5px">«${esc(P.name)}» · сейчас версия ${data.current}</div>
     ${msg ? `<div class="kv" style="color:var(--green);font-size:12.5px">${esc(msg)}</div>` : ''}
     ${rows || '<div class="hint">История пока пустая — она пишется с каждым сохранением.</div>'}
-    <div class="hint" style="margin-top:10px">Хранятся последние 40 версий.
-      Возврат не стирает историю: прежняя версия остаётся на месте.</div>
+    <div class="hint" style="margin-top:10px">Правки за последнюю неделю хранятся все.
+      Дальше история прореживается — по одной версии в час, затем в день, затем в неделю;
+      самая первая версия остаётся всегда. Возврат историю не стирает: прежняя версия
+      остаётся на месте.</div>
     <div class="mfoot"><button class="btn" data-a="c">Закрыть</button></div>`, box => {
     box.querySelector('[data-a=c]').onclick = closeModal;
     qsa('[data-see]', box).forEach(el => el.onclick = () => viewVersion(+el.dataset.see));

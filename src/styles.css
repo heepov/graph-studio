@@ -789,3 +789,8 @@ body.dark #zoombar,body.dark #mini,body.dark #toolrail{background:var(--card)}
 .kc{touch-action:pan-y}
 .kghost{position:fixed;z-index:400;pointer-events:none;opacity:.95;box-shadow:var(--sh3);
   transform:rotate(-1.5deg);margin:0}
+
+/* Номер версии в подвале панели — вход в историю. Подчёркиваем пунктиром:
+   без этого он читается как справочная надпись, а не как то, на что можно нажать. */
+.verlink{cursor:pointer;border-bottom:1px dotted var(--muted)}
+.verlink:hover{color:var(--accent);border-bottom-color:var(--accent)}

@@ -391,7 +391,7 @@ export const TOOLS = [
   {
     name: 'board_history',
     title: 'История доски',
-    description: 'Кто и когда что менял. Любую версию можно вернуть — restore_version.',
+    description: 'Кто и когда что менял. Любую версию можно вернуть — restore_version. Недавняя история хранится целиком; версии старше недели прореживаются (час/день/неделя), самая первая остаётся всегда.',
     inputSchema: O('', { board: BOARD }, ['board']),
     handler: (ctx, a) => {
       const { board } = ctx.load(a.board);
@@ -415,7 +415,8 @@ export const TOOLS = [
       if (!ctx.boards.canEdit(role)) throw new D.DocError('эту доску вам разрешено только смотреть');
       const row = ctx.db.prepare('SELECT * FROM board_versions WHERE board_id = ? AND version = ?').get(board.id, +a.version);
       if (!row) throw new D.DocError('этой версии уже нет в истории');
-      const r = ctx.boards.saveBoard(board, ctx.user, JSON.parse(row.doc), { summary: `возврат к версии ${row.version} из Claude` });
+      const r = ctx.boards.saveBoard(board, ctx.user, JSON.parse(ctx.boards.versionDoc(row)),
+        { summary: `возврат к версии ${row.version} из Claude` });
       return { restored: row.version, version: r.version };
     },
   },

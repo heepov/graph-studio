@@ -204,6 +204,28 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       ? ok('доска убирается в корзину и пропадает из сетки', del.name)
       : bad('удаление доски не сработало', JSON.stringify(del));
 
+    // История должна находиться там, где её ищут: отдельным пунктом панели и по
+    // номеру версии. До этого она пряталась внутри «Экспорта и импорта» — то есть
+    // среди JSON и CSV, куда за вопросом «кто это поменял» никто не пойдёт.
+    const hist = await c.eval(`(async () => {
+      await openServerBoard(cloud.CLOUD.board.id, {keepUrl: true});
+      await new Promise(r => setTimeout(r, 500));
+      const item = document.getElementById('navHistory');
+      const link = document.querySelector('#saveState .verlink');
+      const shown = item && !item.classList.contains('hidden');
+      item.click();
+      await new Promise(r => setTimeout(r, 700));
+      const box = document.getElementById('mbox');
+      const opened = document.getElementById('modal').classList.contains('open')
+        && /История изменений/.test(box.textContent);
+      const rows = box.querySelectorAll('[data-see]').length;
+      closeModal();
+      return {shown, link: !!link, opened, rows};
+    })()`);
+    (hist.shown && hist.link && hist.opened && hist.rows > 0)
+      ? ok('история открывается из панели и по номеру версии', hist.rows + ' версий')
+      : bad('историю не найти в интерфейсе', JSON.stringify(hist));
+
     // ссылка на просмотр
     const share = await c.eval(`(async () => {
       const r = await api.shareCreate(cloud.CLOUD.board.id, 'viewer', 0);
