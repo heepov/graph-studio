@@ -88,6 +88,26 @@ app.post('/api/auth/logout', async (req, reply) => {
 
 app.get('/api/auth/me', async (req) => ({ user: req.user || null }));
 
+// Смена своего пароля. Нужна в том числе чтобы убрать сгенерированный при первом
+// запуске: пока он не сменён, он лежит открытым текстом в файле внутри тома.
+app.post('/api/auth/password', {
+  preHandler: requireUser,
+  config: { rateLimit: { max: 10, timeWindow: '10 minutes' } },
+}, async (req, reply) => {
+  const { current, next } = req.body || {};
+  if (!next || String(next).length < 8) return reply.code(400).send({ error: 'новый пароль от 8 символов' });
+  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!verifyPassword(String(current || ''), u.pass_hash)) {
+    return reply.code(403).send({ error: 'текущий пароль неверен' });
+  }
+  db.prepare('UPDATE users SET pass_hash = ? WHERE id = ?').run(hashPassword(String(next)), u.id);
+  // Все прочие сессии этого человека закрываются: смена пароля должна выкидывать
+  // того, кто увёл сессию, иначе она бессмысленна.
+  db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(u.id, req.cookies.gs_session || '');
+  if (u.is_admin) { try { unlinkSync('/data/FIRST_RUN.txt'); } catch {} }
+  return { ok: true };
+});
+
 // Регистрация только по приглашению: сайт открыт в интернете, и открытая
 // регистрация означала бы чужие аккаунты на личном сервере.
 app.post('/api/auth/register', {
