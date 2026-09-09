@@ -1,12 +1,14 @@
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
+import websocket from '@fastify/websocket';
 import { getDb } from './db.js';
 import { hashPassword, verifyPassword, newToken, newId, sessionCookie, SESSION_DAYS } from './auth.js';
 import { mkdirSync, readdirSync, unlinkSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { registerBoards } from './boards.js';
 import { registerAdmin } from './admin.js';
+import { registerLive } from './live.js';
 
 const db = getDb();
 const now = () => Date.now();
@@ -30,6 +32,10 @@ app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, 
 
 await app.register(cookie);
 await app.register(rateLimit, { global: false });
+// Живой канал для совместного редактирования. Лимит на кадр — документ доски
+// уезжает по HTTP, а сюда клиент шлёт только курсор: большой кадр здесь означал бы,
+// что кто-то шлёт не то.
+await app.register(websocket, { options: { maxPayload: 64 * 1024 } });
 
 /* ---------- сессии ---------- */
 const qSession = db.prepare(`SELECT s.token, s.expires_at, u.id, u.email, u.name, u.is_admin, u.blocked
@@ -176,8 +182,9 @@ app.get('/api/invites/:token', async (req, reply) => {
 });
 
 /* ---------- доски и админка ---------- */
-registerBoards(app, db, { requireUser, requireAdmin });
+const boards = registerBoards(app, db, { requireUser, requireAdmin });
 registerAdmin(app, db, { requireUser, requireAdmin });
+registerLive(app, db, boards);
 
 /* ---------- 404 под /api/ отдаёт JSON, а не HTML ---------- */
 // Иначе клиентский res.json() падает с «Unexpected token '<'», а настоящая причина

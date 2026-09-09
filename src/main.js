@@ -1,6 +1,7 @@
 import { api, ApiError, parseRoute } from './api.js';
 import * as cloud from './cloud.js';
 import * as home from './home.js';
+import * as live from './live.js';
 /* ==========================================================================
    GRAPH STUDIO — редактор графов зависимостей, роадмапов и схем
    Один файл. Проекты в IndexedDB. Экспорт/импорт JSON, CSV, Markdown, viewer.
@@ -25,9 +26,6 @@ function setReadonly(on, why) {
   document.body.classList.toggle('readonly', !!on);
   if (on && why) toast(why);
 }
-// FSA (File System Access) — доступно в Chrome/Edge в secure context (http(s)/localhost), не на file:// и не в viewer.
-// Объявлено рано, т.к. на него ссылается верхнеуровневый код ниже (TDZ-безопасно).
-const FSA = typeof window.showOpenFilePicker === 'function' && !VIEWER;
 
 /* ---------- мелочи ---------- */
 const $ = id => document.getElementById(id);
@@ -149,7 +147,10 @@ const UI = {
   // ставили UI.insp = null, и по одному этому полю нельзя было понять, открыт ли он вообще —
   // из-за чего undo() и edit() «теряли» инспектор связи и области.
   inspKind: null, inspRef: null,
-  view: {}, hover: null, linkType: null, spaceDown: false, dirty: false, lastSave: null
+  view: {}, hover: null, linkType: null, spaceDown: false, dirty: false, lastSave: null,
+  // Номер версии, которую человек сейчас РАССМАТРИВАЕТ из истории. Пока он не null,
+  // доска только читается и чужие правки её не подменяют.
+  viewVersion: null
 };
 const undoS = [], redoS = [];
 let snapArmed = true, snapT = null;
@@ -164,7 +165,6 @@ let saveT = null;
 function save(immediate) {
   if (ro() || !P) return;
   P.updated = today(); UI.dirty = true; paintSave();
-  scheduleFileSave();
   // Серверная доска: локальная копия остаётся кэшем, а правка уезжает на сервер
   // своей очередью — сеть медленнее локальной записи и может ответить конфликтом.
   if (cloud.boundToServer()) cloud.schedulePush(() => P, onPushState, buildPreview);
@@ -250,14 +250,120 @@ function buildPreview() {
   } catch { return undefined; }
 }
 
+/* ==========================================================================
+   ЧТО ИМЕННО ПОМЕНЯЛОСЬ
+   --------------------------------------------------------------------------
+   Строка истории «изменено 09:41» не отвечает ни на один вопрос, ради которого
+   в историю заходят. Разницу считает клиент: сервер документ не разбирает,
+   и знание про узлы, связи и статусы у него заводить незачем.
+
+   Храним не копию документа, а слепок — id → подпись полей, которые видно.
+   Вторая копия доски в памяти ради подписи к строчке истории того не стоит.
+   ========================================================================== */
+function fingerprint(doc) {
+  if (!doc) return null;
+  const n = {};
+  for (const x of doc.nodes || []) {
+    n[x.id] = [x.name, x.sub, x.status, x.cat, x.type, x.draft ? 1 : 0,
+      (x.checks || []).length, JSON.stringify(x.f || {}), (x.body || '').length].join('\u0001');
+  }
+  const l = {};
+  for (const x of doc.links || []) l[x.from + '>' + x.to] = x.type || '';
+  return {name: doc.name || '', n, l, pages: (doc.pages || []).length};
+}
+
+function summarize(base, doc) {
+  const cur = fingerprint(doc);
+  if (!base || !cur) return null;
+  let added = 0, removed = 0, changed = 0;
+  for (const id in cur.n) { if (!(id in base.n)) added++; else if (base.n[id] !== cur.n[id]) changed++; }
+  for (const id in base.n) if (!(id in cur.n)) removed++;
+  let la = 0, lr = 0;
+  for (const k in cur.l) if (!(k in base.l)) la++;
+  for (const k in base.l) if (!(k in cur.l)) lr++;
+  const parts = [];
+  if (added) parts.push('+' + nOf(added, NODES));
+  if (removed) parts.push('−' + nOf(removed, NODES));
+  if (changed) parts.push('изменено ' + nOf(changed, NODES));
+  if (la) parts.push('+' + nOf(la, LINKS));
+  if (lr) parts.push('−' + nOf(lr, LINKS));
+  if (base.name !== cur.name) parts.push('переименована');
+  if (base.pages !== cur.pages) parts.push(cur.pages > base.pages ? 'добавлена страница' : 'убрана страница');
+  // Двинули узел, поправили описание, покрутили фильтр — по подписи это неотличимо
+  // от «ничего», а версия всё равно записана. Честнее сказать «правки на холсте»,
+  // чем нарисовать пустую строку и заставить гадать.
+  return parts.length ? parts.join(', ') : 'правки на холсте';
+}
+
 function refreshProjMeta() {
   const m = PROJECTS.find(x => x.id === P.id);
   if (m) {m.name = P.name; m.desc = P.desc; m.updated = P.updated; m.nodes = P.nodes.length; m.links = P.links.length;}
 }
+/* ==========================================================================
+   ЖИВОЙ КАНАЛ: чужая правка, курсоры, кто здесь
+   ========================================================================== */
+// Чужая правка приезжает сама. Применяем её ТОЛЬКО когда у нас нет неотправленного:
+// иначе она затёрла бы работу, которую человек делает прямо сейчас. Если своё
+// не ушло — молчим и даём отправке упереться в 409, где уже есть разбор конфликта.
+function onLiveUpdate(m) {
+  const b = cloud.CLOUD.board;
+  if (!b || !m || !m.doc) return;
+  if (m.version <= b.version) return;              // это наша же правка вернулась эхом
+  // Пока человек смотрит старую версию, подменять её под ним нельзя: он потеряет
+  // то, ради чего открыл историю. Актуальное состояние он увидит по «К текущей».
+  if (UI.viewVersion) { toast(`${(m.by && m.by.name) || 'Коллега'} изменил доску`); return; }
+  // Признак «есть неотправленное» — это очередь отправки, а НЕ UI.dirty:
+  // dirty означает «не выгружено в файл» и не сбрасывается после сохранения,
+  // так что по нему чужая правка не доезжала бы никогда.
+  if (cloud.hasPending()) {
+    toast(`${(m.by && m.by.name) || 'Коллега'} изменил доску — ваши правки ещё не отправлены`);
+    return;
+  }
+  const keepPage = UI.page, keepView = UI.view, keepSel = [...UI.sel], keepInsp = UI.insp;
+  P = normalize(m.doc);
+  cloud.bindBoard(Object.assign({}, b, {version: m.version}));
+  cloud.setBaseline(fingerprint(P));
+  gInval();
+  UI.view = keepView;
+  if (P.pages.some(p => p.id === keepPage)) UI.page = keepPage;
+  UI.sel = new Set(keepSel.filter(id => nodeById(id)));
+  renderPages(); renderPage();
+  if (keepInsp && nodeById(keepInsp)) openNode(keepInsp);
+  else if (keepInsp) closeInsp();
+  UI.lastSave = new Date(); UI.dirty = false; paintSave();
+  dbPut(STORE, P).catch(() => {});
+  toast(`${(m.by && m.by.name) || 'Коллега'}: ${m.summaryText || 'доска обновлена'}`);
+}
+
+// Стопка аватаров в шапке — это те, кто на доске ПРЯМО СЕЙЧАС. Показывать здесь
+// список тех, у кого есть доступ, было бы обещанием присутствия, которого нет:
+// «кому открыто» живёт в окне «Поделиться».
+function paintPeers() {
+  const box = $('tbMembers'); if (!box) return;
+  const others = live.peersOther();
+  box.innerHTML = others.map(p => `<span class="avat sm" style="background:${esc(p.color)}"
+    title="${esc(p.name)} — сейчас на доске">${esc(home.initialsOf(p))}</span>`).join('');
+  box.classList.toggle('hidden', !others.length);
+}
+
+// Чужие курсоры живут в собственном слое внутри сцены: так они едут вместе
+// с холстом при панораме и зуме, без пересчёта на каждый кадр.
+function paintCursors(cursors) {
+  const layer = $('lyCursors'); if (!layer) return;
+  const pid = UI.page, k = view().k || 1;
+  const now = Date.now();
+  const items = Object.entries(cursors || {})
+    .filter(([, c]) => c.page === pid && now - c.at < 15000);
+  layer.innerHTML = items.map(([id, c]) => `<div class="curs" style="left:${c.x}px;top:${c.y}px;
+    transform:scale(${(1 / k).toFixed(3)});color:${esc(c.color)}">
+    <svg viewBox="0 0 12 18" width="14" height="20"><path d="M1 1l10 9.5-4.6.5 2.6 5.2-2.2 1.1L4.3 12 1 15z"
+      fill="currentColor" stroke="#fff" stroke-width="1.2"/></svg>
+    <span class="nm" style="background:${esc(c.color)}">${esc(c.name)}</span></div>`).join('');
+}
+
 function paintSave() {
   const el = $('saveState'); if (!el) return;
   if (VIEWER) {el.textContent = 'режим просмотра'; return;}
-  const fileLine = UI.fileName ? `<br><span title="проект синхронизируется с этим файлом">📄 ${esc(UI.fileName)}</span>` : '';
   // Где именно живёт доска, должно быть видно всегда: «сохранено» без указания места
   // не отвечает на главный вопрос — переживёт ли правка закрытие браузера.
   let where = '';
@@ -270,7 +376,7 @@ function paintSave() {
   } else if (cloud.CLOUD.account) {
     where = '<br><span style="color:var(--muted)" title="проект хранится только в этом браузере">только здесь</span>';
   }
-  el.innerHTML = `${nOf(P ? P.nodes.length : 0, NODES)} · ${nOf(P ? P.links.length : 0, LINKS)}<br>сохранено ${UI.lastSave ? UI.lastSave.toLocaleTimeString('ru-RU').slice(0, 5) : '—'}${fileLine}${where}`;
+  el.innerHTML = `${nOf(P ? P.nodes.length : 0, NODES)} · ${nOf(P ? P.links.length : 0, LINKS)}<br>сохранено ${UI.lastSave ? UI.lastSave.toLocaleTimeString('ru-RU').slice(0, 5) : '—'}${where}`;
   const nm = $('bName');
   if (nm) { nm.textContent = P ? (P.name || 'Без названия') : '—'; nm.title = ro() ? (P ? P.name : '') : 'Переименовать доску'; }
   const sh = $('bShare');
@@ -438,6 +544,20 @@ function pageNodes(pg) {
 const NW = 212, NH = 74, COLGAP = 108, SUBGAP = 34, ROWGAP = 12, PADX = 60, PADY = 70;
 const GRID = 8;
 let drag = null, cvNodes = [], cvPos = {}, laneInfo = [];
+// Состояние жеста живёт на уровне модуля, а не внутри wireCanvas: она вызывается
+// на КАЖДУЮ отрисовку холста, и обработчики на window копились бы с каждой.
+const ptrs = new Map();   // активные пальцы: pointerId -> {x, y}
+let pinch = null, cvClearLong = () => {};
+// Отпускание слушаем на window, а не на холсте: палец может уйти за его край,
+// и тогда pointerup до холста не доедет — счётчик пальцев останется грязным,
+// а следующий жест начнётся с «уже два пальца» и не сработает.
+const endPtr = e => {
+  cvClearLong();
+  ptrs.delete(e.pointerId);
+  if (ptrs.size < 2) pinch = null;
+};
+window.addEventListener('pointerup', endPtr);
+window.addEventListener('pointercancel', endPtr);
 
 function npos(n, pid) { return (n.p && n.p[pid]) || null; }
 function setNpos(n, pid, x, y) { n.p = n.p || {}; n.p[pid] = {x: Math.round(x), y: Math.round(y)}; }
@@ -493,6 +613,7 @@ function visibleRect() {
 function toWorld(cx, cy) {const v = view(), r = cvRect(); return {x: (cx - r.left - v.x) / v.k, y: (cy - r.top - v.y) / v.k};}
 const GRIDBG = 22;   // шаг точечной сетки в мировых координатах
 function applyView() {
+  if ($('lyCursors')) paintCursors(live.LIVE.cursors);
   const v = view(), s = $('scene');
   if (s) s.style.transform = `translate(${v.x}px,${v.y}px) scale(${v.k})`;
   const z = $('zval'); if (z) z.textContent = Math.round(v.k * 100) + '%';
@@ -648,6 +769,7 @@ function renderCanvas(pg) {
       <svg id="edges"></svg>
       <div id="lyNodes"></div>
       <div id="lyNotes"></div>
+      <div id="lyCursors"></div>
     </div>
     <div id="marq"></div>
     <div id="toolrail" class="noview">
@@ -978,25 +1100,94 @@ function wireCanvas() {
     else {v.x -= e.deltaX; v.y -= e.deltaY; applyView();}
   }, {passive: false});
   cv.addEventListener('contextmenu', e => {e.preventDefault(); ctxMenu(e);});
-  cv.addEventListener('mousedown', onDown);
-  cv.addEventListener('mousemove', e => {
+
+  /* ---------- указатель: мышь, палец, перо одним кодом ----------
+     Раньше холст слушал только mouse*: с телефона и планшета он не работал вообще —
+     ни подвинуть карту, ни открыть узел. Pointer-события дают то же самое для мыши
+     и заодно приносят пальцы, а `touch-action:none` на #cv отбирает у браузера
+     собственные жесты, иначе прокрутка страницы съедала бы панораму. */
+  let longT = null, lastTap = 0, lastTapXY = null;
+  const clearLong = () => { clearTimeout(longT); longT = null; };
+  ptrs.clear(); pinch = null;      // новая отрисовка холста — новый жест
+
+  cv.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'touch') {
+      ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY});
+      if (ptrs.size === 2) {
+        // Второй палец отменяет начатое перетаскивание: человек передумал двигать
+        // узел и хочет масштаб. Оставить оба жеста разом — значит утащить узел
+        // куда-то за экран, пока он сводит пальцы.
+        // Перерисовывать страницу здесь НЕЛЬЗЯ: renderPage() заменяет #cv на новый
+        // элемент, вместе с ним пропадают эти обработчики, и щипок умирает,
+        // не начавшись.
+        cancelDrag();
+        clearLong();
+        const [a, b] = [...ptrs.values()], v = view();
+        pinch = {d: Math.hypot(a.x - b.x, a.y - b.y) || 1, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2,
+          k: v.k, vx: v.x, vy: v.y};
+        cv.classList.remove('panning', 'linking');
+        return;
+      }
+      if (ptrs.size > 2) return;
+
+      // Двойное касание = двойной клик: dblclick по тачу браузеры дают не всегда
+      // и не сразу, а создание узла и переименование висят именно на нём.
+      const now = Date.now();
+      if (now - lastTap < 320 && lastTapXY &&
+          Math.abs(e.clientX - lastTapXY.x) + Math.abs(e.clientY - lastTapXY.y) < 26) {
+        lastTap = 0; onDoubleTap(e); return;
+      }
+      lastTap = now; lastTapXY = {x: e.clientX, y: e.clientY};
+
+      // Долгое нажатие = правая кнопка. Без него на тач-устройстве контекстное
+      // меню недостижимо, а в нём живут выравнивание, дублирование и удаление.
+      const lx = e.clientX, ly = e.clientY, target = e.target;
+      longT = setTimeout(() => {
+        longT = null;
+        if (drag && drag.moved) return;
+        cancelDrag();
+        ctxMenu({target, clientX: lx, clientY: ly, preventDefault() {}, stopPropagation() {}});
+      }, 500);
+    }
+    onDown(e);
+  });
+
+  cv.addEventListener('pointermove', e => {
+    if (e.pointerType === 'touch' && ptrs.has(e.pointerId)) {
+      const p = ptrs.get(e.pointerId);
+      if (Math.abs(p.x - e.clientX) + Math.abs(p.y - e.clientY) > 8) clearLong();
+      ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    }
+    if (pinch && ptrs.size === 2) {
+      const [a, b] = [...ptrs.values()];
+      const d2 = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const r = cvRect(), v = view();
+      // Мир под серединой между пальцами остаётся на месте: так масштаб «щипком»
+      // ощущается как растягивание самой карты, а не как прыжок камеры.
+      const k2 = clamp(pinch.k * (d2 / pinch.d), .08, 3);
+      const wx = (pinch.cx - r.left - pinch.vx) / pinch.k, wy = (pinch.cy - r.top - pinch.vy) / pinch.k;
+      v.k = k2; v.x = mx - r.left - wx * k2; v.y = my - r.top - wy * k2;
+      applyView();
+      return;
+    }
+    // Свой курсор коллегам. Шлём и во время перетаскивания: именно тогда чужое
+    // движение и интересно — видно, что человек делает, а не что он замер.
+    if (live.LIVE.on && e.pointerType !== 'touch') {
+      const w = toWorld(e.clientX, e.clientY); live.sendCursor(w.x, w.y, UI.page);
+    }
     if (drag) return;
     const nd = e.target.closest('.nd');
     const id = nd ? nd.dataset.n : null;
     if (id !== UI.hover) {UI.hover = id; applyHi();}
   });
-  cv.addEventListener('dblclick', e => {
-    if (VIEWER) return;
-    const nd = e.target.closest('.nd');
-    if (nd) {inlineRename(nd); return;}
-    const stk = e.target.closest('.stk');
-    if (stk) {inlineNote(stk); return;}
-    if (e.target.closest('.fr')) return;
-    const w = toWorld(e.clientX, e.clientY);
-    addNode({x: Math.round(w.x - NW / 2), y: Math.round(w.y - NH / 2)});
-  });
+
+  cvClearLong = clearLong;   // общий сброс долгого нажатия для оконных обработчиков
+
+  cv.addEventListener('dblclick', e => { if (e.pointerType !== 'touch') onDoubleTap(e); });
+
   const mini = $('mini');
-  mini.addEventListener('mousedown', e => {
+  mini.addEventListener('pointerdown', e => {
     const go = ev => {
       const m = mini._m; if (!m) return;
       const r = mini.getBoundingClientRect(), v = view(), cr = cvRect();
@@ -1004,11 +1195,42 @@ function wireCanvas() {
       v.x = cr.width / 2 - wx * v.k; v.y = cr.height / 2 - wy * v.k; applyView();
     };
     go(e);
-    const mv = ev => go(ev), up = () => {window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up);};
-    window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up);
+    const mv = ev => go(ev), up = () => {
+      window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
     e.stopPropagation();
   });
 }
+
+// Двойной клик и двойное касание делают одно и то же — переименовать под курсором
+// или создать узел на пустом месте.
+function onDoubleTap(e) {
+  if (VIEWER) return;
+  const nd = e.target.closest('.nd');
+  if (nd) {inlineRename(nd); return;}
+  const stk = e.target.closest('.stk');
+  if (stk) {inlineNote(stk); return;}
+  if (e.target.closest('.fr')) return;
+  const w = toWorld(e.clientX, e.clientY);
+  addNode({x: Math.round(w.x - NW / 2), y: Math.round(w.y - NH / 2)});
+}
+// Бросить начатое перетаскивание, ничего не применяя и НЕ перерисовывая страницу.
+// Перерисовка здесь заменила бы #cv новым элементом вместе со всеми обработчиками
+// текущего жеста.
+function cancelDrag() {
+  if (!drag) return;
+  const wasMove = drag.mode === 'move' && drag.moved && drag.orig;
+  const ids = wasMove ? drag.nodeIds : null;
+  if (wasMove) ids.forEach(i => {cvPos[i] = {x: drag.orig[i].x, y: drag.orig[i].y};});
+  drag = null;
+  const cv = $('cv'); if (cv) cv.classList.remove('panning', 'linking');
+  const m = $('marq'); if (m) m.style.display = 'none';
+  const tl = $('tmpLink'); if (tl) tl.style.display = 'none';
+  qsa('.nd').forEach(el => el.classList.remove('drag', 'droptgt'));
+  if (ids) {updatePositions(ids); paintEdges();}
+}
+
 function selArr() { return [...UI.sel].map(nodeById).filter(Boolean); }
 function setSel(ids, add) {
   if (!add) {UI.sel.clear(); UI.selNotes.clear(); UI.selFrames.clear();}
@@ -1035,7 +1257,11 @@ function startMove(e) {
 function onDown(e) {
   if (e.button === 2) return;
   const cv = $('cv');
-  const pan = e.button === 1 || UI.spaceDown;
+  const touch = e.pointerType === 'touch';
+  // Одним пальцем по пустому месту холст ВОЗИТСЯ, а не выделяется рамкой:
+  // иначе карту на телефоне нечем двигать, а рамка там почти не нужна.
+  const emptyTouch = touch && !e.target.closest('.nd, .stk, .fr, .port, #edges .hit');
+  const pan = e.button === 1 || UI.spaceDown || emptyTouch;
   const port = e.target.closest('.port');
   const nd = e.target.closest('.nd');
   const frh = e.target.closest('.fr .fh'), frs = e.target.closest('.fr .rs');
@@ -1114,7 +1340,7 @@ function onDown(e) {
   drag = {mode: 'marq', sx: e.clientX, sy: e.clientY, wx: w.x, wy: w.y, add: e.shiftKey};
   e.preventDefault();
 }
-window.addEventListener('mousemove', e => {
+window.addEventListener('pointermove', e => {
   if (!drag) return;
   const v = view();
   if (drag.mode === 'pan') {
@@ -1187,7 +1413,7 @@ window.addEventListener('mousemove', e => {
     const el = qs(`.stk[data-t="${drag.t.id}"]`); el.style.width = drag.cw + 'px'; el.style.height = drag.ch + 'px'; return;
   }
 });
-window.addEventListener('mouseup', e => {
+window.addEventListener('pointerup', e => {
   if (!drag) return;
   const d = drag; drag = null;
   const cv = $('cv'); if (cv) cv.classList.remove('panning', 'linking');
@@ -1495,7 +1721,7 @@ function showCtx(x, y, items) {
   });
 }
 function hideCtx() { $('ctx').classList.remove('open'); }
-document.addEventListener('mousedown', e => {if (!e.target.closest('#ctx')) hideCtx();});
+document.addEventListener('pointerdown', e => {if (!e.target.closest('#ctx')) hideCtx();});
 
 
 /* ==========================================================================
@@ -1586,17 +1812,17 @@ function saveInspW(px) {
 }
 (function wireInspGrip() {
   const grip = $('inspGrip'); if (!grip) return;
-  grip.addEventListener('mousedown', e => {
+  grip.addEventListener('pointerdown', e => {
     e.preventDefault(); e.stopPropagation();
     const startX = e.clientX, startW = $('insp').getBoundingClientRect().width;
     document.body.classList.add('inspdrag');
     const move = ev => applyInspW(startW + (startX - ev.clientX));
     const up = () => {
       document.body.classList.remove('inspdrag');
-      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
       saveInspW($('insp').getBoundingClientRect().width);
     };
-    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   });
 })();
 const pillOf = s => {const x = statusOf(s); return `<span class="pill" style="color:${x.color};background:${x.color}18"><i style="background:${x.color}"></i>${esc(x.name)}</span>`;};
@@ -2143,13 +2369,13 @@ document.addEventListener('keydown', e => {
   if (mod && isKey(e, 'KeyK', 'k')) {e.preventDefault(); openPalette(); return;}
   if (typing) return;
   if (mod && isKey(e, 'KeyZ', 'z')) {e.preventDefault(); e.shiftKey ? redo() : undo(); return;}
-  // Ctrl+S — мышечная память «сохранить». Проект и так сохраняется сам, а если он
-  // привязан к файлу на диске — пишем в него. Раньше сочетание всегда открывало
-  // диалог скачивания, что на «сохранить» совсем не похоже.
+  // Ctrl+S — мышечная память «сохранить». Доска сохраняется сама, поэтому сочетание
+  // просто досохраняет немедленно и говорит об этом. Раньше оно открывало диалог
+  // скачивания файла, что на «сохранить» совсем не похоже.
   if (mod && isKey(e, 'KeyS', 's')) {
     e.preventDefault();
-    if (UI.fileName) saveProjectToFile(false);
-    else {save(1); toast('Проект сохраняется сам — выгрузить файл можно в «Экспорт и импорт»');}
+    save(1);
+    toast(cloud.boundToServer() ? 'Сохранено на сервере' : 'Сохранено');
     return;
   }
   if (VIEWER) return;
@@ -2699,20 +2925,68 @@ function renderBoard(pg) {
   $('view').innerHTML = ns.length
     ? `<div class="scroller" style="padding-bottom:20px">${h}</div>`
     : `<div class="scroller">${emptyBlock(pg, P.nodes.length)}</div>`;
+  // Перенос карточки в другую колонку. Одна функция на оба способа: HTML5 drag&drop
+  // (мышь) и перетаскивание пальцем. Раньше был только первый, и на телефоне канбан
+  // работал ровно наполовину — посмотреть можно, передвинуть нельзя.
+  const dropTo = (id, col) => {
+    const n = nodeById(id); if (!n || ro()) return;
+    snapNow();
+    if (by === 'step') n.lane = +col.dataset.k; else fset(n, by, col.dataset.k);
+    gInval(); save(); renderPage(); if (UI.insp === id) openNode(id);
+  };
+
   qsa('.kc').forEach(el => {
     el.onclick = () => {setSel([el.dataset.n]); openNode(el.dataset.n);};
     el.ondragstart = e => {e.dataTransfer.setData('text/plain', el.dataset.n); el.classList.add('drag');};
     el.ondragend = () => el.classList.remove('drag');
+    if (VIEWER) return;
+    el.addEventListener('pointerdown', e => {
+      if (e.pointerType !== 'touch' || ro()) return;
+      const startX = e.clientX, startY = e.clientY;
+      let ghost = null, over = null, moved = false;
+      const move = ev => {
+        const dx = ev.clientX - startX, dy = ev.clientY - startY;
+        if (!moved && Math.abs(dx) + Math.abs(dy) < 12) return;
+        if (!moved) {
+          moved = true;
+          el.classList.add('drag');
+          ghost = el.cloneNode(true);
+          ghost.className = 'kc kghost';
+          ghost.style.width = el.offsetWidth + 'px';
+          document.body.appendChild(ghost);
+        }
+        ev.preventDefault();
+        ghost.style.left = (ev.clientX - el.offsetWidth / 2) + 'px';
+        ghost.style.top = (ev.clientY - 18) + 'px';
+        // Колонку ищем под пальцем, а не по пересечению прямоугольников: колонки
+        // прокручиваются вбок, и их координаты в разметке не совпадают с видимыми.
+        ghost.style.pointerEvents = 'none';
+        const under = document.elementFromPoint(ev.clientX, ev.clientY);
+        const col = under && under.closest('.kbcol');
+        if (col !== over) {
+          if (over) over.classList.remove('over');
+          over = col; if (over) over.classList.add('over');
+        }
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+        el.classList.remove('drag');
+        if (ghost) ghost.remove();
+        if (over) { over.classList.remove('over'); if (moved) dropTo(el.dataset.n, over); }
+      };
+      window.addEventListener('pointermove', move, {passive: false});
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    });
   });
   qsa('.kbcol').forEach(col => {
     col.ondragover = e => {e.preventDefault(); col.classList.add('over');};
     col.ondragleave = () => col.classList.remove('over');
     col.ondrop = e => {
       e.preventDefault(); col.classList.remove('over');
-      const id = e.dataTransfer.getData('text/plain'), n = nodeById(id); if (!n) return;
-      snapNow();
-      if (by === 'step') n.lane = +col.dataset.k; else fset(n, by, col.dataset.k);
-      gInval(); save(); renderPage(); if (UI.insp === id) openNode(id);
+      dropTo(e.dataTransfer.getData('text/plain'), col);
     };
     const ab = col.querySelector('[data-add]');
     if (ab) ab.onclick = () => {
@@ -2831,9 +3105,21 @@ $('addPage').onclick = newPage;
 function pageMenu(e, id) {
   e.stopPropagation();
   const pg = pageById(id);
+  const i = P.pages.findIndex(x => x.id === id);
+  // Порядок страниц меняется и мышью (перетаскиванием), и отсюда. Только
+  // перетаскивание значило бы, что с телефона и с клавиатуры порядок не поменять.
+  const swap = d => {
+    const j = i + d; if (j < 0 || j >= P.pages.length) return;
+    snapNow();
+    const t = P.pages[i]; P.pages[i] = P.pages[j]; P.pages[j] = t;
+    save(); renderPages();
+  };
   showCtx(e.clientX, e.clientY, [
     ['Переименовать', () => promptBox('Страница', 'Название', pg.name, v => {snapNow(); pg.name = v; save(); renderPages(); renderPage();})],
     ['Дублировать', () => {snapNow(); const c = clone(pg); c.id = uid('p'); c.name = pg.name + ' (копия)'; P.pages.push(c); save(); gotoPage(c.id);}],
+    ['—'],
+    ...(i > 0 ? [['Переместить выше', () => swap(-1)]] : []),
+    ...(i < P.pages.length - 1 ? [['Переместить ниже', () => swap(1)]] : []),
     ['—'],
     ['Удалить', () => {
       if (P.pages.length < 2) {toast('Последнюю страницу удалить нельзя'); return;}
@@ -3155,45 +3441,55 @@ function exportCanvasPNG() {
   img.src = url;
 }
 function showExport() {
+  const cap = t => `<div class="cap" style="font-size:11px;font-weight:800;text-transform:uppercase;` +
+    `letter-spacing:.6px;color:var(--muted);margin-top:18px">${t}</div>`;
+  const row = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:7px';
+  const online = !!cloud.CLOUD.account;
   modal(`<h3>Экспорт и импорт</h3>
-    <div class="kv" style="margin-bottom:6px">Проект «${esc(P.name)}» · ${P.nodes.length} узлов, ${P.links.length} связей.</div>
-    <div class="cap" style="font-size:9.6px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#a6acbb;margin-top:12px">Экспорт</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
-      <button class="btn pri" data-x="json">JSON проекта</button>
+    <div class="kv" style="margin-bottom:6px">Доска «${esc(P.name)}» · ${P.nodes.length} узлов, ${P.links.length} связей.</div>
+    ${cap('Выгрузить эту доску')}
+    <div style="${row}">
+      <button class="btn pri" data-x="json">JSON доски</button>
       <button class="btn" data-x="viewer">viewer.html</button>
       <button class="btn" data-x="md">Markdown</button>
       <button class="btn" data-x="csvn">CSV: узлы</button>
       <button class="btn" data-x="csvc">CSV: вехи</button>
       <button class="btn" data-x="csvl">CSV: связи</button>
-      ${VIEWER ? '' : '<button class="btn" data-x="all">Бэкап всех проектов</button>'}
     </div>
-    ${FSA ? `<div class="cap" style="font-size:9.6px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#a6acbb;margin-top:18px">Файл на диске (синхронизация)</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center">
-      <button class="btn pri" data-x="savefile">${UI.fileName ? 'Сохранить в файл' : 'Связать с файлом…'}</button>
-      <button class="btn" data-x="savefileas">Сохранить как…</button>
-      <button class="btn" data-x="openfile">Открыть файл…</button>
-      ${UI.fileName ? '<button class="btn" data-x="unlink">Отвязать</button>' : ''}
-      <span class="hint">${UI.fileName ? '📄 ' + esc(UI.fileName) + ' — правки пишутся в файл автоматически' : 'проект пока только в браузере'}</span>
-    </div>` : `<div class="hint" style="margin-top:14px">💡 Совет: откройте приложение по адресу http(s) (не file://) в Chrome/Edge — тогда появится синхронизация с реальными файлами на диске и установка как приложение.</div>`}
-    <div class="cap" style="font-size:9.6px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#a6acbb;margin-top:18px">Картинка холста</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+    ${cap('Картинка холста')}
+    <div style="${row}">
       <button class="btn" data-x="png">PNG (2×)</button>
       <button class="btn" data-x="svg">SVG</button>
       <span class="hint" style="align-self:center">${isSpatial(curPage()) ? 'экспорт текущего холста' : 'откройте холст или схему'}</span>
     </div>
-    ${VIEWER ? '' : `<div class="cap" style="font-size:9.6px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#a6acbb;margin-top:18px">Версии и проверка</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
-      <button class="btn" data-x="snapnew">Создать снимок</button>
-      <button class="btn" data-x="snaps">Снимки версий…</button>
-      <button class="btn" data-x="check">Проверить проект</button>
-    </div>`}
-    ${VIEWER ? '' : `<div class="cap" style="font-size:9.6px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#a6acbb;margin-top:18px">Импорт</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
-      <button class="btn" data-x="imp">JSON как новый проект</button>
-      <button class="btn" data-x="merge">JSON слить в текущий</button>
-      <button class="btn" data-x="csvimp">CSV узлов в текущий</button>
+    ${VIEWER ? '' : `${cap('Загрузить файл')}
+    <div style="${row}">
+      <button class="btn" data-x="imp">JSON новой доской</button>
+      <button class="btn" data-x="merge">JSON слить в текущую</button>
+      <button class="btn" data-x="csvimp">CSV узлов в текущую</button>
     </div>
-    <div class="hint" style="margin-top:10px">Импорт понимает и формат Graph Studio, и старый файл Roadmap Studio (nodes/deps/soft).</div>`}
+    <div class="hint" style="margin-top:9px">
+      ${online
+        ? 'Загруженная доска сразу оказывается на сервере — файл остаётся у вас копией, а не вторым хранилищем.'
+        : 'Сейчас нет входа: доска ляжет только в этот браузер. После входа её можно будет перенести на сервер.'}
+      Импорт понимает и формат Graph Studio, и старый файл Roadmap Studio (nodes/deps/soft).
+    </div>
+
+    ${cap('Все доски')}
+    <div style="${row}">
+      <button class="btn" data-x="all">Скачать все доски</button>
+      <button class="btn" data-x="restore">Восстановить из бэкапа</button>
+    </div>
+    <div class="hint" style="margin-top:9px">Один файл со всеми вашими досками — чтобы копия жила и вне сервера.</div>
+
+    ${cap(cloud.boundToServer() ? 'История и проверка' : 'Версии и проверка')}
+    <div style="${row}">
+      ${cloud.boundToServer()
+        ? '<button class="btn" data-x="hist">История изменений…</button>'
+        : '<button class="btn" data-x="snapnew">Создать снимок</button>' +
+          '<button class="btn" data-x="snaps">Снимки версий…</button>'}
+      <button class="btn" data-x="check">Проверить доску</button>
+    </div>`}
     <div class="mfoot"><button class="btn" data-a="c">Закрыть</button></div>`, b => {
     b.querySelector('[data-a=c]').onclick = closeModal;
     qsa('[data-x]', b).forEach(el => el.onclick = () => {
@@ -3201,13 +3497,11 @@ function showExport() {
       if (a === 'json') exportProject(); if (a === 'viewer') exportViewer(); if (a === 'md') exportMd();
       if (a === 'csvn') csvNodes(); if (a === 'csvc') csvChecks(); if (a === 'csvl') csvLinks();
       if (a === 'png') {closeModal(); exportCanvasPNG();} if (a === 'svg') {closeModal(); exportCanvasSVG();}
-      if (a === 'savefile') {closeModal(); saveProjectToFile(false);}
-      if (a === 'savefileas') {closeModal(); saveProjectToFile(true);}
-      if (a === 'openfile') {closeModal(); openProjectFile();}
-      if (a === 'unlink') {closeModal(); unlinkFile();}
       if (a === 'all') backupAll();
+      if (a === 'restore') {closeModal(); importJson('new');}
       if (a === 'snapnew') promptBox('Новый снимок', 'Название', 'Снимок ' + nowStr(), makeSnap);
       if (a === 'snaps') {closeModal(); showSnaps();}
+      if (a === 'hist') {closeModal(); showHistory();}
       if (a === 'check') {closeModal(); showValidator();}
       if (a === 'imp') {closeModal(); importJson('new');}
       if (a === 'merge') {closeModal(); importJson('merge');}
@@ -3217,16 +3511,144 @@ function showExport() {
 }
 $('navExport').onclick = showExport;
 async function backupAll() {
-  // Раньше бэкап молча терял две вещи: проекты из корзины (фильтр !p.deleted)
-  // и снимки версий (store SNAP не выгружался вообще). Перед переездом на сервер
-  // это означало бы тихую потерю данных, поэтому теперь выгружаем всё.
-  const all = await dbAll(STORE);
+  // Копия ВСЕГО, что у человека есть, одним файлом.
+  //
+  // Раньше бэкап брал только IndexedDB. С момента, когда доски переехали на сервер,
+  // такой файл молча не содержал бы главного — самих досок. Теперь берём их с сервера
+  // (свои, не чужие: бэкап — это копия своего, а не выгрузка всего, что видно),
+  // а локальные проекты прежней версии добавляем к ним.
+  toast('Собираю копию…');
+  const projects = [];
+  let failed = 0;
+  if (cloud.CLOUD.account) {
+    try {
+      const list = await api.boards();
+      for (const b of (list.mine || [])) {
+        try { projects.push(Object.assign(normalize((await api.boardGet(b.id)).doc), {id: 'srv_' + b.id})); }
+        catch { failed++; }
+      }
+    } catch (e) { toast('Не удалось получить список досок: ' + (e.message || e)); return; }
+  }
+  // Кэш открытых серверных досок (srv_<id>) в копию не идёт: сами доски уже взяты
+  // с сервера выше, и второй раз они попали бы туда устаревшей версией.
+  for (const pr of await dbAll(STORE)) if (!isCache(pr.id)) projects.push(pr);
   const snaps = (await dbAll(SNAP).catch(() => [])) || [];
   dl('graphstudio_backup_' + today() + '.json',
-     JSON.stringify({graphstudio: 2, exported: nowStr(), projects: all, snaps}), 'application/json');
+     JSON.stringify({graphstudio: 2, exported: nowStr(), projects, snaps}), 'application/json');
   await dbPut(META, {k: 'lastBackup', v: Date.now()}).catch(() => {});
-  const live = all.filter(p => !p.deleted).length, trash = all.length - live;
-  toast(`Бэкап: проектов ${live}${trash ? ', в корзине ' + trash : ''}, снимков ${snaps.length}`);
+  const live = projects.filter(p => !p.deleted).length, trash = projects.length - live;
+  toast(`Копия: досок ${live}${trash ? ', в корзине ' + trash : ''}${failed ? ', не прочиталось ' + failed : ''}`);
+}
+
+/* ==========================================================================
+   ИСТОРИЯ ИЗМЕНЕНИЙ СЕРВЕРНОЙ ДОСКИ
+   --------------------------------------------------------------------------
+   Список «изменено 09:41» не отвечает ни на один вопрос, ради которого в историю
+   заходят: что поменялось, кто это сделал и как вернуть. Поэтому у каждой версии
+   есть автор, короткая подпись и обе кнопки — посмотреть и вернуть.
+
+   Возврат не стирает историю: старая версия остаётся, поверх ложится новая.
+   Иначе «вернуть» само стало бы необратимым действием.
+   ========================================================================== */
+async function showHistory(msg) {
+  const b = cloud.CLOUD.board;
+  if (!b) { showSnaps(); return; }          // локальный проект — свои снимки
+  let data = null;
+  try { data = await api.versions(b.id); }
+  catch (e) { toast('Не удалось получить историю: ' + (e.message || e)); return; }
+
+  const when = t => {
+    const d = new Date(t), today0 = new Date(); today0.setHours(0, 0, 0, 0);
+    return (t >= today0.getTime() ? 'сегодня ' : d.toLocaleDateString('ru-RU') + ' ')
+      + d.toLocaleTimeString('ru-RU').slice(0, 5);
+  };
+  const rows = data.versions.map(v => `<div class="lrw" style="align-items:center;gap:10px">
+    <span class="chip" style="cursor:default;min-width:52px;justify-content:center">v${v.version}</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13px">${esc(v.summary || 'правки')}${
+        v.version === data.current ? ' <span style="color:var(--green);font-weight:700">· сейчас</span>' : ''}</div>
+      <div class="hint">${esc(when(v.at))} · ${esc(v.actor_name || v.actor_email || 'кто-то')} · ${
+        nOf(v.nodes, NODES)}</div>
+    </div>
+    <button class="btn sm" data-see="${v.version}">Посмотреть</button>
+    ${v.version === data.current || ro() ? '' : `<button class="btn sm" data-back="${v.version}">Вернуть</button>`}
+  </div>`).join('');
+
+  modal(`<h3>История изменений</h3>
+    <div class="kv" style="font-size:12.5px">«${esc(P.name)}» · сейчас версия ${data.current}</div>
+    ${msg ? `<div class="kv" style="color:var(--green);font-size:12.5px">${esc(msg)}</div>` : ''}
+    ${rows || '<div class="hint">История пока пустая — она пишется с каждым сохранением.</div>'}
+    <div class="hint" style="margin-top:10px">Хранятся последние 40 версий.
+      Возврат не стирает историю: прежняя версия остаётся на месте.</div>
+    <div class="mfoot"><button class="btn" data-a="c">Закрыть</button></div>`, box => {
+    box.querySelector('[data-a=c]').onclick = closeModal;
+    qsa('[data-see]', box).forEach(el => el.onclick = () => viewVersion(+el.dataset.see));
+    qsa('[data-back]', box).forEach(el => el.onclick = () => {
+      const v = +el.dataset.back;
+      confirmBox(`Вернуть версию ${v}? Текущая версия останется в истории — вернуться обратно можно так же.`,
+        () => restoreVersion(v), 'Вернуть');
+    });
+  });
+}
+
+// Просмотр старой версии прямо на холсте: по списку строк понять, та ли это версия,
+// нельзя — надо увидеть саму карту. Доска на это время только читается.
+async function viewVersion(v) {
+  const b = cloud.CLOUD.board; if (!b) return;
+  try {
+    const r = await api.version(b.id, v);
+    closeModal();
+    UI.viewVersion = v;
+    P = normalize(r.doc); gInval();
+    UI.sel.clear(); UI.selNotes.clear(); UI.selFrames.clear(); closeInsp();
+    if (!P.pages.some(p => p.id === UI.page)) UI.page = (P.pages[0] || {}).id;
+    setReadonly(true);
+    renderPages(); renderPage(); paintSave();
+    paintVersionBar();
+  } catch (e) { toast('Не удалось открыть версию: ' + (e.message || e)); }
+}
+
+// Полоса поверх холста: без неё человек смотрит на старую доску и не понимает,
+// почему ничего не сохраняется.
+function paintVersionBar() {
+  const old = $('verbar'); if (old) old.remove();
+  if (!UI.viewVersion) return;
+  const el = document.createElement('div');
+  el.id = 'verbar';
+  el.innerHTML = `<span>Версия ${UI.viewVersion} — только просмотр</span>
+    <button class="btn sm" data-a="back">Вернуть эту версию</button>
+    <button class="btn sm" data-a="now">К текущей</button>`;
+  document.getElementById('main').appendChild(el);
+  el.querySelector('[data-a=now]').onclick = () => exitVersionView();
+  el.querySelector('[data-a=back]').onclick = () => {
+    const v = UI.viewVersion;
+    confirmBox(`Вернуть версию ${v}? Текущая версия останется в истории.`, () => restoreVersion(v), 'Вернуть');
+  };
+}
+
+async function exitVersionView() {
+  const b = cloud.CLOUD.board; if (!b) return;
+  UI.viewVersion = null;
+  const bar = $('verbar'); if (bar) bar.remove();
+  await openServerBoard(b.id, {keepUrl: true});
+}
+
+async function restoreVersion(v) {
+  const b = cloud.CLOUD.board; if (!b) return;
+  try {
+    const r = await api.versionRestore(b.id, v);
+    UI.viewVersion = null;
+    const bar = $('verbar'); if (bar) bar.remove();
+    P = normalize(r.doc); gInval();
+    cloud.bindBoard(Object.assign({}, cloud.CLOUD.board, {version: r.version}));
+    cloud.setBaseline(fingerprint(P));
+    undoS.length = 0; redoS.length = 0;
+    setReadonly(cloud.CLOUD.board.role === 'viewer');
+    if (!P.pages.some(p => p.id === UI.page)) UI.page = (P.pages[0] || {}).id;
+    renderPages(); renderPage(); paintSave();
+    dbPut(STORE, P).catch(() => {});
+    toast(`Вернули версию ${r.from}. Она стала версией ${r.version}, прежняя осталась в истории`);
+  } catch (e) { toast('Не удалось вернуть версию: ' + (e.message || e)); }
 }
 
 /* --- снимки версий (store SNAP) --- */
@@ -3429,40 +3851,61 @@ function normalize(pr) {
 // dbPut идёт по keyPath 'id' и раньше ЗАТИРАЛ проект с тем же id молча, без подтверждения
 // и без возможности отменить.
 async function restoreBundle(d) {
-  const have = await dbAll(STORE);
-  const clash = d.projects.filter(pr => pr.id && have.some(x => x.id === pr.id));
-  const run = async how => {
-    let add = 0, repl = 0, skip = 0;
-    for (const pr of d.projects) {
-      const dup = pr.id && have.some(x => x.id === pr.id);
-      if (dup && how === 'skip') {skip++; continue;}
-      if (dup && how === 'copy') {pr.id = uid('pr'); pr.name = (pr.name || 'Проект') + ' (копия)'; add++;}
-      else if (dup) repl++; else {pr.id = pr.id || uid('pr'); add++;}
-      await dbPut(STORE, normalize(pr));
-    }
-    for (const sn of (d.snaps || [])) {try {await dbPut(SNAP, sn);} catch (e) {}}
+  const list = (d.projects || []).filter(p => p && Array.isArray(p.nodes));
+  if (!list.length) { toast('В файле нет досок'); return; }
+
+  // Без входа — как раньше, в браузер. Это не запасной путь «на всякий случай»:
+  // человек мог открыть приложение, когда сервер лежит, и потерять файл ему нельзя.
+  if (!cloud.CLOUD.account) {
+    for (const pr of list) { pr.id = pr.id || uid('pr'); await dbPut(STORE, normalize(pr)); }
+    for (const sn of (d.snaps || [])) { try { await dbPut(SNAP, sn); } catch (e) {} }
     await loadProjects(); home.showHome('local');
-    toast(`Восстановлено: добавлено ${add}${repl ? ', заменено ' + repl : ''}${skip ? ', пропущено ' + skip : ''}`);
-  };
-  if (!clash.length) return run('copy');
-  modal(`<h3>Проекты уже есть</h3>
-    <div class="kv" style="font-size:13px">Совпадают по идентификатору: <b>${clash.length}</b> из ${d.projects.length}.<br>
-    ${clash.slice(0, 5).map(p => '· ' + esc(p.name || p.id) + ' <span style="color:var(--muted)">(в файле от ' + esc(p.updated || '?') + ')</span>').join('<br>')}
-    ${clash.length > 5 ? '<br>· и ещё ' + (clash.length - 5) : ''}</div>
-    <div class="mfoot"><button class="btn" data-a="skip">Пропустить их</button>
-      <button class="btn dgr" data-a="repl">Заменить</button>
-      <button class="btn pri" data-a="copy">Создать копии</button></div>`, b => {
-    b.querySelector('[data-a=skip]').onclick = () => {closeModal(); run('skip');};
-    b.querySelector('[data-a=repl]').onclick = () => {closeModal(); run('replace');};
-    b.querySelector('[data-a=copy]').onclick = () => {closeModal(); run('copy');};
+    toast(`Восстановлено в этот браузер: ${list.length}. Войдите, чтобы перенести на сервер.`);
+    return;
+  }
+
+  modal(`<h3>Восстановить из файла</h3>
+    <div class="kv" style="font-size:13px">В файле досок: <b>${list.length}</b>${
+      d.exported ? ` (копия от ${esc(d.exported)})` : ''}.<br>
+      Они будут созданы на сервере как новые. Существующие доски не трогаются
+      и ничего не перезаписывается: у восстановленной копии свой адрес.</div>
+    <div class="kv" style="font-size:12.5px;margin-top:8px">${list.slice(0, 6).map(p =>
+      '· ' + esc(p.name || 'Без названия') + ` <span style="color:var(--muted)">${p.nodes.length} узлов</span>`).join('<br>')}
+      ${list.length > 6 ? '<br>· и ещё ' + (list.length - 6) : ''}</div>
+    <div class="mfoot"><button class="btn" data-a="c">Отмена</button>
+      <button class="btn pri" data-a="go">Создать на сервере</button></div>`, b => {
+    b.querySelector('[data-a=c]').onclick = closeModal;
+    b.querySelector('[data-a=go]').onclick = async () => {
+      const btn = b.querySelector('[data-a=go]');
+      btn.disabled = true;
+      let done = 0, failed = 0, first = null;
+      for (const pr of list) {
+        btn.textContent = `Отправляю ${done + failed + 1} из ${list.length}…`;
+        const doc = normalize(pr);
+        delete doc.deleted; delete doc.deletedAt;
+        try { const id = await cloud.uploadProject(doc); if (!first) first = id; done++; }
+        catch { failed++; }
+      }
+      closeModal();
+      await home.refreshBoards();
+      home.showHome('all');
+      toast(`Восстановлено на сервере: ${done}${failed ? ', не удалось ' + failed : ''}`);
+    };
   });
 }
-function importJson(mode) {
-  pickFile('.json', async txt => {
+
+// Разбор отделён от выбора файла: так путь «текст → доска на сервере» можно
+// проверить тестом, не подсовывая браузеру фальшивый <input type=file>.
+function importJson(mode) { pickFile('.json', txt => importText(txt, mode)); }
+
+async function importText(txt, mode) {
+  {
     let d; try {d = JSON.parse(txt);} catch (e) {toast('Не JSON: ' + e.message); return;}
     if (d.graphstudio && Array.isArray(d.projects)) { await restoreBundle(d); return; }
     const pr = isLegacy(d) ? fromLegacy(d) : normalize(d);
     if (mode === 'merge') {
+      if (!P) { toast('Слить некуда: сначала откройте доску'); return; }
+      if (ro()) { toast('Только просмотр — слить нельзя'); return; }
       snapNow();
       let a = 0, u = 0;
       pr.nodes.forEach(n => {const c = nodeById(n.id); if (c) {Object.assign(c, n); u++;} else {P.nodes.push(n); a++;}});
@@ -3470,12 +3913,25 @@ function importJson(mode) {
       ['statuses', 'categories', 'nodeTypes', 'linkTypes', 'fields'].forEach(k =>
         (pr.schema[k] || []).forEach(it => {if (!P.schema[k].some(x => x.key === it.key)) P.schema[k].push(it);}));
       gInval(); save(1); renderPage(); toast(`Слито: обновлено ${u}, добавлено ${a}`);
-    } else {
-      pr.id = uid('pr'); await dbPut(STORE, pr); await loadProjects(); openProject(pr.id);
-      toast(`Проект «${pr.name}» импортирован: ${pr.nodes.length} узлов`);
+      return;
     }
-  });
+    // Импортированное сразу становится доской на сервере: файл — это способ занести
+    // работу внутрь, а не второе место, где она живёт.
+    if (cloud.CLOUD.account) {
+      try {
+        delete pr.deleted; delete pr.deletedAt;
+        const id = await cloud.uploadProject(pr);
+        await home.refreshBoards();
+        await openServerBoard(id);
+        toast(`Доска «${pr.name}» загружена на сервер: ${pr.nodes.length} узлов`);
+      } catch (e) { toast('Не удалось загрузить на сервер: ' + (e.message || e)); }
+      return;
+    }
+    pr.id = uid('pr'); await dbPut(STORE, pr); await loadProjects(); await openProject(pr.id);
+    toast(`Доска «${pr.name}» открыта в браузере — войдите, чтобы она была на сервере`);
+  }
 }
+
 function importCsv() {
   pickFile('.csv', txt => {
     const rows = parseCsv(txt); if (rows.length < 2) {toast('Пустой CSV'); return;}
@@ -3724,32 +4180,13 @@ async function openServerBoard(id, opts) {
     if (r.asAdmin) toast('Вы открыли чужую доску как администратор — это записано в журнал');
     setReadonly(r.role === 'viewer', r.role === 'viewer' ? 'Только просмотр: править эту доску вам не разрешили' : '');
     if (!o.keepUrl) cloud.goTo('/b/' + id, true);
-    paintMembers();
+    cloud.setBaseline(fingerprint(P));
+    live.connect(id);
     return true;
   } catch (e) {
     toast('Не удалось открыть доску: ' + (e.message || e));
     return false;
   }
-}
-
-// Кто ещё имеет доступ к этой доске. Живого присутствия («кто сейчас смотрит»)
-// здесь нет и не показывается: рисовать чужие аватары как онлайн, не зная этого,
-// значит врать. Это просто список тех, кому доска открыта.
-async function paintMembers() {
-  const box = $('tbMembers'); if (!box) return;
-  box.innerHTML = '';
-  const b = cloud.CLOUD.board;
-  // Список участников отдаёт только владелец-эндпоинт: у editor'а он вернёт 403,
-  // и ломиться туда ради украшения шапки незачем.
-  if (!b || (b.role !== 'owner' && b.role !== 'admin')) return;
-  let members = [];
-  try { members = (await api.shares(b.id)).members || []; } catch { return; }
-  if (members.length < 2) return;
-  const shown = members.slice(0, 4);
-  box.innerHTML = shown.map(m => `<span class="avat sm" title="${esc(m.email)} — ${
-    m.role === 'owner' ? 'владелец' : m.role === 'editor' ? 'может править' : 'только смотрит'
-  }">${esc(home.initialsOf(m))}</span>`).join('')
-    + (members.length > 4 ? `<span class="avat sm guest" title="ещё ${members.length - 4}">+${members.length - 4}</span>` : '');
 }
 
 // Переход по ссылке-доступу.
@@ -3804,26 +4241,25 @@ async function routeBoot() {
 
 async function loadProjects() {
   const all = await dbAll(STORE);
-  PROJECTS = all.map(p => ({id: p.id, name: p.name, desc: p.desc, updated: p.updated, created: p.created, nodes: p.nodes.length, links: p.links.length, deleted: !!p.deleted, deletedAt: p.deletedAt || null, vaultMissing: !!p.vaultMissing}))
+  PROJECTS = all.map(p => ({id: p.id, name: p.name, desc: p.desc, updated: p.updated, created: p.created, nodes: p.nodes.length, links: p.links.length, deleted: !!p.deleted, deletedAt: p.deletedAt || null, movedTo: p.movedTo || null}))
     .sort((a, b) => String(b.updated).localeCompare(String(a.updated)));
 }
 async function trashProject(id) {
   const pr = await dbGet(STORE, id); if (!pr) return;
   pr.deleted = true; pr.deletedAt = today(); await dbPut(STORE, pr); await loadProjects();
   if (P && P.id === id) { P = null; closeInsp(); }
-  home.showHome('trash');
+  home.showHome();
   toast('Проект перемещён в «Удалённые»');
 }
 async function restoreProject(id) {
   const pr = await dbGet(STORE, id); if (!pr) return;
   delete pr.deleted; delete pr.deletedAt; await dbPut(STORE, pr); await loadProjects();
-  home.showHome('local'); toast('Проект восстановлен');
+  home.showHome(); toast('Проект восстановлен');
 }
 async function purgeProject(id) {
   await dbDel(STORE, id);
   for (const s of await snapList(id)) await dbDel(SNAP, s.id);
-  await fhDel(id);
-  await loadProjects(); home.showHome('trash'); toast('Проект удалён навсегда');
+  await loadProjects(); home.showHome(); toast('Удалено');
 }
 /* ==========================================================================
    ГЛАВНАЯ: досок больше нет в оверлее поверх редактора
@@ -3833,23 +4269,48 @@ async function purgeProject(id) {
    устройстве, уже потеряв её. Локальные проекты из старой версии никуда не
    деваются — они лежат отдельным разделом с кнопкой «перенести».
    ========================================================================== */
-function localProjects() { return PROJECTS; }
+// Открытая серверная доска кэшируется в IndexedDB под ключом srv_<id>. Это кэш,
+// а не «проект на этом компьютере»: без этого фильтра каждая открытая доска
+// появлялась бы ещё и в разделе локальных, как будто у неё два дома.
+const isCache = id => String(id).startsWith('srv_');
+function localProjects() { return PROJECTS.filter(p => !isCache(p.id)); }
 
 // Открыть серверную доску с главной.
 async function openBoard(id) { await openServerBoard(id); }
 
 // Открыть локальный проект из раздела «на этом компьютере».
-async function openLocal(id) { cloud.unbindBoard(); await openProject(id); }
+async function openLocal(id) {
+  live.disconnect(); cloud.unbindBoard(); UI.viewVersion = null;
+  const bar = $('verbar'); if (bar) bar.remove();
+  await openProject(id);
+}
 
 async function restoreLocal(id) { await restoreProject(id); }
 async function purgeLocal(id) {
   const pr = PROJECTS.find(x => x.id === id);
-  confirmBox(`Стереть проект «${pr ? pr.name : ''}» НАВСЕГДА? Снимки версий пропадут вместе с ним.`,
-    () => purgeProject(id), 'Стереть');
+  const moved = pr && pr.movedTo;
+  confirmBox(moved
+    ? `Убрать локальную копию «${pr.name}»? Доска останется на сервере, пропадёт только копия в этом браузере.`
+    : `Стереть проект «${pr ? pr.name : ''}» НАВСЕГДА? Он нигде больше не хранится, снимки версий пропадут вместе с ним.`,
+    () => purgeProject(id), moved ? 'Убрать копию' : 'Стереть');
 }
 
 // Отправка локального проекта на сервер. Ничего не удаляется: локальная копия
 // остаётся на месте, пока человек сам не решит иначе.
+async function uploadLocalProject(projectId) {
+  const pr = await dbGet(STORE, projectId);
+  if (!pr) throw new Error('проект не найден');
+  const doc = normalize(pr);
+  delete doc.deleted; delete doc.deletedAt; delete doc.movedTo;
+  const id = await cloud.uploadProject(doc);
+  // Помечаем локальную копию перенесённой, но НЕ удаляем: удалять единственный
+  // экземпляр чужой работы за человека нельзя. Кнопка «убрать копию» рядом.
+  pr.movedTo = id;
+  await dbPut(STORE, pr);
+  await loadProjects();
+  return id;
+}
+
 async function uploadCurrentProject(projectId) {
   if (!cloud.CLOUD.account) {
     home.showAuthPage({reason: 'Чтобы держать доску на сервере и делиться ссылкой, нужен аккаунт.',
@@ -3857,13 +4318,32 @@ async function uploadCurrentProject(projectId) {
     return;
   }
   try {
-    const pr = await dbGet(STORE, projectId);
-    if (!pr) { toast('Проект не найден'); return; }
-    const id = await cloud.uploadProject(pr);
+    const id = await uploadLocalProject(projectId);
     toast('Проект теперь на сервере');
     await home.refreshBoards();
     await openServerBoard(id);
   } catch (e) { toast('Не удалось отправить: ' + (e.message || e)); }
+}
+
+// Перенести всё разом: по одной кнопке на проект это ровно столько кликов,
+// сколько проектов, и посреди списка легко бросить на середине.
+async function uploadAllLocal() {
+  if (!cloud.CLOUD.account) {
+    home.showAuthPage({reason: 'Чтобы перенести доски на сервер, нужен вход.', then: uploadAllLocal});
+    return;
+  }
+  const todo = PROJECTS.filter(p => !p.deleted && !p.movedTo);
+  if (!todo.length) { toast('Переносить нечего'); return; }
+  confirmBox(`Перенести на сервер ${nOf(todo.length, ['проект', 'проекта', 'проектов'])}? ` +
+    'Локальные копии останутся на месте — их можно удалить отдельно.', async () => {
+    let done = 0, failed = 0;
+    for (const p of todo) {
+      try { await uploadLocalProject(p.id); done++; } catch { failed++; }
+    }
+    await home.refreshBoards();
+    home.showHome(done && !failed ? 'all' : 'local');
+    toast(`Перенесено: ${done}${failed ? ', не удалось ' + failed : ''}`);
+  }, 'Перенести');
 }
 
 // Создание доски из шаблона. С аккаунтом — сразу на сервере.
@@ -3884,7 +4364,6 @@ async function createFromTemplate(tplId) {
   // Сервер недоступен — работаем как раньше, локально. Это не тихая подмена:
   // человеку про это сказано прямо, и доска потом переносится одной кнопкой.
   await dbPut(STORE, pr);
-  await vaultAddProject(pr);
   await loadProjects();
   await openProject(pr.id);
   toast('Сервер недоступен — доска создана только в этом браузере');
@@ -3894,12 +4373,12 @@ async function createFromTemplate(tplId) {
 // править то, что негде сохранить, значит обещать сохранение, которого не будет.
 function openDemo() {
   home.hideAll();
+  live.disconnect();
   cloud.unbindBoard();
   P = normalize(clone(SEED));
   P.id = 'demo_preview';
   gInval(); undoS.length = 0; redoS.length = 0;
   UI.view = {}; UI.sel.clear(); UI.selNotes.clear(); UI.selFrames.clear(); UI.insp = null; closeInsp();
-  UI.fileName = null;
   UI.page = (P.pages[0] || {}).id;
   setReadonly(true, 'Демо-доска: смотреть можно всё, править — после входа');
   document.title = 'Демо — Graph Studio';
@@ -3908,6 +4387,9 @@ function openDemo() {
 
 // Наверх, к списку досок. Точка выхода из редактора, которой раньше не было.
 function goHome() {
+  live.disconnect();
+  UI.viewVersion = null;
+  const vb = $('verbar'); if (vb) vb.remove();
   cloud.goTo('/');
   if (cloud.CLOUD.account) home.showHome();
   else if (PROJECTS.filter(p => !p.deleted).length) home.showHome('local');
@@ -3920,6 +4402,7 @@ function showProjects() { goHome(); }
 // После выхода из аккаунта: серверных досок больше не видно, показывать их список
 // нечестно. Локальные проекты остаются — если они есть, попадаем в их раздел.
 function onSignedOut() {
+  live.disconnect();
   P = null; closeInsp(); setReadonly(false);
   home.HOME.boards = null;
   cloud.goTo('/');
@@ -3934,14 +4417,12 @@ async function openProject(id) {
   if (!pr) {toast('Проект не найден'); return;}
   P = normalize(pr); gInval(); undoS.length = 0; redoS.length = 0;
   UI.view = {}; UI.sel.clear(); UI.selNotes.clear(); UI.selFrames.clear(); UI.insp = null; closeInsp();
-  UI.fileName = null;
   await dbPut(META, {k: 'last', v: id});
   const mb = $('tbMembers'); if (mb) mb.innerHTML = '';
   home.hideAll();
   document.title = P.name + ' — Graph Studio';
   UI.page = (P.pages[0] || {}).id;
   renderPages(); renderPage();
-  if (FSA) fhGet(id).then(rec => {if (rec && P && P.id === id) {UI.fileName = rec.name; paintSave();}});
 }
 $('projBtn').onclick = goHome;
 // На дашборде и в таблице узел создавался «в никуда»: страница перерисовывалась,
@@ -4007,217 +4488,18 @@ function toggleTheme() {
    СТАРТ
    ========================================================================== */
 /* ==========================================================================
-   FILE SYSTEM ACCESS — проекты как реальные файлы на диске (прогрессивное улучшение).
-   Есть FSA (Chrome/Edge, secure context) → open/save в настоящий .json, автосейв в файл.
-   Нет FSA (file://, Safari, Firefox) → откат на скачивание/загрузку, как раньше.
-   Хэндлы файлов хранятся в meta store под ключом 'fh:<projectId>'.
-   FSA объявлена выше (рядом с VIEWER).
+   ФАЙЛЫ
+   --------------------------------------------------------------------------
+   Синхронизация проекта с файлом на диске и папка-хранилище убраны в 2.1.
+   Хранилище теперь одно — сервер, а две параллельные истины («в файле новее»
+   против «на сервере новее») ставили бы вопрос, на который нечем ответить.
+
+   Файлы остались тем, чем и должны быть: способом вынести доску наружу
+   и занести обратно. Экспорт — exportProject / exportMd / csv* / exportViewer,
+   импорт — importJson / importCsv, и всё импортированное сразу уезжает
+   на сервер, а не оседает в браузере.
    ========================================================================== */
 const safeName = s => ((s || 'graph').replace(/[^\wа-яА-ЯёЁ\- ]/g, '').trim().replace(/\s+/g, '_') || 'graph');
-async function fhGet(id) { try { const m = await dbGet(META, 'fh:' + id); return m && m.v; } catch (e) { return null; } }
-async function fhSet(id, handle, name) { try { await dbPut(META, {k: 'fh:' + id, v: {handle, name}}); } catch (e) {} }
-async function fhDel(id) { try { await dbDel(META, 'fh:' + id); } catch (e) {} }
-async function fhAll() {
-  try { const all = await dbAll(META); return (all || []).filter(x => String(x.k).startsWith('fh:')).map(x => ({id: x.k.slice(3), name: x.v && x.v.name, handle: x.v && x.v.handle})); }
-  catch (e) { return []; }
-}
-async function verifyPerm(handle, write) {
-  if (!handle || !handle.queryPermission) return true;
-  const opts = {mode: write ? 'readwrite' : 'read'};
-  try {
-    if ((await handle.queryPermission(opts)) === 'granted') return true;
-    if ((await handle.requestPermission(opts)) === 'granted') return true;
-  } catch (e) {}
-  return false;
-}
-// Записи в файлы сериализуются глобально: две одновременные createWritable по одному файлу
-// (например автосейв камеры + автосейв правки) иначе конфликтуют и могут обнулить файл.
-let _writeLock = Promise.resolve();
-function writeHandle(handle, text) {
-  const op = _writeLock.then(async () => {
-    const w = await handle.createWritable();
-    await w.write(new Blob([text], {type: 'application/json'}));
-    await w.close();
-  });
-  _writeLock = op.catch(() => {});
-  return op;
-}
-async function openProjectFile() {
-  if (!FSA) { importJson('new'); return; }
-  let handle;
-  try { [handle] = await window.showOpenFilePicker({multiple: false, types: [{description: 'Graph Studio / JSON', accept: {'application/json': ['.json', '.gsgraph']}}]}); }
-  catch (e) { return; } // отмена
-  try {
-    const file = await handle.getFile();
-    const d = JSON.parse(await file.text());
-    if (d.graphstudio && Array.isArray(d.projects)) { await restoreBundle(d); return; }
-    const pr = isLegacy(d) ? fromLegacy(d) : normalize(d);
-    pr.id = pr.id || uid('pr');
-    // Открытие файла привязывает проект к нему и перезаписывает копию в базе. Это нормально,
-    // пока файл свежее. Если в базе лежит БОЛЕЕ НОВАЯ версия — раньше она затиралась молча.
-    const local = await dbGet(STORE, pr.id).catch(() => null);
-    const stale = local && String(local.updated || '') > String(pr.updated || '');
-    const go = async () => {
-      await dbPut(STORE, pr);
-      await fhSet(pr.id, handle, file.name);
-      await loadProjects(); await openProject(pr.id);
-      toast('Открыт файл: ' + file.name);
-    };
-    if (!stale) return go();
-    modal(`<h3>В базе версия новее</h3>
-      <div class="kv" style="font-size:13px">Проект «${esc(local.name || pr.id)}» уже есть в браузере,
-      и он свежее файла.<br>В базе: <b>${esc(local.updated || '?')}</b> · в файле: <b>${esc(pr.updated || '?')}</b>.</div>
-      <div class="mfoot"><button class="btn" data-a="c">Оставить как есть</button>
-        <button class="btn" data-a="copy">Открыть как копию</button>
-        <button class="btn dgr" data-a="ok">Заменить из файла</button></div>`, b => {
-      b.querySelector('[data-a=c]').onclick = closeModal;
-      b.querySelector('[data-a=copy]').onclick = () => {
-        closeModal(); pr.id = uid('pr'); pr.name = (pr.name || 'Проект') + ' (из файла)'; go();
-      };
-      b.querySelector('[data-a=ok]').onclick = () => {closeModal(); go();};
-    });
-  } catch (e) { toast('Не удалось открыть файл: ' + e.message); }
-}
-async function saveProjectToFile(forceNew) {
-  if (!P) return;
-  if (!FSA) { exportProject(); return; }
-  let rec = await fhGet(P.id), handle = rec && rec.handle;
-  if (forceNew || !handle) {
-    try { handle = await window.showSaveFilePicker({suggestedName: safeName(P.name) + '.json', types: [{description: 'Graph Studio JSON', accept: {'application/json': ['.json']}}]}); }
-    catch (e) { return; }
-  }
-  if (!(await verifyPerm(handle, true))) { toast('Нет доступа к файлу'); return; }
-  try {
-    await writeHandle(handle, JSON.stringify(P, null, 1));
-    await fhSet(P.id, handle, handle.name);
-    UI.fileName = handle.name; UI.dirty = false; paintSave();
-    toast('Сохранено в файл: ' + handle.name);
-  } catch (e) { toast('Ошибка записи: ' + e.message); }
-}
-async function unlinkFile() {
-  if (!P) return;
-  await fhDel(P.id); UI.fileName = null; paintSave();
-  toast('Файл отвязан — проект остаётся в браузере');
-}
-let fileSaveT = null;
-function scheduleFileSave() {
-  if (!FSA || VIEWER || !P) return;
-  clearTimeout(fileSaveT);
-  const pid = P.id;
-  fileSaveT = setTimeout(async () => {
-    const rec = await fhGet(pid), handle = rec && rec.handle; if (!handle) return;
-    try {
-      if (handle.queryPermission && (await handle.queryPermission({mode: 'readwrite'})) !== 'granted') return; // без жеста не спрашиваем
-      if (!P || P.id !== pid) return;
-      await writeHandle(handle, JSON.stringify(P, null, 1));
-      UI.fileSynced = new Date(); paintSave();
-    } catch (e) { /* файл мог быть перемещён/удалён — тихо пропускаем */ }
-  }, 1200);
-}
-
-/* ==========================================================================
-   ПАПКА ХРАНИЛИЩА (vault) — как у Obsidian: одна папка, каждый проект = .json в ней.
-   Хэндл папки лежит в meta 'vault'; список id проектов папки — в meta 'vaultIds'.
-   IndexedDB становится кэшем папки. Смена папки → пересканирование и подтяжка файлов.
-   ========================================================================== */
-const DIRPICK = FSA && typeof window.showDirectoryPicker === 'function';
-async function verifyDirPerm(dir, write) {
-  if (!dir || !dir.queryPermission) return true;
-  const opts = {mode: write ? 'readwrite' : 'read'};
-  try {
-    if ((await dir.queryPermission(opts)) === 'granted') return true;
-    if ((await dir.requestPermission(opts)) === 'granted') return true;
-  } catch (e) {}
-  return false;
-}
-async function getVault() { const v = await dbGet(META, 'vault').catch(() => null); return v && v.v; }
-// Прочитать все .json из папки в кэш IndexedDB, привязать хэндлы, убрать пропавшие. Возврат: число проектов.
-async function loadVault(dir) {
-  if (!(await verifyDirPerm(dir, true))) { toast('Нет доступа к папке'); return -1; }
-  const oldIds = (await dbGet(META, 'vaultIds').catch(() => null) || {v: []}).v || [];
-  const newIds = [];
-  for await (const entry of dir.values()) {
-    if (entry.kind !== 'file' || !/\.(json|gsgraph)$/i.test(entry.name)) continue;
-    try {
-      const raw = JSON.parse(await (await entry.getFile()).text());
-      if (raw.graphstudio && Array.isArray(raw.projects)) continue; // бэкап-бандл пропускаем
-      const pr = isLegacy(raw) ? fromLegacy(raw) : normalize(raw);
-      pr.id = raw.id || ('vf_' + safeName(entry.name.replace(/\.[^.]+$/, '')));
-      await dbPut(STORE, pr);
-      await fhSet(pr.id, entry, entry.name);
-      newIds.push(pr.id);
-    } catch (e) { /* битый/чужой файл — пропускаем */ }
-  }
-  for (const id of oldIds) if (!newIds.includes(id)) {
-    // Здесь был dbDel: исчез файл в папке — проект молча удалялся из локальной базы.
-    // Хватало переименовать файл или временно сохранить его битым (такие файлы выше
-    // пропускаются молча, в catch), чтобы потерять проект. Теперь помечаем и оставляем.
-    const pr = await dbGet(STORE, id).catch(() => null);
-    if (pr) { pr.vaultMissing = 1; await dbPut(STORE, pr).catch(() => {}); }
-    await fhDel(id);
-  }
-  await dbPut(META, {k: 'vault', v: {handle: dir, name: dir.name}});
-  await dbPut(META, {k: 'vaultIds', v: newIds});
-  return newIds.length;
-}
-async function chooseVault() {
-  if (!DIRPICK) { toast('Выбор папки доступен в Chrome/Edge по http(s), не на file://'); return; }
-  let dir; try { dir = await window.showDirectoryPicker({mode: 'readwrite', id: 'graphstudio-vault'}); } catch (e) { return; }
-  const n = await loadVault(dir);
-  if (n < 0) return;
-  await loadProjects(); home.showHome('local');
-  toast(`Папка хранилища: «${dir.name}» · проектов: ${n}`);
-}
-async function refreshVault() {
-  const v = await getVault(); if (!v || !v.handle) return;
-  const n = await loadVault(v.handle);
-  if (n < 0) return;
-  await loadProjects(); home.showHome('local'); toast('Обновлено из папки: ' + n);
-}
-async function disconnectVault() {
-  await dbDel(META, 'vault'); await dbDel(META, 'vaultIds');
-  home.showHome('local'); toast('Папка отключена — проекты остаются в браузере');
-}
-// Записать новый проект файлом в папку хранилища (если она выбрана). true — записан.
-async function vaultAddProject(pr) {
-  const v = await getVault(); const dir = v && v.handle; if (!dir) return false;
-  if (!(await verifyDirPerm(dir, true))) return false;
-  const existing = new Set();
-  try { for await (const e of dir.values()) existing.add(e.name); } catch (err) { return false; }
-  const base = safeName(pr.name); let fname = base + '.json', i = 1;
-  while (existing.has(fname)) fname = base + '_' + (++i) + '.json';
-  try {
-    const fh = await dir.getFileHandle(fname, {create: true});
-    await writeHandle(fh, JSON.stringify(pr, null, 1));
-    await fhSet(pr.id, fh, fname);
-    const ids = (await dbGet(META, 'vaultIds').catch(() => null) || {v: []}).v || [];
-    if (!ids.includes(pr.id)) { ids.push(pr.id); await dbPut(META, {k: 'vaultIds', v: ids}); }
-    return true;
-  } catch (e) { return false; }
-}
-// Обновить кнопку/строку статуса папки на стартовом экране.
-async function refreshVaultUI() {
-  const btn = $('pVault'), st = $('vaultStatus');
-  if (!btn || !st) return;
-  btn.classList.toggle('hidden', !DIRPICK);
-  if (!DIRPICK) { st.textContent = 'Проекты хранятся в этом браузере. Папка-хранилище доступна в Chrome/Edge при запуске по http(s).'; return; }
-  const v = await getVault();
-  if (v && v.name) {
-    btn.textContent = '📁 ' + v.name;
-    st.innerHTML = `Хранилище: <b>${esc(v.name)}</b> — новые проекты пишутся сюда файлами. ` +
-      `<a href="#" data-va="switch" style="color:var(--accent)">Сменить</a> · ` +
-      `<a href="#" data-va="refresh" style="color:var(--accent)">Обновить из папки</a> · ` +
-      `<a href="#" data-va="off" style="color:var(--muted)">Отключить</a>`;
-    qsa('[data-va]', st).forEach(a => a.onclick = e => {
-      e.preventDefault();
-      const act = a.dataset.va;
-      if (act === 'switch') chooseVault(); else if (act === 'refresh') refreshVault(); else disconnectVault();
-    });
-  } else {
-    btn.textContent = '📁 Выбрать папку хранилища';
-    st.innerHTML = 'Проекты пока только в браузере. <b>Выбери папку хранилища</b> — и все проекты будут лежать файлами на диске (можно синкать через iCloud/Dropbox/git).';
-  }
-}
 
 /* ==========================================================================
    PWA — установка и оффлайн (service worker)
@@ -4257,23 +4539,23 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, DBNAME, DIRPICK, FSA, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cardView, catOf, cellHTML, cellValue, centerWorld, chooseVault, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, disconnectVault, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, emptyBlock, esc, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fhAll, fhDel, fhGet, fhSet, fieldOf, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, getVault, goHome, gotoPage, hasCycle, hideCtx, home, importCsv, importJson, inlineNote, inlineRename, inspOpen, inspW, isKey, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, loadInspW, loadProjects, loadVault, localProjects, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDown, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openProjectFile, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintLanes, paintMembers, paintNodes, paintNodesSafe, paintNotes, paintSave, palRender, parseCsv, parseRoute, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, purgeLocal, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, refreshVault, refreshVaultUI, renameProject, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, ro, routeBoot, safeName, save, saveInspW, saveProjectToFile, saveSects, scheduleFileSave, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setReadonly, setSel, showAdmin, showCtx, showExport, showHelp, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, unlinkFile, updatePositions, uploadCurrentProject, validateProject, vaultAddProject, verifyDirPerm, verifyPerm, view, viewKey, visibleRect, wireCanvas, wireEdit, wrapLines, writeHandle, zoomAt});
+Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, emptyBlock, endPtr, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isKey, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, midOf, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setReadonly, setSel, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireEdit, wrapLines, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, 'RO', {get: () => RO, set: v => {RO = v;}, configurable: true});
 Object.defineProperty(window, '_g', {get: () => _g, set: v => {_g = v;}, configurable: true});
 Object.defineProperty(window, '_uid', {get: () => _uid, set: v => {_uid = v;}, configurable: true});
-Object.defineProperty(window, '_writeLock', {get: () => _writeLock, set: v => {_writeLock = v;}, configurable: true});
+Object.defineProperty(window, 'cvClearLong', {get: () => cvClearLong, set: v => {cvClearLong = v;}, configurable: true});
 Object.defineProperty(window, 'cvNodes', {get: () => cvNodes, set: v => {cvNodes = v;}, configurable: true});
 Object.defineProperty(window, 'cvPos', {get: () => cvPos, set: v => {cvPos = v;}, configurable: true});
 Object.defineProperty(window, 'deferredInstall', {get: () => deferredInstall, set: v => {deferredInstall = v;}, configurable: true});
 Object.defineProperty(window, 'drag', {get: () => drag, set: v => {drag = v;}, configurable: true});
-Object.defineProperty(window, 'fileSaveT', {get: () => fileSaveT, set: v => {fileSaveT = v;}, configurable: true});
 Object.defineProperty(window, 'idb', {get: () => idb, set: v => {idb = v;}, configurable: true});
 Object.defineProperty(window, 'laneInfo', {get: () => laneInfo, set: v => {laneInfo = v;}, configurable: true});
 Object.defineProperty(window, 'palIdx', {get: () => palIdx, set: v => {palIdx = v;}, configurable: true});
 Object.defineProperty(window, 'palItems', {get: () => palItems, set: v => {palItems = v;}, configurable: true});
 Object.defineProperty(window, 'pasteShift', {get: () => pasteShift, set: v => {pasteShift = v;}, configurable: true});
+Object.defineProperty(window, 'pinch', {get: () => pinch, set: v => {pinch = v;}, configurable: true});
 Object.defineProperty(window, 'saveT', {get: () => saveT, set: v => {saveT = v;}, configurable: true});
 Object.defineProperty(window, 'snapArmed', {get: () => snapArmed, set: v => {snapArmed = v;}, configurable: true});
 Object.defineProperty(window, 'snapT', {get: () => snapT, set: v => {snapT = v;}, configurable: true});
@@ -4287,7 +4569,7 @@ Object.defineProperty(window, 'viewSaveT', {get: () => viewSaveT, set: v => {vie
 // Вызов стоит ЗДЕСЬ, а не в начале файла: $, esc, modal и остальные объявлены
 // через const, и обращение к ним выше по тексту даёт TDZ-ReferenceError, который
 // убивает весь скрипт до boot() — приложение молча не стартует.
-cloud.initCloud({ $, esc, modal, closeModal, toast, confirmBox, promptBox });
+cloud.initCloud({ $, esc, modal, closeModal, toast, confirmBox, promptBox, fingerprint, summarize });
 
 // Модуль главной получает ровно то, что ему нужно, — и ни одной внутренности
 // редактора сверх этого. Иначе он превратился бы во вторую копию этого файла.
@@ -4298,10 +4580,19 @@ home.initHome({
   toggleTheme,
   setBrowserTitle: t => { document.title = t; },
   showHelp, showAdmin, importJson,
-  localProjects, openBoard, openLocal, uploadLocal: uploadCurrentProject,
-  restoreLocal, purgeLocal, createFromTemplate, openDemo, onSignedOut,
+  localProjects, openBoard, openLocal, uploadLocal: uploadCurrentProject, uploadAllLocal,
+  restoreLocal, purgeLocal, createFromTemplate, openDemo, onSignedOut, backupAll,
 });
 home.wireHead();
+
+// Живой канал знает только, что делать с приехавшим: применить чужую правку,
+// перерисовать аватары, перерисовать курсоры. Про доски и адреса он не знает ничего.
+live.initLive({
+  onUpdate: onLiveUpdate,
+  onPeers: paintPeers,
+  onCursors: paintCursors,
+  onError: msg => toast('Живой канал: ' + msg),
+});
 
 (async function boot() {
   if (VIEWER) {
@@ -4316,11 +4607,6 @@ home.wireHead();
   try { idb = await openDB(); } catch (e) { alert('Не удалось открыть локальную базу: ' + e.message); return; }
   try { const th = await dbGet(META, 'theme'); if (th && th.v === 'dark') applyTheme(true); } catch (e) {}
   await loadInspW();
-  // Папка хранилища: если доступ уже выдан (без запроса) — подтянуть файлы из неё.
-  try {
-    const v = await getVault();
-    if (v && v.handle && v.handle.queryPermission && (await v.handle.queryPermission({mode: 'readwrite'})) === 'granted') await loadVault(v.handle);
-  } catch (e) {}
   await loadProjects();
 
   // Кто мы на сервере. Сервера может не быть вообще (сеть отвалилась, открыт

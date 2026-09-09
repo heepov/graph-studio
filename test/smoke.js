@@ -34,7 +34,9 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
     // Без аккаунта сервер досок не даёт, и главная показывает витрину — поэтому
     // проект создаётся вызовом, а не кликом по карточке шаблона: этот набор
     // проверяет редактор, а не путь входа (за него отвечает test/cloud.js).
-    await c.waitFor('typeof createFromTemplate === "function"', 15000, 'приложение готово');
+    // idb открывается внутри boot() уже после появления глобалей — без ожидания
+    // dbPut ниже падает с «нет БД»
+    await c.waitFor('typeof idb !== "undefined" && !!idb', 20000, 'база открыта');
     await c.eval(`createFromTemplate('demo')`);
     await c.waitFor('typeof P !== "undefined" && P && P.nodes.length > 0', 15000, 'проект открылся');
     const proj = await c.eval(`({name: P.name, nodes: P.nodes.length, links: P.links.length, pages: P.pages.map(p => p.kind)})`);

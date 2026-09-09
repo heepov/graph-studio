@@ -123,6 +123,13 @@ export function showShare(boardId, boardName) {
 let pushT = null, pushing = false, pendingDoc = null;
 
 let pendingPrev = null;
+// Слепок состояния на момент последней успешной отправки. Нужен, чтобы к правке
+// приложить короткую фразу «что поменялось»: сервер документ не разбирает и сам
+// такую фразу составить не может. Храним слепок, а не копию документа целиком —
+// вторая копия доски в памяти ради подписи к строчке истории того не стоит.
+let baseline = null;
+export function setBaseline(fp) { baseline = fp || null; }
+export function hasPending() { return !!pendingDoc || pushing; }
 export function schedulePush(getDoc, onState, getPreview) {
   if (!CLOUD.board) return;
   pendingDoc = getDoc;
@@ -138,10 +145,13 @@ export async function pushNow(onState) {
   // Превью считается ровно здесь: оно нужно только серверу для карточки в списке
   // и не должно попадать в сам документ доски.
   let prev; try { prev = pendingPrev ? pendingPrev() : undefined; } catch { prev = undefined; }
+  let summary = null;
+  try { summary = H.summarize ? H.summarize(baseline, doc) : null; } catch { summary = null; }
   pendingDoc = null;
   try {
-    const r = await api.boardPut(CLOUD.board.id, doc, CLOUD.board.version, prev);
+    const r = await api.boardPut(CLOUD.board.id, doc, CLOUD.board.version, prev, summary);
     CLOUD.board.version = r.version;
+    try { baseline = H.fingerprint ? H.fingerprint(doc) : null; } catch { baseline = null; }
     if (onState) onState({ok: true, version: r.version});
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
@@ -156,4 +166,4 @@ export async function pushNow(onState) {
 
 export function boundToServer() { return !!CLOUD.board; }
 export function bindBoard(info) { CLOUD.board = info; }
-export function unbindBoard() { CLOUD.board = null; clearTimeout(pushT); pendingDoc = null; pendingPrev = null; }
+export function unbindBoard() { CLOUD.board = null; clearTimeout(pushT); pendingDoc = null; pendingPrev = null; baseline = null; }

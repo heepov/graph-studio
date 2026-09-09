@@ -81,6 +81,41 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       ? ok('превью доски считается и доезжает до сервера', prev.stored + ' узлов')
       : bad('превью не сохраняется', JSON.stringify(prev));
 
+    // Импорт кладёт доску сразу на сервер: файл — это способ занести работу внутрь,
+    // а не второе место, где она живёт.
+    const imp = await c.eval(`(async () => {
+      const before = cloud.CLOUD.board.id;
+      await importText(JSON.stringify({name: 'Из файла', desc: '', nodes: [
+        {id: 'f1', name: 'Один'}, {id: 'f2', name: 'Два'}], links: [{id:'fl', from:'f1', to:'f2'}], pages: []}), 'new');
+      const list = await api.boards();
+      const row = list.mine.find(b => b.name === 'Из файла');
+      return {opened: cloud.CLOUD.board.id, changed: cloud.CLOUD.board.id !== before,
+              onServer: !!row, nodes: row ? row.nodes_count : 0,
+              local: localProjects().some(p => p.name === 'Из файла'),
+              cached: PROJECTS.some(p => p.id.startsWith('srv_') && p.name === 'Из файла')};
+    })()`);
+    (imp.onServer && imp.changed && imp.nodes === 2 && !imp.local && imp.cached)
+      ? ok('импорт создаёт доску на сервере и открывает её', imp.opened)
+      : bad('импорт не уехал на сервер', JSON.stringify(imp));
+
+    // Копия всего должна содержать серверные доски: раньше бэкап брал только
+    // IndexedDB и после переезда молча не содержал бы главного.
+    const bk = await c.eval(`(async () => {
+      let blob = null; const orig = URL.createObjectURL;
+      URL.createObjectURL = b => { blob = b; return orig.call(URL, b); };
+      try { await backupAll(); } finally { URL.createObjectURL = orig; }
+      const d = blob ? JSON.parse(await blob.text()) : null;
+      return d && {count: d.projects.length, hasImported: d.projects.some(p => p.name === 'Из файла')};
+    })()`);
+    (bk && bk.count > 0 && bk.hasImported)
+      ? ok('копия всего содержит доски с сервера', bk.count + ' досок')
+      : bad('бэкап не забрал серверные доски', JSON.stringify(bk));
+
+    // Вернуться к доске, которую правим дальше.
+    await c.eval(`(async () => { const l = await api.boards();
+      await openServerBoard(l.mine.find(b => b.name.indexOf('Демо') === 0).id); })()`);
+    await sleep(700);
+
     // правка должна уехать на сервер
     const edited = await c.eval(`(async () => {
       const n = P.nodes[0];
@@ -94,18 +129,21 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       ? ok('правка уезжает на сервер, версия синхронизирована', 'версия ' + edited.version)
       : bad('правка не доехала до сервера', JSON.stringify(edited));
 
-    // конфликт версий обрабатывается, а не затирает молча
+    // Конфликт версий обрабатывается, а не затирает молча.
+    //
+    // Порядок здесь важен и он же — настоящий: СНАЧАЛА своя правка (она встаёт
+    // в очередь на 900 мс), и уже потом чужая. Пока своё не ушло, живой канал
+    // чужую правку НЕ применяет — иначе он затёр бы работу, которую человек
+    // делает прямо сейчас, — и отправка упирается в 409 с разбором конфликта.
     const conflict = await c.eval(`(async () => {
       const id = cloud.CLOUD.board.id;
+      P.nodes[0].name = 'МОЯ ПРАВКА';
+      save();                                    // очередь отправки: 900 мс
       const cur = await api.boardGet(id);
-      // кто-то другой записал свою версию
       const other = JSON.parse(JSON.stringify(cur.doc));
       other.nodes[0].name = 'ПРАВКА КОЛЛЕГИ';
-      await api.boardPut(id, other, cur.version);
-      // а мы правим от устаревшей версии
-      P.nodes[0].name = 'МОЯ ПРАВКА';
-      save();
-      await new Promise(r => setTimeout(r, 2200));
+      await api.boardPut(id, other, cur.version);   // коллега успел раньше
+      await new Promise(r => setTimeout(r, 2500));
       const modalOpen = document.getElementById('modal').classList.contains('open');
       const text = document.getElementById('mbox').textContent || '';
       return {modalOpen, mentions: /изменил кто-то ещё/i.test(text)};

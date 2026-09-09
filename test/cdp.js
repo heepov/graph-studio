@@ -75,6 +75,17 @@ class Client {
       type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1, ...extra,
     });
   }
+  // Настоящие касания, а не мышь: pointerType у них 'touch', и ветки кода
+  // для пальца проверяются именно те, что работают на телефоне.
+  async touchOn(maxPoints = 5) {
+    await this.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: maxPoints });
+  }
+  async touch(type, points) {
+    await this.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: points.map((p, i) => ({ x: p.x, y: p.y, id: p.id === undefined ? i + 1 : p.id })),
+    });
+  }
 }
 
 module.exports = { launch, Client, sleep };

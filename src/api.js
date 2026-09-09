@@ -54,7 +54,12 @@ export const api = {
   // что уже лежит на сервере»: JSON.stringify выкидывает такие ключи целиком.
   boardCreate: (doc, preview) => req('POST', '/boards', {doc, preview}),
   boardGet: id => req('GET', '/boards/' + encodeURIComponent(id)),
-  boardPut: (id, doc, baseVersion, preview) => req('PUT', '/boards/' + encodeURIComponent(id), {doc, baseVersion, preview}),
+  boardPut: (id, doc, baseVersion, preview, summary) =>
+    req('PUT', '/boards/' + encodeURIComponent(id), {doc, baseVersion, preview, summary}),
+
+  versions: id => req('GET', `/boards/${encodeURIComponent(id)}/versions`),
+  version: (id, v) => req('GET', `/boards/${encodeURIComponent(id)}/versions/${v}`),
+  versionRestore: (id, v) => req('POST', `/boards/${encodeURIComponent(id)}/versions/${v}/restore`, {}),
   boardDelete: id => req('DELETE', '/boards/' + encodeURIComponent(id)),
   boardRestore: id => req('POST', '/boards/' + encodeURIComponent(id) + '/restore', {}),
 

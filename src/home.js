@@ -387,14 +387,18 @@ function boardCard(b, kind) {
 }
 
 function localCard(p) {
-  return `<div class="bcard" data-loc="${esc(p.id)}" tabindex="0">
+  const moved = !!p.movedTo;
+  return `<div class="bcard" data-loc="${esc(p.id)}" data-moved="${esc(p.movedTo || '')}" tabindex="0">
     <div class="bprev">${previewSVG(null, p.id, p.name)}</div>
-    <span class="tag">только здесь</span>
+    <span class="tag">${moved ? '✓ на сервере' : 'только здесь'}</span>
     <div class="bbody">
       <div class="t">${esc(p.name)}</div>
       <div class="m"><span>${H.nOf(p.nodes, H.NODES)}</span><span class="dot">·</span><span>${esc(p.updated || '')}</span></div>
-      <button class="btn sm pri" data-up="${esc(p.id)}" style="margin-top:9px;width:100%;justify-content:center">
-        ↑ Перенести на сервер</button>
+      ${moved
+        ? `<button class="btn sm" data-drop="${esc(p.id)}" style="margin-top:9px;width:100%;justify-content:center">
+             Убрать копию из браузера</button>`
+        : `<button class="btn sm pri" data-up="${esc(p.id)}" style="margin-top:9px;width:100%;justify-content:center">
+             ↑ Перенести на сервер</button>`}
     </div></div>`;
 }
 
@@ -412,10 +416,15 @@ function renderMain() {
       <div class="bbody"><div class="t">${esc(t.name)}</div>
       <div class="m" style="line-height:1.45">${esc(t.desc)}</div></div></div>`).join('')}</div>`;
   } else if (v === 'local') {
-    const live = H.localProjects().filter(p => !p.deleted).filter(p => matchQ(p.name));
+    const all = H.localProjects().filter(p => !p.deleted);
+    const live = all.filter(p => matchQ(p.name));
+    const left = all.filter(p => !p.movedTo).length;
     head = `<h1 class="hh1">На этом компьютере</h1>
-      <div class="hsub">Проекты из старой версии — они лежат только в этом браузере и не видны с других устройств.
-        Перенесите их на сервер: локальная копия при этом останется на месте.</div>`;
+      <div class="hsub">Проекты из прежней версии: они лежат только в этом браузере и не видны
+        с других устройств. ${left ? 'Перенесите их на сервер — локальные копии останутся на месте, ' +
+        'пока вы сами их не уберёте.' : 'Всё перенесено — копии можно убрать.'}</div>
+      ${left ? `<div style="margin-bottom:18px"><button class="btn pri" data-a="upall">
+        ↑ Перенести все на сервер (${left})</button></div>` : ''}`;
     body = live.length ? `<div class="bgrid">${live.map(localCard).join('')}</div>`
       : `<div class="bempty"><div class="ttl">Здесь пусто</div>Локальных проектов не осталось.</div>`;
   } else if (v === 'trash') {
@@ -484,8 +493,13 @@ function wireMain() {
     if (e.target.dataset.menu) { e.stopPropagation(); return cardMenu(e, el.dataset.b); }
     H.openBoard(el.dataset.b);
   });
+  m.querySelectorAll('[data-a=upall]').forEach(el => el.onclick = () => H.uploadAllLocal());
   m.querySelectorAll('[data-loc]').forEach(el => el.onclick = e => {
     if (e.target.dataset.up) { e.stopPropagation(); return H.uploadLocal(e.target.dataset.up); }
+    if (e.target.dataset.drop) { e.stopPropagation(); return H.purgeLocal(e.target.dataset.drop); }
+    // Перенесённый проект открывается серверной доской: локальная копия здесь —
+    // уже история, и правки в ней никуда бы не поехали.
+    if (el.dataset.moved) return H.openBoard(el.dataset.moved);
     H.openLocal(el.dataset.loc);
   });
   m.querySelectorAll('[data-restore]').forEach(el => el.onclick = async e => {

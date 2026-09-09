@@ -4,6 +4,7 @@
 // пару чисел для списка. Это сознательно: формат документа принадлежит клиенту
 // и будет меняться, а сервер не должен ломаться от каждого нового поля.
 import { newToken, newId } from './auth.js';
+import { broadcast, updateMessage } from './live.js';
 
 const now = () => Date.now();
 
@@ -56,6 +57,29 @@ export function registerBoards(app, db, deps) {
     return t.length > PREVIEW_MAX ? null : t;
   }
 
+  /* ---------- история версий ----------
+     Полный документ на каждую версию: без него «вернуть как было» — обещание,
+     а не кнопка. Держим последние VERSIONS_KEEP: документы по сотне-другой
+     килобайт, и вечное хранение незаметно раздуло бы базу и бэкапы. */
+  const VERSIONS_KEEP = 40;
+  const insVersion = db.prepare(`INSERT OR REPLACE INTO board_versions
+    (board_id, version, at, actor_id, summary, nodes, links, doc) VALUES (?,?,?,?,?,?,?,?)`);
+  const pruneVersions = db.prepare(`DELETE FROM board_versions WHERE board_id = ? AND version NOT IN
+    (SELECT version FROM board_versions WHERE board_id = ? ORDER BY version DESC LIMIT ?)`);
+
+  function keepVersion(boardId, version, at, actorId, summary, c, text) {
+    try {
+      insVersion.run(boardId, version, at, actorId, summary || null, c.n, c.l, text);
+      pruneVersions.run(boardId, boardId, VERSIONS_KEEP);
+    } catch (e) {
+      // История — полезная, но не критичная часть: если она не записалась,
+      // это не повод отказать в сохранении самой доски.
+      app.log.error({ err: e.message, boardId, version }, 'не записалась версия доски');
+    }
+  }
+  // Короткая фраза «что поменялось» приходит от клиента: сервер документ не разбирает.
+  const summaryOf = raw => (typeof raw === 'string' && raw.trim() ? raw.trim().slice(0, 300) : null);
+
   /* ---------- список ---------- */
   app.get('/api/boards', { preHandler: requireUser }, async (req) => {
     const mine = db.prepare(`SELECT id, name, nodes_count, links_count, updated_at, created_at, preview, 'owner' AS role
@@ -84,6 +108,7 @@ export function registerBoards(app, db, deps) {
         previewOf((req.body || {}).preview, null), t, t, req.user.id);
     db.prepare('INSERT INTO board_members (board_id, user_id, role, added_at) VALUES (?,?,?,?)')
       .run(id, req.user.id, 'owner', t);
+    keepVersion(id, 1, t, req.user.id, 'доска создана', c, text);
     return { id, version: 1 };
   });
 
@@ -127,7 +152,60 @@ export function registerBoards(app, db, deps) {
       preview = ?, updated_at = ?, updated_by = ? WHERE id = ?`)
       .run(text, v, nameOf(text) || board.name, c.n, c.l,
         previewOf((req.body || {}).preview, board.preview), t, req.user.id, board.id);
+    const sum = summaryOf((req.body || {}).summary);
+    keepVersion(board.id, v, t, req.user.id, sum, c, text);
+    // Открытым вкладкам чужая правка приезжает сразу, а не когда они сами решат
+    // сохранить. Документ идёт ВМЕСТЕ с сообщением: иначе каждая правка
+    // превращалась бы в N ответных GET на те же байты, только с задержкой.
+    broadcast(board.id, updateMessage(v, t,
+      { id: req.user.id, name: req.user.name || req.user.email, email: req.user.email }, text, sum), null);
     return { version: v, updated_at: t };
+  });
+
+  /* ---------- история ---------- */
+  app.get('/api/boards/:id/versions', { preHandler: requireUser }, async (req, reply) => {
+    const { board, role } = access(req.user, req.params.id, 'history');
+    if (!board || !canRead(role)) return reply.code(404).send({ error: 'доска не найдена' });
+    return {
+      current: board.version,
+      versions: db.prepare(`SELECT v.version, v.at, v.summary, v.nodes, v.links,
+          u.email AS actor_email, u.name AS actor_name
+        FROM board_versions v LEFT JOIN users u ON u.id = v.actor_id
+        WHERE v.board_id = ? ORDER BY v.version DESC LIMIT 60`).all(board.id),
+    };
+  });
+
+  app.get('/api/boards/:id/versions/:v', { preHandler: requireUser }, async (req, reply) => {
+    const { board, role } = access(req.user, req.params.id, 'history');
+    if (!board || !canRead(role)) return reply.code(404).send({ error: 'доска не найдена' });
+    const row = db.prepare('SELECT * FROM board_versions WHERE board_id = ? AND version = ?')
+      .get(board.id, +req.params.v);
+    if (!row) return reply.code(404).send({ error: 'этой версии уже нет в истории' });
+    return { version: row.version, at: row.at, summary: row.summary, doc: JSON.parse(row.doc) };
+  });
+
+  // Возврат НЕ стирает историю: старая версия остаётся, поверх ложится новая.
+  // Иначе «вернуть» само становилось бы необратимым действием.
+  app.post('/api/boards/:id/versions/:v/restore', { preHandler: requireUser }, async (req, reply) => {
+    const { board, role } = access(req.user, req.params.id, 'restore-version');
+    if (!board || !canRead(role)) return reply.code(404).send({ error: 'доска не найдена' });
+    if (!canEdit(role)) return reply.code(403).send({ error: 'только просмотр' });
+    const row = db.prepare('SELECT * FROM board_versions WHERE board_id = ? AND version = ?')
+      .get(board.id, +req.params.v);
+    if (!row) return reply.code(404).send({ error: 'этой версии уже нет в истории' });
+
+    const text = row.doc;
+    const c = counts(text);
+    const t = now();
+    const v = board.version + 1;
+    db.prepare(`UPDATE boards SET doc = ?, version = ?, name = ?, nodes_count = ?, links_count = ?,
+      updated_at = ?, updated_by = ? WHERE id = ?`)
+      .run(text, v, nameOf(text) || board.name, c.n, c.l, t, req.user.id, board.id);
+    keepVersion(board.id, v, t, req.user.id, `возврат к версии ${row.version}`, c, text);
+    broadcast(board.id, updateMessage(v, t,
+      { id: req.user.id, name: req.user.name || req.user.email, email: req.user.email }, text,
+      `возврат к версии ${row.version}`), null);
+    return { version: v, from: row.version, doc: JSON.parse(text) };
   });
 
   /* ---------- корзина ---------- */

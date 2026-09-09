@@ -38,6 +38,12 @@ node test/smoke.js
 echo "── связка клиент-сервер"
 node test/cloud.js
 
+echo "── совместное редактирование в двух браузерах"
+node test/live.js
+
+echo "── холст пальцем"
+node test/touch.js
+
 echo "── совместимость со старыми файлами"
 node test/legacy.js
 
