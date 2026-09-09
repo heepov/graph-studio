@@ -153,6 +153,57 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       : bad('конфликт версий обработан неверно', JSON.stringify(conflict));
     await c.eval('(closeModal(), true)');
 
+    // Меню карточки и меню аккаунта: проверяем, что меню реально ВИДНО, а не что
+    // на нём висит класс .open. Ровно так баг и прожил: #ctx с z-index 200
+    // открывался под списком досок (250), и обе кнопки выглядели мёртвыми.
+    const menus = await c.eval(`(async () => {
+      await home.showHome('all');
+      await new Promise(r => setTimeout(r, 600));
+      const seen = el => {
+        const r = el.getBoundingClientRect();
+        const top = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + 8));
+        return !!(top && top.closest('#ctx'));
+      };
+      const out = {};
+
+      document.querySelector('#hmain .bcard [data-menu]').click();
+      await new Promise(r => setTimeout(r, 150));
+      const ctx = document.getElementById('ctx');
+      out.cardOpen = ctx.classList.contains('open');
+      out.cardVisible = out.cardOpen && seen(ctx.querySelector('.mlist'));
+      out.cardItems = [...ctx.querySelectorAll('.mi')].map(m => m.textContent);
+      hideCtx();
+
+      document.getElementById('hAvatar').click();
+      await new Promise(r => setTimeout(r, 150));
+      out.accOpen = ctx.classList.contains('open');
+      out.accVisible = out.accOpen && seen(ctx.querySelector('.mlist'));
+      out.accItems = [...ctx.querySelectorAll('.mi')].map(m => m.textContent);
+      hideCtx();
+      return out;
+    })()`);
+    (menus.cardVisible && menus.cardItems.some(t => /корзин/i.test(t)))
+      ? ok('меню карточки доски открывается и видно', menus.cardItems.join(' / '))
+      : bad('меню карточки не работает', JSON.stringify(menus));
+    (menus.accVisible && menus.accItems.some(t => /Выйти/.test(t)))
+      ? ok('меню аккаунта открывается и видно', menus.accItems.join(' / '))
+      : bad('меню аккаунта не работает', JSON.stringify(menus));
+
+    // Доска действительно удаляется из списка через это меню.
+    const del = await c.eval(`(async () => {
+      const list = await api.boards();
+      const victim = list.mine.find(b => b.name === 'Из файла') || list.mine[0];
+      const before = list.mine.length;
+      await api.boardDelete(victim.id);
+      await home.refreshBoards();
+      const after = (await api.boards()).mine.length;
+      const gone = !document.querySelector('#hmain .bcard[data-b="' + victim.id + '"]');
+      return {before, after, gone, name: victim.name};
+    })()`);
+    (del.after === del.before - 1 && del.gone)
+      ? ok('доска убирается в корзину и пропадает из сетки', del.name)
+      : bad('удаление доски не сработало', JSON.stringify(del));
+
     // ссылка на просмотр
     const share = await c.eval(`(async () => {
       const r = await api.shareCreate(cloud.CLOUD.board.id, 'viewer', 0);
