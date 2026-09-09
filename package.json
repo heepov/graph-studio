@@ -1,6 +1,6 @@
 {
   "name": "graph-studio",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "private": true,
   "scripts": {
     "dev": "vite",
@@ -8,7 +8,8 @@
     "preview": "vite preview",
     "test": "node test/smoke.js && node test/legacy.js",
     "bridge": "node scripts/gen-bridge.mjs",
-    "verify": "bash scripts/verify.sh"
+    "verify": "bash scripts/verify.sh",
+    "prod": "node test/prod.js"
   },
   "devDependencies": {
     "vite": "^7.1.5"

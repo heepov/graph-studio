@@ -9,6 +9,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
+# .git/HEAD и refs нужны сборке, чтобы проставить в приложение хеш коммита
+COPY .git/ ./.git/
 COPY index.html vite.config.mjs ./
 COPY src/ ./src/
 COPY public/ ./public/

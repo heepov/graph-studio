@@ -1,6 +1,41 @@
 name: graph-studio
 
 services:
+  # Бэкенд: аккаунты, доски, ссылки-доступы. Наружу НЕ торчит — только через
+  # тот же контейнерный nginx по пути /api/, поэтому host-nginx менять не нужно
+  # и лишний порт на общем сервере не занимается.
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    image: graph-studio-api:latest
+    container_name: graph-studio-api
+    restart: unless-stopped
+    expose:
+      - "3000"
+    environment:
+      # Почта администратора. Пароль СЮДА НЕ КЛАДЁТСЯ: при первом запуске он
+      # генерируется случайным и печатается один раз в лог контейнера.
+      # Прочитать: docker compose logs api | grep -A3 'ПЕРВЫЙ ЗАПУСК'
+      ADMIN_EMAIL: "${GRAPH_STUDIO_ADMIN:-kaitnik@gmail.com}"
+      DB_PATH: /data/graphstudio.sqlite
+      BACKUP_DIR: /data/backups
+      LOG_LEVEL: info
+    # Секреты, если появятся, кладутся сюда. Файла может не быть — тогда работают
+    # умолчания выше, и деплой не падает из-за его отсутствия.
+    env_file:
+      - path: /etc/graph-studio/api.env
+        required: false
+    volumes:
+      # ИМЕНОВАННЫЙ том, а не каталог в репозитории: деплой делает git reset --hard
+      # в /opt/graph-studio, и данные внутри репозитория были бы под ударом.
+      - gs-data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
   app:
     build:
       context: .
@@ -8,6 +43,8 @@ services:
     image: graph-studio:latest
     container_name: graph-studio
     restart: unless-stopped
+    depends_on:
+      - api
     # только на loopback — наружу ходит host-nginx, он же держит TLS
     ports:
       - "127.0.0.1:${GRAPH_STUDIO_PORT:-8081}:8080"
@@ -32,3 +69,7 @@ services:
       ru.heeprod.showcase.stage: "live"
       ru.heeprod.showcase.order: "10"
       ru.heeprod.showcase.accent: "#5B8DEF"
+
+volumes:
+  gs-data:
+    name: graph-studio_gs-data

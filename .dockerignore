@@ -1,4 +1,8 @@
 .git
+# кроме двух файлов: по ним сборка узнаёт коммит, не таща весь .git в контекст
+!.git/HEAD
+!.git/refs
+!.git/packed-refs
 .github
 .claude
 docs

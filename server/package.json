@@ -1,0 +1,17 @@
+{
+  "name": "graph-studio-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "migrate": "node scripts/migrate.js",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/rate-limit": "^10.2.2",
+    "better-sqlite3": "^11.7.0",
+    "fastify": "^5.2.0"
+  }
+}

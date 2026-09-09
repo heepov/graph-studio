@@ -19,6 +19,16 @@ for i in $(seq 1 40); do
   sleep 1
 done
 
+echo "── жду api"
+for i in $(seq 1 40); do
+  if curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then break; fi
+  if [ "$i" = 40 ]; then echo "api не поднялся"; docker compose logs api --tail 40; exit 1; fi
+  sleep 1
+done
+
+echo "── проверки бэкенда"
+node test/api.js
+
 echo "── регрессионный прогон"
 node test/smoke.js
 
