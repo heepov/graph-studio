@@ -29,6 +29,9 @@ done
 echo "── проверки бэкенда"
 node test/api.js
 
+echo "── сквозной сценарий бэкенда"
+node test/api-flow.js
+
 echo "── регрессионный прогон"
 node test/smoke.js
 

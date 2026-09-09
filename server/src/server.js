@@ -5,6 +5,8 @@ import { getDb } from './db.js';
 import { hashPassword, verifyPassword, newToken, newId, sessionCookie, SESSION_DAYS } from './auth.js';
 import { mkdirSync, readdirSync, unlinkSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { registerBoards } from './boards.js';
+import { registerAdmin } from './admin.js';
 
 const db = getDb();
 const now = () => Date.now();
@@ -16,6 +18,14 @@ const app = Fastify({
   trustProxy: 2,
   bodyLimit: 32 * 1024 * 1024,   // документы досок ходят целиком
   logger: { level: process.env.LOG_LEVEL || 'info' },
+});
+
+// Пустое тело при заголовке application/json — обычное дело для DELETE и POST
+// без параметров. По умолчанию Fastify отвечает на это 400 FST_ERR_CTP_EMPTY_JSON_BODY,
+// и клиент получает загадочную ошибку там, где ничего не отправлял.
+app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+  if (!body || !String(body).trim()) return done(null, {});
+  try { done(null, JSON.parse(body)); } catch (e) { e.statusCode = 400; done(e, undefined); }
 });
 
 await app.register(cookie);
@@ -161,6 +171,10 @@ app.get('/api/invites/:token', async (req, reply) => {
   }
   return { email: inv.email || null };
 });
+
+/* ---------- доски и админка ---------- */
+registerBoards(app, db, { requireUser, requireAdmin });
+registerAdmin(app, db, { requireUser, requireAdmin });
 
 /* ---------- 404 под /api/ отдаёт JSON, а не HTML ---------- */
 // Иначе клиентский res.json() падает с «Unexpected token '<'», а настоящая причина
