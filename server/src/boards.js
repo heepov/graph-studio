@@ -39,8 +39,9 @@ export function registerBoards(app, db, deps) {
   function counts(docText) {
     try {
       const d = JSON.parse(docText);
-      return { n: Array.isArray(d.nodes) ? d.nodes.length : 0, l: Array.isArray(d.links) ? d.links.length : 0 };
-    } catch { return { n: 0, l: 0 }; }
+      return { n: Array.isArray(d.nodes) ? d.nodes.length : 0, l: Array.isArray(d.links) ? d.links.length : 0,
+        p: Array.isArray(d.pages) ? d.pages.length : 0 };
+    } catch { return { n: 0, l: 0, p: 0 }; }
   }
   const nameOf = docText => {
     try { return String(JSON.parse(docText).name || '').slice(0, 200); } catch { return ''; }
@@ -124,8 +125,8 @@ export function registerBoards(app, db, deps) {
     const t = now();
     const v = board.version + 1;
     db.prepare(`UPDATE boards SET doc = ?, version = ?, name = ?, nodes_count = ?, links_count = ?,
-      preview = ?, updated_at = ?, updated_by = ? WHERE id = ?`)
-      .run(text, v, nameOf(text) || board.name, c.n, c.l,
+      pages_count = ?, preview = ?, updated_at = ?, updated_by = ? WHERE id = ?`)
+      .run(text, v, nameOf(text) || board.name, c.n, c.l, c.p,
         previewOf(preview, board.preview), t, user.id, board.id);
     keepVersion(board.id, v, t, user.id, summaryOf(summary), c, text);
     broadcast(board.id, updateMessage(v, t,
@@ -138,8 +139,8 @@ export function registerBoards(app, db, deps) {
     const c = counts(text);
     const id = newId('b');
     const t = now();
-    db.prepare(`INSERT INTO boards (id, owner_id, name, doc, version, nodes_count, links_count, preview, created_at, updated_at, updated_by)
-      VALUES (?,?,?,?,1,?,?,?,?,?,?)`).run(id, user.id, nameOf(text) || 'Доска', text, c.n, c.l,
+    db.prepare(`INSERT INTO boards (id, owner_id, name, doc, version, nodes_count, links_count, pages_count, preview, created_at, updated_at, updated_by)
+      VALUES (?,?,?,?,1,?,?,?,?,?,?,?)`).run(id, user.id, nameOf(text) || 'Доска', text, c.n, c.l, c.p,
         previewOf(preview, null), t, t, user.id);
     db.prepare('INSERT INTO board_members (board_id, user_id, role, added_at) VALUES (?,?,?,?)')
       .run(id, user.id, 'owner', t);

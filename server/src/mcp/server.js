@@ -16,6 +16,23 @@ import { DocError } from './doc.js';
 const VERSIONS = ['2026-07-28', '2025-11-25', '2025-06-18', '2025-03-26'];
 const SERVER_INFO = { name: 'graph-studio', title: 'Graph Studio', version: '1.0.0' };
 
+// То, что модель прочитает до первого вызова. Здесь только вещи, ошибка в которых
+// стоит дорого: направление связи и модель «одни узлы — много страниц».
+const INSTRUCTIONS = [
+  'Доски Graph Studio: список — list_boards, содержимое — get_board.',
+  'Узлы общие для ВСЕХ страниц доски. Страница задаёт фильтр и способ показа (холст, ' +
+    'свободная схема, таблица, канбан, дашборд), а не отдельный набор данных.',
+  'НАПРАВЛЕНИЕ СВЯЗИ: from → to означает «from держит to», то есть to нельзя закрыть, ' +
+    'пока не закрыт from. Для типов связи с blocking=false направление — просто стрелка: ' +
+    'такая связь рисуется, но в вес узла, слои и критический путь не входит.',
+  'Раскладка: на холсте с layout=auto колонка узла считается из зависимостей, если у узла ' +
+    'lane=null; заданный lane закрепляет колонку. На холсте free и на свободной схеме узлы ' +
+    'стоят в координатах — place_nodes. Чтобы увидеть текущую раскладку, вызывайте ' +
+    'get_board с include_layout=true.',
+  'Готовый файл проекта импортируйте одним вызовом import_board, а не по частям: ' +
+    'при сборке по частям теряются идентификаторы узлов и связи.',
+].join(' ');
+
 const rpcOk = (id, result) => ({ jsonrpc: '2.0', id, result });
 const rpcErr = (id, code, message, data) => ({ jsonrpc: '2.0', id, error: { code, message, ...(data ? { data } : {}) } });
 
@@ -100,9 +117,7 @@ export function registerMcp(app, db, deps) {
         protocolVersion: VERSIONS.includes(want) ? want : VERSIONS[0],
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
-        instructions: 'Доски Graph Studio: список — list_boards, содержимое — get_board. ' +
-          'Узлы общие для всех страниц доски; страница задаёт фильтр и способ показа. ' +
-          'Связь from → to читается как «from держит to».',
+        instructions: INSTRUCTIONS,
       });
     }
     // 2026-07-28: рукопожатия нет, вместо него необязательный опрос возможностей.

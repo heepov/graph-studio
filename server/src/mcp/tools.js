@@ -6,6 +6,7 @@
 // (boards.saveBoard): версия, запись в историю и рассылка живой правки достаются
 // бесплатно. Открытая вкладка обновляется на глазах, пока Claude правит доску.
 import * as D from './doc.js';
+import { importDoc } from './import.js';
 
 const S = (desc, extra = {}) => ({ type: 'string', description: desc, ...extra });
 const N = (desc) => ({ type: 'number', description: desc });
@@ -41,29 +42,33 @@ export const TOOLS = [
     description: 'Все доски: свои и те, к которым дали доступ. Начинать стоит отсюда — дальше доска указывается по названию или id.',
     inputSchema: O('', {}),
     handler: (ctx) => {
-      const mine = ctx.db.prepare(`SELECT id, name, nodes_count, links_count, updated_at, 'owner' AS role
+      const mine = ctx.db.prepare(`SELECT id, name, nodes_count, links_count, pages_count, version, updated_at, 'owner' AS role
         FROM boards WHERE owner_id = ? AND deleted = 0 ORDER BY updated_at DESC`).all(ctx.user.id);
-      const shared = ctx.db.prepare(`SELECT b.id, b.name, b.nodes_count, b.links_count, b.updated_at, m.role
+      const shared = ctx.db.prepare(`SELECT b.id, b.name, b.nodes_count, b.links_count, b.pages_count, b.version, b.updated_at, m.role
         FROM board_members m JOIN boards b ON b.id = m.board_id
         WHERE m.user_id = ? AND b.deleted = 0 AND b.owner_id != ? ORDER BY b.updated_at DESC`).all(ctx.user.id, ctx.user.id);
       const row = b => ({ id: b.id, name: b.name, nodes: b.nodes_count, links: b.links_count,
-        role: b.role, updated: new Date(b.updated_at).toISOString() });
+        pages: b.pages_count, version: b.version, role: b.role, updated: new Date(b.updated_at).toISOString() });
       return { boards: [...mine.map(row), ...shared.map(row)] };
     },
   },
   {
     name: 'get_board',
     title: 'Прочитать доску',
-    description: 'Содержимое доски: схема, страницы, узлы, связи, области, заметки. По умолчанию без длинных описаний узлов — их можно запросить отдельно.',
+    description: 'Содержимое доски: схема, страницы, узлы, связи, области, заметки. По умолчанию без длинных описаний и без раскладки — их включают отдельно, чтобы ответ не раздувался.',
     inputSchema: O('', {
       board: BOARD,
       include_body: B('Включить развёрнутые описания узлов (по умолчанию нет: они длинные)'),
       include_metrics: B('Посчитать вес узлов, что чем заблокировано и что можно брать сейчас'),
+      include_layout: B('Включить раскладку: колонку узла (lane), его закреплённые координаты по страницам, и сколько узлов закреплено на каждом холсте. Нужно, чтобы увидеть доску так же, как её видит человек'),
+      pages_only: B('Только схема и страницы, без узлов и связей — быстро проверить структуру'),
     }, ['board']),
     handler: (ctx, a) => {
-      const { doc } = ctx.load(a.board);
-      const out = D.summarize(doc, { body: !!a.include_body });
-      if (a.include_metrics) out.metrics = D.metrics(doc);
+      const { board, doc } = ctx.load(a.board);
+      const out = D.summarize(doc, { body: !!a.include_body, layout: !!a.include_layout, pagesOnly: !!a.pages_only });
+      out.id = board.id;
+      out.version = board.version;
+      if (a.include_metrics && !a.pages_only) out.metrics = D.metrics(doc);
       return out;
     },
   },
@@ -88,6 +93,32 @@ export const TOOLS = [
       const r = ctx.boards.createBoard(ctx.user, doc, { summary: 'создана из Claude' });
       return { id: r.id, name: doc.name, url: ctx.publicUrl + '/b/' + r.id,
         pages: doc.pages.map(p => ({ id: p.id, name: p.name, kind: p.kind })) };
+    },
+  },
+  {
+    name: 'import_board',
+    title: 'Импортировать проект целиком',
+    description: 'Создаёт доску из целого документа проекта (то, что отдаёт «Экспорт → JSON доски»). ' +
+      'Импортирует ровно то, что в файле: идентификаторы узлов сохраняются как есть, все связи ' +
+      'переносятся, страницы создаются только те, что описаны. Возвращает отчёт: что создано, ' +
+      'что переименовано, что отброшено и почему. Собирать доску по частям (create_board → ' +
+      'add_nodes → link_nodes) для готового файла НЕ нужно: так теряются id и связи.',
+    inputSchema: O('', {
+      doc: O('Документ проекта целиком: name, schema, nodes, links, pages, frames, notes', {}),
+      json: S('То же самое строкой JSON — если удобнее передать текстом файла'),
+      name: S('Название доски. По умолчанию берётся из документа'),
+      dry_run: B('Ничего не создавать, только вернуть отчёт: что получилось бы'),
+    }),
+    handler: (ctx, a) => {
+      let src = a.doc;
+      if (!src && a.json) {
+        try { src = JSON.parse(a.json); }
+        catch (e) { throw new D.DocError('не разобрал JSON: ' + e.message); }
+      }
+      const { doc, report } = importDoc(src, { name: a.name });
+      if (a.dry_run) return { dry_run: true, name: doc.name, ...report };
+      const r = ctx.boards.createBoard(ctx.user, doc, { summary: 'импорт из Claude' });
+      return { id: r.id, name: doc.name, url: ctx.publicUrl + '/b/' + r.id, ...report };
     },
   },
   {
@@ -121,7 +152,7 @@ export const TOOLS = [
     description: 'Добавляет узлы на доску. Узлы общие для всех страниц: страница — это фильтр и способ показа, а не отдельный набор данных.',
     inputSchema: O('', {
       board: BOARD,
-      nodes: A('Узлы', O('Узел', NODE_FIELDS, ['name'])),
+      nodes: A('Узлы', O('Узел', { id: S('Свой идентификатор. Любая строка, кириллица допустима. Если не задать — сервер присвоит свой; если такой id уже занят, тоже присвоит свой'), ...NODE_FIELDS }, ['name'])),
     }, ['board', 'nodes']),
     handler: (ctx, a) => ctx.edit(a.board, doc => {
       const made = D.addNodes(doc, a.nodes);
@@ -134,7 +165,9 @@ export const TOOLS = [
     description: 'Меняет поля существующих узлов. Присылать нужно только то, что меняется — остальное останется как было.',
     inputSchema: O('', {
       board: BOARD,
-      nodes: A('Узлы', O('Узел', { id: S('id узла'), ...NODE_FIELDS }, ['id'])),
+      nodes: A('Узлы', O('Узел', { id: S('id узла'), ...NODE_FIELDS,
+        lane: N('Колонка на холсте с авто-раскладкой: индекс в списке lanes страницы. null — вернуть на автоматическую глубину зависимости. Поле общее для доски, а не для одной страницы'),
+      }, ['id'])),
     }, ['board', 'nodes']),
     handler: (ctx, a) => ctx.edit(a.board, doc => {
       const ids = D.updateNodes(doc, a.nodes);
@@ -148,7 +181,8 @@ export const TOOLS = [
     inputSchema: O('', { board: BOARD, ids: A('id узлов', S('id')) }, ['board', 'ids']),
     handler: (ctx, a) => ctx.edit(a.board, doc => {
       const r = D.deleteNodes(doc, a.ids);
-      return { summary: `−${r.nodes.length} узл. из Claude`, result: r };
+      return { summary: `−${r.nodes.length} узл. из Claude`,
+        result: { deleted: r.nodes, links_removed: r.links_removed } };
     }),
   },
 
@@ -156,14 +190,17 @@ export const TOOLS = [
   {
     name: 'link_nodes',
     title: 'Связать узлы',
-    description: 'Создаёт зависимости. Направление: from держит to — то есть to нельзя закрыть, пока не закрыт from. Связь, замыкающая круг, отклоняется: в круге ни один узел нельзя сделать первым.',
+    description: 'Создаёт зависимости. Направление: from держит to — то есть to нельзя закрыть, пока не закрыт from. Связь, замыкающая круг, отклоняется: в круге ни один узел нельзя сделать первым. Круг считается по ВСЕМ связям, включая не-блокирующие, — ровно как в приложении.',
     inputSchema: O('', {
       board: BOARD,
-      links: A('Связи', O('', { from: S('id узла, который держит'), to: S('id узла, который ждёт'), type: S('Тип связи из схемы') }, ['from', 'to'])),
+      links: A('Связи', O('', { from: S('id узла, который держит'), to: S('id узла, который ждёт'),
+        type: S('Тип связи. Если такого типа в схеме нет — он будет заведён (сплошная линия, не считается зависимостью), а не связь отброшена') }, ['from', 'to'])),
+      on_duplicate: S('Что делать с уже существующей связью: skip (по умолчанию, повторный вызов безопасен) или error'),
     }, ['board', 'links']),
     handler: (ctx, a) => ctx.edit(a.board, doc => {
-      const made = D.addLinks(doc, a.links);
-      return { summary: `+${made.length} связ. из Claude`, result: { added: made } };
+      const r = D.addLinks(doc, a.links, { onDuplicate: a.on_duplicate });
+      return { summary: `+${r.made.length} связ. из Claude`,
+        result: { added: r.made, skipped: r.skipped, warnings: r.warnings } };
     }),
   },
   {

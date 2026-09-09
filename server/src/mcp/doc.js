@@ -19,7 +19,7 @@ export const FIELD_TYPES = ['text', 'longtext', 'select', 'list', 'number', 'dat
 export const SCHEMA_KINDS = { nodeType: 'nodeTypes', status: 'statuses', category: 'categories', linkType: 'linkTypes' };
 
 export class DocError extends Error {}
-const fail = m => { throw new DocError(m); };
+export const fail = m => { throw new DocError(m); };
 
 /* ---------- общее ---------- */
 
@@ -55,6 +55,8 @@ function resolveKey(list, v, what) {
 // девять десятых это координаты и служебные поля; в контекст их тащить незачем.
 export function summarize(doc, opts = {}) {
   const S = doc.schema || {};
+  // Страницы, на которых узел вообще может стоять в координатах.
+  const spatial = (doc.pages || []).filter(p => p.kind === 'canvas' || p.kind === 'space').map(p => p.id);
   const short = n => {
     const o = { id: n.id, name: n.name };
     if (n.sub) o.sub = n.sub;
@@ -65,9 +67,23 @@ export function summarize(doc, opts = {}) {
     if (n.body && opts.body) o.body = n.body;
     if (n.checks && n.checks.length) o.checks = n.checks.map(c => ({ text: c.t, status: c.s, blocking: !!c.b, note: c.z || '' }));
     if (n.f && Object.keys(n.f).length) o.fields = n.f;
+    if (opts.layout) {
+      // lane — ручная колонка на холсте с авто-раскладкой, общая для всех таких
+      // страниц доски. null означает «считать глубину зависимости самому».
+      o.lane = (n.lane == null || n.lane === '') ? null : +n.lane;
+      const pos = {};
+      for (const pid of spatial) if (n.p && n.p[pid]) pos[pid] = { x: n.p[pid].x, y: n.p[pid].y };
+      if (Object.keys(pos).length) o.positions = pos;
+      if (n.sz) {
+        const sz = {};
+        for (const pid of spatial) if (n.sz[pid]) sz[pid] = { w: n.sz[pid].w, h: n.sz[pid].h };
+        if (Object.keys(sz).length) o.sizes = sz;
+      }
+    }
     return o;
   };
-  return {
+  const pinnedOn = pid => (doc.nodes || []).filter(n => n.p && n.p[pid]).length;
+  const out = {
     name: doc.name || '',
     description: doc.desc || '',
     schema: {
@@ -77,19 +93,30 @@ export function summarize(doc, opts = {}) {
       linkTypes: (S.linkTypes || []).map(x => ({ key: x.key, name: x.name, style: x.style || 'solid', blocking: !!x.blocking })),
       fields: (S.fields || []).map(x => ({ key: x.key, label: x.label, type: x.type, options: x.options || undefined })),
     },
-    pages: (doc.pages || []).map(p => ({
-      id: p.id, name: p.name, kind: p.kind,
-      layout: p.canvas ? p.canvas.layout : undefined,
-      lanes: p.canvas && p.canvas.lanes && p.canvas.lanes.length ? p.canvas.lanes : undefined,
-      groupBy: p.board ? p.board.groupBy : undefined,
-      columns: p.table ? p.table.cols : undefined,
-      filter: filterSummary(p.filter),
-    })),
-    nodes: (doc.nodes || []).map(short),
-    links: (doc.links || []).map(l => ({ from: l.from, to: l.to, type: l.type })),
-    frames: (doc.frames || []).map(f => ({ id: f.id, name: f.name, x: f.x, y: f.y, w: f.w, h: f.h })),
-    notes: (doc.notes || []).map(t => ({ id: t.id, text: t.text, x: t.x, y: t.y })),
+    pages: (doc.pages || []).map(p => {
+      const o = {
+        id: p.id, name: p.name, kind: p.kind,
+        layout: p.canvas ? p.canvas.layout : undefined,
+        lanes: p.canvas && p.canvas.lanes && p.canvas.lanes.length ? p.canvas.lanes : undefined,
+        groupBy: p.board ? p.board.groupBy : undefined,
+        columns: p.table ? p.table.cols : undefined,
+        filter: filterSummary(p.filter),
+      };
+      if (opts.layout && (p.kind === 'canvas' || p.kind === 'space')) {
+        o.nodes_pinned = pinnedOn(p.id);
+        // Камера обычно живёт в браузере, а не в документе: она у каждого своя.
+        // В документе она бывает у файлов старых версий — тогда и отдаём.
+        if (p.view && isFinite(p.view.k)) o.view = { x: p.view.x, y: p.view.y, k: p.view.k };
+      }
+      return o;
+    }),
   };
+  if (opts.pagesOnly) return out;
+  out.nodes = (doc.nodes || []).map(short);
+  out.links = (doc.links || []).map(l => ({ from: l.from, to: l.to, type: l.type }));
+  out.frames = (doc.frames || []).map(f => ({ id: f.id, name: f.name, x: f.x, y: f.y, w: f.w, h: f.h }));
+  out.notes = (doc.notes || []).map(t => ({ id: t.id, text: t.text, x: t.x, y: t.y }));
+  return out;
 }
 
 function filterSummary(f) {
@@ -166,6 +193,9 @@ export function updateNodes(doc, list) {
     if (raw.status !== undefined) n.status = resolveKey(S.statuses, raw.status, 'статуса') || n.status;
     if (raw.category !== undefined) n.cat = resolveKey(S.categories, raw.category, 'категории') || n.cat;
     if (raw.type !== undefined) n.type = resolveKey(S.nodeTypes, raw.type, 'типа узла') || n.type;
+    // Колонка на холсте с авто-раскладкой. Поле общее для доски, а не постраничное —
+    // так устроен сам документ, и делать вид, что оно постраничное, было бы враньём.
+    if (raw.lane !== undefined) n.lane = raw.lane === null || raw.lane === '' ? null : Math.max(0, Math.round(+raw.lane));
     applyFields(doc, n, raw.fields);
     if (raw.checks !== undefined) applyChecks(doc, n, raw.checks);
     touched.push(n.id);
@@ -181,25 +211,47 @@ export function deleteNodes(doc, ids) {
   // Связь в никуда — это мусор, который потом рисуется линией в пустоту.
   const before = doc.links.length;
   doc.links = doc.links.filter(l => !set.has(l.from) && !set.has(l.to));
-  return { nodes: gone, links: before - doc.links.length };
+  return { nodes: gone, links_removed: before - doc.links.length };
 }
 
 /* ---------- связи ---------- */
 
 // Направление: from → to читается как «from держит to», то есть to заблокирован,
 // пока не закрыт from. Это главное отношение всего инструмента, и путать его нельзя.
-export function addLinks(doc, list) {
-  const made = [];
+export function addLinks(doc, list, opts = {}) {
+  const made = [], skipped = [], warnings = [];
   for (const raw of list) {
     const from = need(doc, raw.from).id, to = need(doc, raw.to).id;
     if (from === to) fail('узел не может блокировать сам себя');
-    if (doc.links.some(l => l.from === from && l.to === to)) continue;
-    const type = resolveKey(doc.schema.linkTypes, raw.type, 'типа связи') || doc.schema.linkTypes[0].key;
+    if (doc.links.some(l => l.from === from && l.to === to)) {
+      // Повторный вызов не должен быть ошибкой: агент, потерявший ответ, повторит
+      // запрос, и падать на этом значит требовать от него безошибочной памяти.
+      if (opts.onDuplicate === 'error') fail(`связь ${from} → ${to} уже есть`);
+      skipped.push({ from, to, reason: 'уже есть' });
+      continue;
+    }
+    const type = linkType(doc, raw.type, warnings);
     if (createsCycle(doc, from, to)) fail(`связь ${from} → ${to} замкнула бы круг: тогда ни один из узлов нельзя закрыть первым`);
     doc.links.push({ id: uid('l'), from, to, type });
     made.push({ from, to, type });
   }
-  return made;
+  return { made, skipped, warnings };
+}
+
+// Тип связи, которого нет в схеме, — не повод отбросить связь. Отброшенная связь
+// это молча потерянные данные; заведённый тип видно в схеме и легко поправить.
+export function linkType(doc, want, warnings) {
+  const list = doc.schema.linkTypes;
+  if (want == null || want === '') return list[0].key;
+  const s = String(want);
+  const hit = list.find(x => x.key === s) || list.find(x => String(x.name).toLowerCase() === s.toLowerCase());
+  if (hit) return hit.key;
+  const made = { key: s.replace(/[^\w-]+/g, '_').slice(0, 24) || keyFrom(s, list.map(x => x.key)),
+    name: s, color: '#9aa1b2', style: 'solid', blocking: 0 };
+  if (list.some(x => x.key === made.key)) made.key = keyFrom(s, list.map(x => x.key));
+  list.push(made);
+  if (warnings) warnings.push(`типа связи «${s}» в схеме не было — завёл его (сплошная линия, не считается зависимостью)`);
+  return made.key;
 }
 
 // Круг в зависимостях — это не «сложный граф», а неразрешимое условие: каждый
@@ -322,7 +374,13 @@ export function updatePage(doc, id, raw) {
   const p = doc.pages.find(x => x.id === id) || fail(`страницы ${id} нет`);
   if (raw.name !== undefined) p.name = String(raw.name).trim() || p.name;
   if (raw.layout !== undefined && p.canvas) p.canvas.layout = raw.layout === 'free' ? 'free' : 'auto';
-  if (raw.lanes !== undefined && p.canvas) p.canvas.lanes = Array.isArray(raw.lanes) ? raw.lanes.map(String) : [];
+  if (raw.lanes !== undefined && p.canvas) {
+    p.canvas.lanes = Array.isArray(raw.lanes) ? raw.lanes.map(String) : [];
+    // Узел, закреплённый за колонкой, которой больше нет, иначе просто исчезал бы
+    // с холста: раскладка не знает, куда его ставить. Возвращаем на авто.
+    const len = p.canvas.lanes.length;
+    for (const n of doc.nodes) if (n.lane != null && +n.lane >= len) n.lane = null;
+  }
   if (raw.intro !== undefined && (p.canvas || p.space)) {
     const cfg = p.canvas || p.space;
     cfg.intro = String(raw.intro);

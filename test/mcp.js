@@ -283,9 +283,140 @@ async function json(path, opts = {}) {
       ? ok('каждая правка из MCP попала в историю с автором', hist.versions.length + ' версий')
       : bad('история не пишется', JSON.stringify(hist.versions.slice(0, 3)));
 
+    /* ---------- раскладка видна так же, как человеку ---------- */
+    const pages = await call('get_board', { board: B, pages_only: true });
+    (pages.pages.length >= 4 && !pages.nodes)
+      ? ok('pages_only отдаёт структуру без узлов', pages.pages.length + ' страниц')
+      : bad('pages_only не работает', JSON.stringify(pages).slice(0, 150));
+
+    const canvasPage = pages.pages.find(p => p.kind === 'canvas');
+    await call('update_page', { board: B, page: canvasPage.id, lanes: ['сейчас', 'потом', 'когда-нибудь'] });
+    await call('update_nodes', { board: B, nodes: [{ id: n1, lane: 2 }] });
+    const lay = await call('get_board', { board: B, include_layout: true });
+    const laid = lay.nodes.find(n => n.id === n1);
+    const spacePage = lay.pages.find(p => p.kind === 'space');
+    (laid.lane === 2 && laid.positions && laid.positions[page.id] && laid.positions[page.id].x === 100
+      && spacePage.nodes_pinned === 3)
+      ? ok('видно колонку узла, его координаты и сколько закреплено на холсте',
+          `lane ${laid.lane}, закреплено ${spacePage.nodes_pinned}`)
+      : bad('раскладка не отдаётся', JSON.stringify({ laid, spacePage }).slice(0, 250));
+
+    // Узел не должен потеряться, если колонку, за которой он закреплён, убрали.
+    await call('update_page', { board: B, page: canvasPage.id, lanes: ['сейчас', 'потом'] });
+    const shrunk = await call('get_board', { board: B, include_layout: true });
+    shrunk.nodes.find(n => n.id === n1).lane === null
+      ? ok('узел из исчезнувшей колонки возвращается на авто, а не пропадает')
+      : bad('узел остался в несуществующей колонке', JSON.stringify(shrunk.nodes.find(n => n.id === n1)));
+
+    /* ---------- связи не теряются ---------- */
+    const dupe = await call('link_nodes', { board: B, links: [{ from: n1, to: n2 }] });
+    (dupe.added.length === 0 && dupe.skipped.length === 1)
+      ? ok('повторная связь пропускается, а не роняет вызов')
+      : bad('повтор связи обработан неверно', JSON.stringify(dupe));
+
+    // n1 → n3 в обход n2: не круг, просто ещё одна стрелка
+    const newType = await call('link_nodes', { board: B, links: [{ from: n1, to: n3, type: 'flow' }] });
+    (newType.added.length === 1 && newType.warnings.length === 1)
+      ? ok('связь с незнакомым типом не отбрасывается — тип заводится', newType.warnings[0])
+      : bad('связь с чужим типом потеряна', JSON.stringify(newType));
+
+    /* ---------- импорт целиком ---------- */
+    // Файл нарочно с кириллическими id, чужим типом связи, лишней страницей-схемой
+    // и дублем id: ровно то, на чём импорт по частям и рассыпался.
+    const source = {
+      name: 'Импорт целиком', desc: 'проверка',
+      schema: {
+        nodeTypes: [{ key: 'stage', name: 'Этап', shape: 'rect' }],
+        statuses: [{ key: 'ok', name: 'готово', color: '#18a558' }, { key: 'todo', name: 'не начато', color: '#5f6673' }],
+        categories: [{ key: 'plat', name: 'Платформа', color: '#2f6fed' }],
+        linkTypes: [{ key: 'hard', name: 'Жёсткая', color: '#9aa1b2', style: 'solid', blocking: 1 }],
+        fields: [],
+      },
+      nodes: [
+        { id: 'pt_out_яндекс_смена', name: 'Смена Яндекса', status: 'todo', cat: 'plat', type: 'stage' },
+        { id: 'bl_pr01', name: 'Блок 1', status: 'ok', cat: 'plat', type: 'stage', p: { pg_map: { x: 40, y: 60 } } },
+        { id: 'ind_sel', name: 'Индекс', status: 'todo', cat: 'plat', type: 'stage', lane: 1 },
+        { id: 'ind_sel', name: 'Индекс дубль', status: 'todo', cat: 'plat', type: 'stage' },
+        { id: 'нет_категории', name: 'Без категории', status: 'todo', cat: 'неизвестная', type: 'stage' },
+      ],
+      links: [
+        { from: 'pt_out_яндекс_смена', to: 'bl_pr01', type: 'hard' },
+        { from: 'bl_pr01', to: 'ind_sel', type: 'flow' },
+        { from: 'ind_sel', to: 'нет_категории', type: 'soft' },
+        { from: 'нет_такого', to: 'bl_pr01', type: 'hard' },
+      ],
+      pages: [
+        { id: 'pg_map', name: 'Карта', kind: 'canvas', canvas: { layout: 'auto', lanes: ['раз', 'два'] } },
+        { id: 'pg_tbl', name: 'Таблица', kind: 'table', table: { cols: ['name', 'status'], sort: 'name', dir: 1, group: '' } },
+      ],
+      frames: [{ id: 'f1', name: 'Волна 1', x: 0, y: 0, w: 400, h: 200 }],
+      notes: [{ id: 't1', text: 'заметка', x: 10, y: 10 }],
+    };
+
+    const dry = await call('import_board', { doc: source, dry_run: true });
+    (dry.dry_run && dry.nodes_created === 5 && dry.links_created === 3 && dry.pages_created.length === 2)
+      ? ok('dry_run отчитывается, ничего не создавая', `${dry.nodes_created} узлов, ${dry.links_created} связей`)
+      : bad('dry_run неверен', JSON.stringify(dry).slice(0, 250));
+
+    const afterDry = await call('list_boards', {});
+    !afterDry.boards.some(b => b.name === 'Импорт целиком')
+      ? ok('после dry_run доска не появилась')
+      : bad('dry_run всё-таки создал доску');
+
+    const imp = await call('import_board', { doc: source });
+    (imp.nodes_created === 5 && imp.links_created === 3 && imp.pages_created.length === 2)
+      ? ok('импорт создаёт ровно то, что в файле', `${imp.nodes_created}/${imp.links_created}/${imp.pages_created.length}`)
+      : bad('импорт создал не то', JSON.stringify(imp).slice(0, 250));
+
+    (imp.nodes_renamed.length === 1 && imp.nodes_renamed[0].from === 'ind_sel')
+      ? ok('дубль id переименован детерминированно', JSON.stringify(imp.nodes_renamed[0]))
+      : bad('дубль id обработан неверно', JSON.stringify(imp.nodes_renamed));
+
+    (imp.links_dropped.length === 1 && /нет в файле/.test(imp.links_dropped[0].reason))
+      ? ok('единственная отброшенная связь названа с причиной', imp.links_dropped[0].reason)
+      : bad('связи теряются молча или не те', JSON.stringify(imp.links_dropped));
+
+    const imported = await call('get_board', { board: imp.id, include_layout: true });
+    const cyr = imported.nodes.find(n => n.id === 'pt_out_яндекс_смена');
+    const dupNode = imported.nodes.find(n => n.id === 'ind_sel__2');
+    const kept = imported.nodes.find(n => n.id === 'bl_pr01');
+    (cyr && dupNode && kept && kept.positions && kept.positions.pg_map.x === 40)
+      ? ok('кириллические id сохранены как есть, позиции на месте')
+      : bad('id или позиции потеряны', JSON.stringify({ cyr: !!cyr, dupNode: !!dupNode, kept }).slice(0, 200));
+
+    (imported.nodes.find(n => n.id === 'ind_sel').lane === 1)
+      ? ok('колонка узла пережила импорт')
+      : bad('lane потерян при импорте');
+
+    (imported.schema.linkTypes.some(t => t.key === 'flow') &&
+     imported.schema.linkTypes.some(t => t.key === 'soft') &&
+     imported.schema.categories.some(c => c.key === 'неизвестная'))
+      ? ok('незнакомые типы связей и категории заведены, а не отброшены',
+          imported.schema.linkTypes.map(t => t.key).join(', '))
+      : bad('схема при импорте потеряла значения', JSON.stringify(imported.schema.linkTypes));
+
+    (imported.pages.length === 2 && !imported.pages.some(p => p.kind === 'space'))
+      ? ok('лишних страниц импорт не создаёт')
+      : bad('импорт создал лишние страницы', JSON.stringify(imported.pages.map(p => p.kind)));
+
+    let badKind = false;
+    try {
+      await call('import_board', { doc: { ...source, pages: [{ id: 'x', name: 'Ой', kind: 'gantt' }] } });
+    } catch (e) { badKind = /не бывает/.test(e.message); }
+    badKind ? ok('страница с несуществующим видом отклоняется с ошибкой')
+            : bad('страница с чужим видом принята');
+
+    const listed2 = await call('list_boards', {});
+    const impRow = listed2.boards.find(b => b.id === imp.id);
+    (impRow && impRow.pages === 2 && impRow.version >= 1)
+      ? ok('в списке досок видно число страниц и версию', `${impRow.pages} страниц, версия ${impRow.version}`)
+      : bad('в списке нет страниц или версии', JSON.stringify(impRow));
+
+    await call('delete_board', { board: imp.id });
+
     const del = await call('delete_nodes', { board: B, ids: [n3] });
-    (del.nodes.length === 1 && del.links === 1)
-      ? ok('узел удаляется вместе со своими связями')
+    (del.deleted.length === 1 && del.links_removed >= 1)
+      ? ok('узел удаляется вместе со своими связями', `связей убрано ${del.links_removed}`)
       : bad('delete_nodes сломан', JSON.stringify(del));
 
     const restored = await call('restore_version', { board: B, version: hist.versions[hist.versions.length - 1].version });
@@ -334,6 +465,7 @@ async function json(path, opts = {}) {
     execSync(`docker compose exec -T api node -e "
       const db = require('better-sqlite3')('/data/graphstudio.sqlite');
       db.prepare('DELETE FROM boards WHERE id = ?').run('${B}');
+      db.prepare('DELETE FROM boards WHERE name IN (?, ?)').run('Импорт целиком', 'MCP-проверка');
     "`);
   } catch (e) {
     bad('ПРОГОН УПАЛ', e.message);

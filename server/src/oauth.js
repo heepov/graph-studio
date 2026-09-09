@@ -110,6 +110,17 @@ export function registerOAuth(app, db, opts) {
   });
 
   const clientBy = id => db.prepare('SELECT * FROM oauth_clients WHERE id = ?').get(String(id || ''));
+
+  // RFC 8707. Аудиторию токена приводим к одному виду: клиенты присылают ресурс
+  // то с путём, то без. Разные написания одного и того же дали бы токен, который
+  // сервер сам же и не примет, — а выглядело бы это как «коннектор не работает».
+  // Чужой ресурс отклоняем сразу, а не выдаём токен, который никогда не сработает.
+  const RES_OK = new Set([RESOURCE, RESOURCE + '/', ISSUER, ISSUER + '/']);
+  function normResource(v) {
+    if (v == null || v === '') return { ok: true, value: RESOURCE };
+    const s = String(v);
+    return RES_OK.has(s) ? { ok: true, value: RESOURCE } : { ok: false };
+  }
   const redirectAllowed = (client, uri) => {
     try { return JSON.parse(client.redirect_uris).includes(uri); } catch { return false; }
   };
@@ -209,6 +220,10 @@ export function registerOAuth(app, db, opts) {
     if (!q.code_challenge || q.code_challenge_method !== 'S256') {
       return reply.redirect(back(p.uri, { error: 'invalid_request', error_description: 'нужен PKCE S256', state: q.state }));
     }
+    if (!normResource(q.resource).ok) {
+      return reply.redirect(back(p.uri, { error: 'invalid_target',
+        error_description: `этот сервер выдаёт токены только для ${RESOURCE}`, state: q.state }));
+    }
     if (!req.user) return reply.type('text/html').send(loginForm(q));
     return reply.type('text/html').send(consent(q, p.client));
   });
@@ -240,7 +255,7 @@ export function registerOAuth(app, db, opts) {
     const code = newToken();
     db.prepare(`INSERT INTO oauth_codes (code, client_id, user_id, redirect_uri, code_challenge, scope, resource, expires_at)
       VALUES (?,?,?,?,?,?,?,?)`).run(sha(code), p.client.id, user.id, p.uri, String(q.code_challenge),
-        String(q.scope || SCOPES.join(' ')), q.resource ? String(q.resource) : null, now() + CODE_TTL);
+        String(q.scope || SCOPES.join(' ')), normResource(q.resource).value, now() + CODE_TTL);
     return reply.redirect(back(p.uri, { code, state: q.state }));
   });
 
@@ -288,9 +303,7 @@ export function registerOAuth(app, db, opts) {
       const ver = sha(String(b.code_verifier || ''));
       const a = Buffer.from(ver), c = Buffer.from(row.code_challenge);
       if (a.length !== c.length || !timingSafeEqual(a, c)) return reply.code(400).send({ error: 'invalid_grant', error_description: 'PKCE не сошёлся' });
-      if (b.resource && row.resource && String(b.resource) !== row.resource) {
-        return reply.code(400).send({ error: 'invalid_target' });
-      }
+      if (b.resource && !normResource(b.resource).ok) return reply.code(400).send({ error: 'invalid_target' });
       db.prepare('UPDATE oauth_codes SET used = 1 WHERE code = ?').run(row.code);
       const access = issue('access', row, ACCESS_TTL);
       const refresh = issue('refresh', row, null);
