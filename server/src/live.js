@@ -102,11 +102,20 @@ export function registerLive(app, db, deps) {
   });
 }
 
+// Больше этого размера документ по живому каналу не рассылается: он ушёл бы
+// КАЖДОМУ участнику на КАЖДОЕ сохранение, а сохранение идёт раз в секунду активной
+// правки. Полмегабайта на пятерых при правке в секунду — это мегабайты в секунду
+// исходящего трафика на одну доску. Вместо документа уходит уведомление, и клиент
+// забирает свежую версию сам, одним обычным GET.
+export const LIVE_FULL_MAX = 256 * 1024;
+
 // Сообщение о новой версии. Собирается строкой, чтобы уже сериализованный
 // документ не проходить через JSON.stringify второй раз.
 export function updateMessage(version, at, by, docText, summary) {
-  return '{"t":"update","version":' + version + ',"at":' + at +
+  const head = '{"t":"update","version":' + version + ',"at":' + at +
     ',"by":' + JSON.stringify(by) +
-    ',"summaryText":' + JSON.stringify(summary || null) +
-    ',"doc":' + docText + '}';
+    ',"summaryText":' + JSON.stringify(summary || null);
+  // Тип сообщения разный, поля — те же: клиенту нужно одно и то же, кроме документа.
+  if (docText.length > LIVE_FULL_MAX) return head.replace('"t":"update"', '"t":"stale"') + '}';
+  return head + ',"doc":' + docText + '}';
 }

@@ -16,6 +16,11 @@ const O = (desc, properties, required) => ({ type: 'object', description: desc, 
 
 const BOARD = S('Доска: её id или название. Название можно неточное — совпадение по началу.');
 
+// Вид страницы отдаётся enum'ом, а не только строкой описания: список видов должен
+// быть машиночитаемым, иначе модель узнаёт о допустимых значениях лишь из отказа.
+const PAGE_KIND = S('canvas — карта зависимостей по колонкам, space — свободная схема, jam — свободная доска (стикеры, фигуры, стрелки, рисунки), table — таблица, board — канбан, dash — дашборд',
+  { enum: ['canvas', 'space', 'jam', 'table', 'board', 'dash'] });
+
 // Описания узла в двух видах: при создании имя обязательно, при правке — id.
 const NODE_FIELDS = {
   name: S('Название'),
@@ -86,7 +91,7 @@ export const TOOLS = [
       node_types: A('Типы узлов. Если не задать — «Узел» и «Гейт»',
         O('', { name: S('Название'), shape: S('rect | pill | diamond') }, ['name'])),
       pages: A('Страницы. Если не задать — холст, таблица и дашборд',
-        O('', { name: S('Название'), kind: S('canvas | space | table | board | dash') }, ['name', 'kind'])),
+        O('', { name: S('Название'), kind: PAGE_KIND }, ['name', 'kind'])),
     }, ['name']),
     handler: (ctx, a) => {
       const doc = blankDoc(a);
@@ -226,7 +231,7 @@ export const TOOLS = [
     inputSchema: O('', {
       board: BOARD,
       name: S('Название страницы'),
-      kind: S('canvas | space | table | board | dash'),
+      kind: PAGE_KIND,
       layout: S('Только для canvas: auto (раскладка по зависимостям) или free (руками)'),
       lanes: A('Только для canvas: подписи колонок', S('')),
       groupBy: S('Только для board: по чему раскладывать колонки (status, cat, type, step или f.<поле>)'),

@@ -139,6 +139,9 @@ let P = null;                 // активный проект
 let PROJECTS = [];            // [{id,name,desc,updated,nodes,links}]
 const UI = {
   page: null, sel: new Set(), selNotes: new Set(), selFrames: new Set(), selLink: null, insp: null,
+  // Выделенные объекты доски. Отдельное множество, а не подмешивание в UI.sel:
+  // там лежат id узлов графа, и смешать их значило бы искать узел по id стикера.
+  selItems: new Set(),
   // открываем сразу в правке: раньше умолчанием была «Карточка», и до любого поля
   // было два клика — половина жалобы «неудобно редактировать ноды» была про это.
   // В режиме просмотра вкладка правки скрыта, openNode() сам падает обратно на карточку.
@@ -153,10 +156,27 @@ const UI = {
   viewVersion: null
 };
 const undoS = [], redoS = [];
+// Глубина отмены ограничена ДВУМЯ пределами, и байтовый здесь главный. Снимок —
+// это весь документ строкой; у карты зависимостей он весит десятки килобайт, а
+// у доски со стикерами и рисунками — сотни, и шестьдесят таких копий держали бы
+// во вкладке десятки мегабайт строк. Число шагов остаётся вторым пределом,
+// чтобы на маленьком проекте история отмены не стала короче привычной.
+const UNDO_STEPS = 60, UNDO_BYTES = 24 * 1024 * 1024;
+let undoBytes = 0;
+function undoPush(str) {
+  undoS.push(str); undoBytes += str.length;
+  while (undoS.length > UNDO_STEPS || (undoBytes > UNDO_BYTES && undoS.length > 1)) {
+    undoBytes -= undoS.shift().length;
+  }
+}
+// Снимать со стека и чистить его нужно ТОЛЬКО через эти две: иначе счётчик байт
+// разъедется с содержимым и глубина отмены начнёт врать в любую сторону.
+function undoPop() { const str = undoS.pop(); if (str !== undefined) undoBytes -= str.length; return str; }
+function undoReset() { undoS.length = 0; redoS.length = 0; undoBytes = 0; }
 let snapArmed = true, snapT = null;
 function snapshot() {
   if (!snapArmed || !P) return;
-  undoS.push(JSON.stringify(P)); if (undoS.length > 60) undoS.shift();
+  undoPush(JSON.stringify(P));
   redoS.length = 0; snapArmed = false;
   clearTimeout(snapT); snapT = setTimeout(() => snapArmed = true, 650);
 }
@@ -226,10 +246,136 @@ function onPushState(st) {
 // Сервер трактует undefined как «не трогай прежнее превью»: иначе переход на таблицу
 // стирал бы картинку у доски, которая на самом деле не изменилась.
 const PREVIEW_NODES = 90, PREVIEW_EDGES = 140;
+// Превью доски: те же прямоугольники и линии, что у карты, но собранные
+// из объектов страницы. Формат общий — {v:1, n:[[x,y,w,h,color]], e:[[x1,y1,x2,y2]]},
+// его уже умеет рисовать previewSVG() в home.js.
+function jamPreview(pg) {
+  const n = [], mid = {};
+  const items = jamItems(pg);
+  for (const it of items) {
+    if (n.length >= PREVIEW_NODES) break;
+    if (it.kind === 'conn') continue;
+    const b = it.kind === 'draw' ? drawBox(it) : itemBox(it);
+    if (!b) continue;
+    mid[it.id] = [Math.round(b.x + b.w / 2), Math.round(b.y + b.h / 2)];
+    const c = it.kind === 'section' ? '#e5e8f0' : (it.fill || (it.kind === 'draw' ? (it.stroke || '#1b1f2a') : '#ffd93b'));
+    n.push([Math.round(b.x), Math.round(b.y), Math.round(b.w), Math.round(b.h), c]);
+  }
+  // Узлы графа, положенные на доску, — тоже её содержимое
+  for (const nd of cvNodes || []) {
+    if (n.length >= PREVIEW_NODES) break;
+    const pos = cvPos[nd.id]; if (!pos) continue;
+    const sz = nsize(nd, pg.id);
+    mid['n:' + nd.id] = [Math.round(pos.x + sz.w / 2), Math.round(pos.y + sz.h / 2)];
+    n.push([Math.round(pos.x), Math.round(pos.y), Math.round(sz.w), Math.round(sz.h),
+            (catOf(nd.cat) || {}).color || '#9aa1b2']);
+  }
+  if (!n.length) return undefined;
+  const e = [];
+  for (const it of items) {
+    if (it.kind !== 'conn' || e.length >= PREVIEW_EDGES) continue;
+    const a = connEndKey(it.a), b = connEndKey(it.b);
+    const pa = a && mid[a], pb = b && mid[b];
+    if (!pa || !pb) continue;
+    e.push([pa[0], pa[1], pb[0], pb[1]]);
+  }
+  return {v: 1, n, e};
+}
+/* ---------- геометрия коннекторов доски ---------- */
+// Конец коннектора ссылается на ТРИ разные вещи: объект доски, положенный на неё
+// узел графа или просто точку в пустоте. Последнее — не прихоть: в FigJam стрелку
+// можно вывести в никуда, и без этого «нарисовать схему» превращается в «сначала
+// создай все прямоугольники».
+function connAnchor(pg, end) {
+  if (!end) return null;
+  if (end.x != null && end.y != null && !end.item && !end.node) return {x: +end.x, y: +end.y, box: null};
+  let box = null;
+  if (end.item) {
+    const it = jamItemById(pg, end.item);
+    if (!it) return null;
+    box = it.kind === 'draw' ? drawBox(it) : itemBox(it);
+  } else if (end.node) {
+    const p2 = cvPos[end.node]; if (!p2) return null;
+    const sz = nsize(nodeById(end.node) || {}, pg.id);
+    box = {x: p2.x, y: p2.y, w: sz.w, h: sz.h};
+  }
+  if (!box) return null;
+  return {x: box.x + box.w / 2, y: box.y + box.h / 2, box};
+}
+// Точка выхода на границе объекта. Сторона 'c' (или не задана) означает «выбери сам»,
+// и тогда она считается по взаимному расположению концов — как edgePathAuto для узлов.
+function connSide(box, side, toward) {
+  if (!box) return null;
+  const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+  let s = side;
+  if (!s || s === 'c') {
+    const dx = toward.x - cx, dy = toward.y - cy;
+    s = Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? 'r' : 'l') : (dy > 0 ? 'b' : 't');
+  }
+  if (s === 'l') return {x: box.x, y: cy, s};
+  if (s === 'r') return {x: box.x + box.w, y: cy, s};
+  if (s === 't') return {x: cx, y: box.y, s};
+  return {x: cx, y: box.y + box.h, s};
+}
+function connGeom(pg, it) {
+  const A = connAnchor(pg, it.a), B = connAnchor(pg, it.b);
+  if (!A || !B) return null;
+  const p1 = A.box ? connSide(A.box, (it.a || {}).side, B) : {x: A.x, y: A.y, s: null};
+  const p2 = B.box ? connSide(B.box, (it.b || {}).side, A) : {x: B.x, y: B.y, s: null};
+  return {p1, p2};
+}
+const PULL = (p1, p2) => Math.max(40, Math.min(160, (Math.abs(p2.x - p1.x) + Math.abs(p2.y - p1.y)) / 2.5));
+function connPath(pg, it) {
+  const g = connGeom(pg, it); if (!g) return '';
+  const {p1, p2} = g, style = it.style || 'curve';
+  if (style === 'line') return `M${p1.x},${p1.y} L${p2.x},${p2.y}`;
+  if (style === 'ortho') {
+    // Выход из стороны на 24px, затем Z-образный ход. Обхода препятствий нет
+    // и не планируется: FigJam тоже не обходит.
+    const out = 24;
+    const a1 = stepOut(p1, out), a2 = stepOut(p2, out);
+    const horiz = (p1.s === 'l' || p1.s === 'r' || !p1.s);
+    const mid = horiz ? (a1.x + a2.x) / 2 : (a1.y + a2.y) / 2;
+    const pts = horiz
+      ? [p1, a1, {x: mid, y: a1.y}, {x: mid, y: a2.y}, a2, p2]
+      : [p1, a1, {x: a1.x, y: mid}, {x: a2.x, y: mid}, a2, p2];
+    return pts.map((q, i) => (i ? 'L' : 'M') + Math.round(q.x) + ',' + Math.round(q.y)).join(' ');
+  }
+  const pull = PULL(p1, p2);
+  const c1 = offBy(p1, pull), c2 = offBy(p2, pull);
+  return `M${p1.x},${p1.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${p2.x},${p2.y}`;
+}
+function stepOut(p, d) {
+  if (p.s === 'l') return {x: p.x - d, y: p.y};
+  if (p.s === 'r') return {x: p.x + d, y: p.y};
+  if (p.s === 't') return {x: p.x, y: p.y - d};
+  if (p.s === 'b') return {x: p.x, y: p.y + d};
+  return {x: p.x, y: p.y};
+}
+const offBy = (p, d) => stepOut(p, d);
+function connBox(it) {
+  const pg = curPage();
+  const g = connGeom(pg, it); if (!g) return null;
+  const x0 = Math.min(g.p1.x, g.p2.x), y0 = Math.min(g.p1.y, g.p2.y);
+  return {x: x0, y: y0, w: Math.abs(g.p2.x - g.p1.x) || 1, h: Math.abs(g.p2.y - g.p1.y) || 1};
+}
+// Конец коннектора ссылается либо на объект доски, либо на узел графа,
+// либо просто на точку. Ключ нужен, чтобы найти его середину в одной таблице.
+function connEndKey(end) {
+  if (!end) return null;
+  if (end.item) return end.item;
+  if (end.node) return 'n:' + end.node;
+  return null;
+}
 function buildPreview() {
   try {
     const pg = curPage();
-    if (!P || !pg || !isSpatial(pg) || !cvNodes || !cvNodes.length) return undefined;
+    if (!P || !pg || !isSpatial(pg)) return undefined;
+    // У доски своё содержимое: считать превью по одним узлам графа значит вернуть
+    // undefined, а undefined сервер понимает как «не трогай прежнее» — картинка
+    // доски на главной замерла бы на том, что было до её появления.
+    if (isJam(pg)) return jamPreview(pg);
+    if (!cvNodes || !cvNodes.length) return undefined;
     const n = [], mid = {};
     for (const nd of cvNodes.slice(0, PREVIEW_NODES)) {
       const pos = cvPos[nd.id]; if (!pos) continue;
@@ -307,7 +453,7 @@ function refreshProjMeta() {
 // не ушло — молчим и даём отправке упереться в 409, где уже есть разбор конфликта.
 function onLiveUpdate(m) {
   const b = cloud.CLOUD.board;
-  if (!b || !m || !m.doc) return;
+  if (!b || !m) return;
   if (m.version <= b.version) return;              // это наша же правка вернулась эхом
   // Пока человек смотрит старую версию, подменять её под ним нельзя: он потеряет
   // то, ради чего открыл историю. Актуальное состояние он увидит по «К текущей».
@@ -319,8 +465,41 @@ function onLiveUpdate(m) {
     toast(`${(m.by && m.by.name) || 'Коллега'} изменил доску — ваши правки ещё не отправлены`);
     return;
   }
+  // Большая доска приезжает уведомлением без документа (см. LIVE_FULL_MAX
+  // в server/src/live.js) — забираем свежую версию сами.
+  if (!m.doc) { fetchLiveDoc(m); return; }
+  applyLiveDoc(m, m.doc);
+}
+// Догрузка документа по уведомлению. Один запрос за раз и только за самой свежей
+// версией: пока идёт загрузка, коллега успевает сохранить ещё несколько раз,
+// и тянуть каждую промежуточную — значит гарантированно отстать.
+let liveFetching = false, liveWanted = null;
+async function fetchLiveDoc(m) {
+  liveWanted = m;
+  if (liveFetching) return;
+  liveFetching = true;
+  try {
+    while (liveWanted) {
+      const want = liveWanted; liveWanted = null;
+      const b = cloud.CLOUD.board;
+      if (!b || want.version <= b.version) continue;
+      const r = await api.boardGet(b.id);
+      // Пока ходили на сервер, всё могло измениться: человек начал править,
+      // ушёл в историю или открыл другую доску. Тогда молча отступаем —
+      // своё дороже чужого, и упереться в 409 честнее, чем затереть.
+      if (!cloud.CLOUD.board || cloud.CLOUD.board.id !== b.id) continue;
+      if (UI.viewVersion || cloud.hasPending()) continue;
+      if (r.version <= cloud.CLOUD.board.version) continue;
+      applyLiveDoc({version: r.version, by: want.by, summaryText: want.summaryText}, r.doc);
+    }
+  } catch (e) {
+    toast('Не удалось получить свежую версию: ' + e.message);
+  } finally { liveFetching = false; }
+}
+function applyLiveDoc(m, doc) {
+  const b = cloud.CLOUD.board; if (!b) return;
   const keepPage = UI.page, keepView = UI.view, keepSel = [...UI.sel], keepInsp = UI.insp;
-  P = normalize(m.doc);
+  P = normalize(doc);
   cloud.bindBoard(Object.assign({}, b, {version: m.version}));
   cloud.setBaseline(fingerprint(P));
   gInval();
@@ -396,14 +575,14 @@ function paintSave() {
 }
 function undo() {
   if (!undoS.length) return;
-  redoS.push(JSON.stringify(P)); P = JSON.parse(undoS.pop());
+  redoS.push(JSON.stringify(P)); P = JSON.parse(undoPop());
   gInval(); save(1); if (UI.insp && !nodeById(UI.insp)) closeInsp();
   renderPages(); renderPage(); if (UI.insp) openNode(UI.insp);
   toast('Отменено');
 }
 function redo() {
   if (!redoS.length) return;
-  undoS.push(JSON.stringify(P)); P = JSON.parse(redoS.pop());
+  undoPush(JSON.stringify(P)); P = JSON.parse(redoS.pop());
   gInval(); save(1); renderPages(); renderPage(); toast('Возвращено');
 }
 function edit(fn, opt) {
@@ -536,11 +715,22 @@ function matchFilter(n, flt) {
 //   space  — «как это устроено»: свободная схема, на ней лежит только то, что положили,
 //            позиции и размеры руками.
 // Механика холста (камера, перетаскивание, копипаст, клавиши) общая — её и разводит isSpatial.
-const isSpatial = pg => !!pg && (pg.kind === 'canvas' || pg.kind === 'space');
+//
+// Предикатов ТРИ, и путать их дорого:
+//   isSpatial — «страница с камерой»: зум, панорама, перетаскивание, копипаст,
+//               клавиши, курсоры коллег. Сюда входит и доска.
+//   isGraphCv — «холст графа»: там, где смысл именно в узлах и зависимостях
+//               (диспетчер отрисовки, экспорт картинки, клавиша N).
+//   isJam     — свободная доска: свои объекты, свои инструменты.
+const isSpatial = pg => !!pg && (pg.kind === 'canvas' || pg.kind === 'space' || pg.kind === 'jam');
+const isJam = pg => !!pg && pg.kind === 'jam';
+const isGraphCv = pg => !!pg && (pg.kind === 'canvas' || pg.kind === 'space');
 function pageNodes(pg) {
   // на свободной схеме присутствие узла = наличие его позиции для этой страницы.
   // Иначе на неё вываливались бы все узлы проекта кучей, чего от доски никто не ждёт.
-  if (pg.kind === 'space') return P.nodes.filter(n => npos(n, pg.id) && matchFilter(n, pg.filter));
+  // На схеме и на доске присутствие узла = наличие его позиции для этой страницы.
+  // Иначе на них вываливались бы все узлы проекта кучей, чего от доски никто не ждёт.
+  if (pg.kind === 'space' || pg.kind === 'jam') return P.nodes.filter(n => npos(n, pg.id) && matchFilter(n, pg.filter));
   return P.nodes.filter(n => matchFilter(n, pg.filter));
 }
 
@@ -555,6 +745,21 @@ let drag = null, cvNodes = [], cvPos = {}, laneInfo = [];
 // на КАЖДУЮ отрисовку холста, и обработчики на window копились бы с каждой.
 const ptrs = new Map();   // активные пальцы: pointerId -> {x, y}
 let pinch = null, cvClearLong = () => {};
+// Текущий инструмент доски и его настройки. На уровне модуля, а НЕ внутри wireCanvas
+// и не в документе: инструмент — это состояние руки, а не свойство доски, и переживать
+// перерисовку он обязан, а уезжать в общий документ и историю версий — нет.
+const JAM = {
+  tool: 'sel',            // sel|hand|sticky|text|shape|pen|hl|eraser|conn|section
+  shape: 'roundrect',
+  fill: '#ffd93b',
+  stroke: '#1b1f2a',
+  sw: 3,
+  size: 15,
+  sticky: false,          // инструмент залипает: ставить объекты подряд
+};
+// Палитра доски. Цвет хранится значением, а не ключом: у доски нет схемы проекта,
+// и привязывать стикер к типу узла было бы натяжкой.
+const JAM_FILLS = ['#ffd93b', '#ffc0cb', '#c9e3ff', '#c7f0cd', '#e5d4ff', '#ffd8b0', '#e5e8f0', '#ffffff'];
 // Отпускание слушаем на window, а не на холсте: палец может уйти за его край,
 // и тогда pointerup до холста не доедет — счётчик пальцев останется грязным,
 // а следующий жест начнётся с «уже два пальца» и не сработает.
@@ -571,10 +776,11 @@ function setNpos(n, pid, x, y) { n.p = n.p || {}; n.p[pid] = {x: Math.round(x), 
 function isPinned(n, pid) { return !!(n.p && n.p[pid]); }
 // Размер узла. Хранится ПО СТРАНИЦАМ, в n.p[pid].w/h — рядом с позицией.
 // В корень ноды (n.w/n.h) не пишем: это повторило бы техдолг n.x/n.y, когда размер
-// один на все страницы. Легаси n.w/n.h читаем как запасной вариант.
+// один на все страницы. Два запасных источника — оба легаси: n.w/n.h из старых файлов
+// и n.sz[pid], куда до 2.5.0 писал place_nodes из коннектора (см. migrateNodeSizes).
 function nsize(n, pid) {
-  const p = (n.p || {})[pid] || {};
-  return {w: p.w || n.w || NW, h: p.h || n.h || NH};
+  const p = (n.p || {})[pid] || {}, z = (n.sz || {})[pid] || {};
+  return {w: p.w || z.w || n.w || NW, h: p.h || z.h || n.h || NH};
 }
 function setNsize(n, pid, w, h) {
   n.p = n.p || {}; n.p[pid] = n.p[pid] || {x: 0, y: 0};
@@ -635,6 +841,9 @@ function applyView() {
     cv.style.backgroundPosition = `${v.x % step}px ${v.y % step}px, 0 0`;
   }
   drawMini();
+  // Панель свойств стоит над выделением в ЭКРАННЫХ координатах: при панораме
+  // и зуме её надо пересчитать, иначе она отвязывается от объекта.
+  if ($('jprops') && UI.selItems.size) paintProps();
   scheduleViewSave(UI.page);
 }
 let viewSaveT = null;
@@ -755,7 +964,7 @@ function seedFreePositions(pg) {
 }
 function layoutPage(pg, nodes) {
   const pid = pg.id;
-  if (pg.kind === 'space') {
+  if (pg.kind === 'space' || pg.kind === 'jam') {
     // никакой авто-раскладки: узел стоит там, где его положили
     const pos = {};
     nodes.forEach(n => {const p = npos(n, pid); if (p) pos[n.id] = {x: p.x, y: p.y};});
@@ -781,32 +990,51 @@ function layoutPage(pg, nodes) {
 }
 
 /* ---------- отрисовка ---------- */
-function renderCanvas(pg) {
-  // умолчания проставляет normalize() при загрузке — отрисовка проект не трогает
-  const space = pg.kind === 'space';
-  if (!space && !pg.canvas) pg.canvas = {layout: 'auto', lanes: []};
-  if (space && !pg.space) pg.space = {};
-  const cfg = space ? pg.space : pg.canvas;   // общая часть: пояснение над холстом
-  const nodes = pageNodes(pg);
-  cvNodes = nodes;
-  $('view').innerHTML = `<div id="cvstack">
+// Разметка холста, общая для карты зависимостей, схемы и доски. Вынесена из
+// renderCanvas, потому что третий вид внутри неё вывел бы её за пределы читаемости:
+// она и так прошита особыми случаями pg.canvas / pg.space.
+//
+// Слои внутри #scene идут сзади вперёд: секции доски → её объекты → связи →
+// узлы графа → курсоры коллег. #marq, панели и миникарта лежат ВНЕ #scene:
+// они не должны ездить и масштабироваться вместе с камерой.
+function canvasShell(pg, cfg, opts) {
+  const jam = !!(opts && opts.jam);
+  const rail = jam ? '' : `<div id="toolrail" class="noview">
+      <button data-tool="node" title="Новый узел · двойной клик по холсту">＋</button>
+      <button data-tool="frame" title="Область: рамка вокруг группы узлов">▭</button>
+      <button data-tool="note" title="Заметка">✎</button>
+      <div class="rsep"></div>
+      <button data-tool="fit" title="Показать всё целиком">⤢</button>
+    </div>`;
+  return `<div id="cvstack"${jam ? ' class="jam"' : ''}>
     ${cfg.intro && !cfg.introOff ? `<div id="cvintro">${cfg.intro}<span class="x" id="introX" title="скрыть">×</span></div>` : ''}
-    <div id="cvhost"><div id="cv">
+    <div id="cvhost"><div id="cv"${jam ? ` class="bg-${esc(cfg.bg || 'dots')}"` : ''}>
     <div id="scene">
+      ${jam ? '<div id="lySect"></div>' : ''}
       <div id="lyFrames"></div>
+      ${jam ? '<div id="lyItems"></div><svg id="lyDraw"></svg>' : ''}
       <svg id="edges"></svg>
       <div id="lyNodes"></div>
       <div id="lyNotes"></div>
       <div id="lyCursors"></div>
     </div>
     <div id="marq"></div>
-    <div id="toolrail" class="noview">
-      <button data-tool="node" title="Новый узел · двойной клик по холсту">＋</button>
-      <button data-tool="frame" title="Область: рамка вокруг группы узлов">▭</button>
-      <button data-tool="note" title="Заметка">✎</button>
-      <div class="rsep"></div>
-      <button data-tool="fit" title="Показать всё целиком">⤢</button>
+    ${rail}
+    ${jam ? `<div id="jambar" class="noview">
+      <button data-t="sel" title="Выбрать · V">&#9655;</button>
+      <button data-t="hand" title="Рука · H · или пробел">&#9995;</button>
+      <span class="jsep"></span>
+      <button data-t="sticky" title="Стикер · N">&#128441;</button>
+      <button data-t="text" title="Текст · T">T</button>
+      <button data-t="shape" title="Фигура · R">&#9645;</button>
+      <button data-t="conn" title="Коннектор · X">&#8599;</button>
+      <button data-t="pen" title="Перо · P">&#9998;</button>
+      <button data-t="eraser" title="Ластик · E">&#9723;</button>
+      <button data-t="section" title="Секция · F">&#11036;</button>
+      <span class="jsep"></span>
+      <button data-t="fit" title="Показать всё">&#10530;</button>
     </div>
+    <div id="jprops" class="noview"></div>` : ''}
     <div id="zoombar">
       <button class="btn ico sm" id="zOut">−</button><span id="zval" class="hint" style="width:38px;text-align:center">100%</span>
       <button class="btn ico sm" id="zIn">＋</button><span class="sep"></span>
@@ -815,17 +1043,15 @@ function renderCanvas(pg) {
     </div>
     <canvas id="mini" width="264" height="176"></canvas>
   </div></div></div>`;
+}
+// Пояснение над холстом и первичный подгон камеры — тоже общие.
+function wireCanvasShell(pg, cfg) {
   const ix = $('introX');
   if (ix) ix.onclick = e => {e.stopPropagation(); cfg.introOff = 1; save(); renderPage();};
   // На узком экране пояснение показывается началом: касание разворачивает его
   // целиком. Прятать текст без возможности прочитать — не решение.
   const intro = $('cvintro');
   if (intro) intro.onclick = () => intro.classList.toggle('open');
-  cvPos = layoutPage(pg, nodes);
-  paintFrames(); paintNodes(); paintEdges(); paintNotes();
-  applyView();
-  wireCanvas();
-  paintEmptyHint(pg, nodes);
   if (!UI.view[pg.id] || !UI.view[pg.id]._done) {
     view()._done = 1; fitAll();
     // повторный fit на следующем кадре — на случай, если контейнер ещё не получил размеры (первый рендер/viewer)
@@ -839,6 +1065,248 @@ function renderCanvas(pg) {
     // после первого кадра, и карта оставалась прижатой к низу с пустотой сверху.
     setTimeout(refit, 120);
   }
+}
+function renderCanvas(pg) {
+  // умолчания проставляет normalize() при загрузке — отрисовка проект не трогает
+  const space = pg.kind === 'space';
+  if (!space && !pg.canvas) pg.canvas = {layout: 'auto', lanes: []};
+  if (space && !pg.space) pg.space = {};
+  const cfg = space ? pg.space : pg.canvas;   // общая часть: пояснение над холстом
+  const nodes = pageNodes(pg);
+  cvNodes = nodes;
+  $('view').innerHTML = canvasShell(pg, cfg, {jam: false});
+  cvPos = layoutPage(pg, nodes);
+  paintFrames(); paintNodes(); paintEdges(); paintNotes();
+  applyView();
+  wireCanvas();
+  paintEmptyHint(pg, nodes);
+  wireCanvasShell(pg, cfg);
+}
+// Свободная доска. Отдельный рендерер, а не ветка в renderCanvas: набор слоёв,
+// набор объектов и панель инструментов у неё свои.
+//
+// paintFrames() и paintNotes() здесь НЕ зовутся сознательно: P.frames и P.notes
+// лежат в корне документа и не привязаны к странице — на доску вывалились бы все
+// области и заметки проекта разом.
+function renderJam(pg) {
+  pg.jam = pg.jam || {items: [], bg: 'dots'};
+  const cfg = pg.jam;
+  const nodes = pageNodes(pg);
+  cvNodes = nodes;
+  $('view').innerHTML = canvasShell(pg, cfg, {jam: true});
+  cvPos = layoutPage(pg, nodes);
+  paintItems(); paintNodes(); paintEdges();
+  applyView();
+  wireCanvas();
+  wireJam();
+  paintEmptyHint(pg, nodes);
+  wireCanvasShell(pg, cfg);
+}
+/* ---------- инструменты доски ---------- */
+// Инструмент одноразовый: поставил объект — вернулся к стрелке. Так работают
+// и FigJam, и Miro, и без этого доска ощущается векторным редактором, а не доской.
+// Закрепить инструмент, чтобы ставить подряд, — двойной клик по кнопке.
+function setTool(t) {
+  if (ro() && t !== 'sel' && t !== 'hand') { toast('Только просмотр'); return; }
+  JAM.tool = t;
+  qsa('#jambar button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  const cv = $('cv');
+  if (cv) {
+    cv.classList.toggle('jdraw', t === 'pen' || t === 'eraser');
+    cv.classList.toggle('jplace', ['sticky', 'text', 'shape', 'section', 'conn'].includes(t));
+    cv.classList.toggle('pan', t === 'hand');
+  }
+  const sh = $('jshapes'); if (sh) sh.classList.toggle('open', t === 'shape');
+}
+function wireJam() {
+  qsa('#jambar button').forEach(b => {
+    b.onclick = () => {
+      const t = b.dataset.t;
+      if (t === 'fit') { fitAll(); return; }
+      // Повторный клик по уже выбранной фигуре перебирает набор форм —
+      // отдельное подменю ради семи вариантов не окупается.
+      if (t === 'shape' && JAM.tool === 'shape') {
+        const forms = ['roundrect', 'rect', 'ellipse', 'diamond', 'triangle', 'star', 'arrow'];
+        JAM.shape = forms[(forms.indexOf(JAM.shape) + 1) % forms.length];
+        toast('Фигура: ' + JAM.shape);
+      }
+      JAM.sticky = false;
+      setTool(t);
+    };
+    b.ondblclick = () => {
+      if (['sel', 'hand', 'fit'].includes(b.dataset.t)) return;
+      JAM.sticky = true; setTool(b.dataset.t);
+      toast('Инструмент закреплён — Esc, чтобы отпустить');
+    };
+  });
+  setTool(JAM.tool);
+}
+// Любая правка доски идёт через это: снимок для отмены ДО изменения, затем
+// сохранение и перерисовка. Порядок тот же, что у edit() для узлов.
+function jamEdit(fn) {
+  if (ro()) { toast('Только просмотр'); return; }
+  snapNow(); fn(); save();
+  paintItems(); paintEdges(); applyHi(); drawMini();
+}
+// Порядок наложения — это порядок в массиве items, отдельного поля z нет:
+// нечем разъехаться, нечего перенормировывать, отмена бесплатна.
+function jamRaise(where) {
+  const pg = curPage(); if (!isJam(pg) || !UI.selItems.size) return;
+  jamEdit(() => {
+    const keep = jamItems(pg).filter(it => UI.selItems.has(it.id));
+    const rest = jamItems(pg).filter(it => !UI.selItems.has(it.id));
+    if (where === 'front') pg.jam.items = rest.concat(keep);
+    else pg.jam.items = keep.concat(rest);
+  });
+}
+/* ---------- плавающая панель свойств ---------- */
+// Панель едет за выделением, а не живёт в #insp. Инспектор — оверлей во всю высоту,
+// он съедает камеру, и открывать его на каждый клик по стикеру означало бы вернуть
+// поведение, от которого в проекте уже отказались (см. onDown).
+function paintProps() {
+  const el = $('jprops'); if (!el) return;
+  const pg = curPage(), list = selItemsArr();
+  if (!isJam(pg) || !list.length || ro()) { el.classList.remove('open'); el.innerHTML = ''; return; }
+  const kinds = new Set(list.map(i => i.kind));
+  const colored = list.some(i => ['sticky', 'shape', 'section', 'text'].includes(i.kind));
+  const stroked = list.some(i => ['draw', 'conn', 'shape'].includes(i.kind));
+  let h = '';
+  if (colored) {
+    h += '<div class="jrow">' + JAM_FILLS.map(c =>
+      `<button class="jsw" data-fill="${c}" style="background:${c}" title="${c}"></button>`).join('') + '</div>';
+  }
+  if (stroked) {
+    h += '<div class="jrow">' + [2, 4, 8].map(w =>
+      `<button class="jw" data-sw="${w}" title="толщина ${w}"><i style="height:${w}px"></i></button>`).join('') + '</div>';
+  }
+  h += `<div class="jrow">
+    <button class="jb" data-act="front" title="На передний план · Ctrl+]">&#9633;&#8593;</button>
+    <button class="jb" data-act="back" title="На задний план · Ctrl+[">&#9633;&#8595;</button>
+    <button class="jb" data-act="dup" title="Дублировать · Ctrl+D">&#10697;</button>
+    <button class="jb" data-act="del" title="Удалить · Delete">&#10005;</button>
+  </div>`;
+  el.innerHTML = h;
+  el.classList.add('open');
+  // Позиция — над рамкой выделения, в экранных координатах холста.
+  const b = itemsBBox(list), v = view();
+  el.style.left = Math.round(b.x * v.k + v.x + (b.w * v.k) / 2) + 'px';
+  el.style.top = Math.round(b.y * v.k + v.y - 12) + 'px';
+  qsa('#jprops [data-fill]').forEach(bt => bt.onclick = () => jamEdit(() => {
+    JAM.fill = bt.dataset.fill;
+    for (const it of selItemsArr()) if (it.kind !== 'draw' && it.kind !== 'conn') it.fill = bt.dataset.fill;
+  }));
+  qsa('#jprops [data-sw]').forEach(bt => bt.onclick = () => jamEdit(() => {
+    JAM.sw = +bt.dataset.sw;
+    for (const it of selItemsArr()) it.sw = +bt.dataset.sw;
+  }));
+  qsa('#jprops [data-act]').forEach(bt => bt.onclick = () => {
+    const a = bt.dataset.act;
+    if (a === 'front' || a === 'back') return jamRaise(a);
+    if (a === 'dup') return jamDuplicate();
+    if (a === 'del') return jamDelete();
+  });
+}
+function itemsBBox(list) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const it of list) {
+    const b = it.kind === 'draw' ? drawBox(it) : (it.kind === 'conn' ? connBox(it) : itemBox(it));
+    if (!b) continue;
+    x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y);
+    x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h);
+  }
+  if (!isFinite(x0)) return {x: 0, y: 0, w: 0, h: 0};
+  return {x: x0, y: y0, w: x1 - x0, h: y1 - y0};
+}
+function jamDelete() {
+  const pg = curPage(); if (!isJam(pg) || !UI.selItems.size) return;
+  const n = UI.selItems.size;
+  jamEdit(() => {
+    // Коннектор без конца не имеет смысла: удаляем вместе с объектом, к которому он шёл.
+    pg.jam.items = jamItems(pg).filter(it => !UI.selItems.has(it.id));
+    pg.jam.items = pg.jam.items.filter(it => it.kind !== 'conn'
+      || (!UI.selItems.has((it.a || {}).item) && !UI.selItems.has((it.b || {}).item)));
+    UI.selItems.clear();
+  });
+  toast(`Удалено: ${nOf(n, OBJS)}`);
+}
+function jamDuplicate() {
+  const pg = curPage(); if (!isJam(pg) || !UI.selItems.size) return;
+  const made = [];
+  jamEdit(() => {
+    const map = {};
+    for (const it of selItemsArr()) {
+      if (it.kind === 'conn') continue;
+      const c = clone(it); c.id = uid('i'); c.x = (+it.x || 0) + 24; c.y = (+it.y || 0) + 24;
+      map[it.id] = c.id; pg.jam.items.push(c); made.push(c.id);
+    }
+    UI.selItems = new Set(made);
+  });
+}
+// Объекты доски. Порядок в массиве = порядок наложения, поэтому рисуем как лежит.
+function paintItems() {
+  const pg = curPage(); if (!isJam(pg)) return;
+  const items = jamItems(pg);
+  const sect = [], body = [], draw = [];
+  for (const it of items) {
+    if (it.kind === 'section') sect.push(sectionHTML(it));
+    else if (it.kind === 'draw') draw.push(drawHTML(it));
+    else if (it.kind === 'conn') continue;      // коннекторы рисует paintEdges
+    else body.push(itemHTML(it));
+  }
+  const ls = $('lySect'), li = $('lyItems'), ld = $('lyDraw');
+  if (ls) ls.innerHTML = sect.join('');
+  if (li) li.innerHTML = body.join('');
+  if (ld) ld.innerHTML = draw.join('');
+}
+const jamItems = pg => (pg && pg.jam && Array.isArray(pg.jam.items)) ? pg.jam.items : [];
+const jamItemById = (pg, id) => jamItems(pg).find(x => x.id === id) || null;
+// Прямоугольник объекта в мировых координатах — нужен и рамке выделения,
+// и миникарте, и «показать всё», и коннекторам.
+function itemBox(it) {
+  return {x: +it.x || 0, y: +it.y || 0, w: Math.max(1, +it.w || 0), h: Math.max(1, +it.h || 0)};
+}
+function itemHTML(it) {
+  const b = itemBox(it);
+  const cls = it.kind === 'sticky' ? 'jsticky' : it.kind === 'text' ? 'jtext' : 'jshape';
+  const shape = it.kind === 'shape' ? ' shp-' + (it.shape || 'roundrect') : '';
+  const st = [`left:${b.x}px`, `top:${b.y}px`, `width:${b.w}px`, `height:${b.h}px`];
+  if (it.fill) st.push('background:' + it.fill);
+  if (it.stroke) st.push('border-color:' + it.stroke);
+  if (it.rot) st.push(`transform:rotate(${it.rot}deg)`);
+  if (it.size) st.push('font-size:' + it.size + 'px');
+  if (it.align) st.push('text-align:' + it.align);
+  return `<div class="jitem ${cls}${shape}${it.lock ? ' lock' : ''}" data-i="${esc(it.id)}" style="${st.join(';')}">
+    <div class="jtxt">${esc(it.text || '')}</div>${it.lock ? '' : '<div class="jrs" title="потянуть, чтобы изменить размер"></div>'}</div>`;
+}
+function sectionHTML(it) {
+  const b = itemBox(it);
+  const st = [`left:${b.x}px`, `top:${b.y}px`, `width:${b.w}px`, `height:${b.h}px`];
+  if (it.fill) st.push('background:' + it.fill);
+  return `<div class="jsect" data-i="${esc(it.id)}" style="${st.join(';')}">
+    <div class="jsh">${esc(it.text || 'Секция')}</div><div class="jrs"></div></div>`;
+}
+// Штрих хранится строкой относительных целых точек — «0,0 8,3 15,9». Так он в разы
+// компактнее массива объектов, а перемещение штриха это правка двух чисел (x, y),
+// а не переписывание всего пути.
+function drawPath(it) {
+  const pts = String(it.d || '').trim().split(/\s+/);
+  if (!pts.length || !pts[0]) return '';
+  const x = +it.x || 0, y = +it.y || 0;
+  let d = '';
+  for (let i = 0; i < pts.length; i++) {
+    const c = pts[i].split(',');
+    if (c.length < 2) continue;
+    d += (d ? 'L' : 'M') + (x + (+c[0] || 0)) + ',' + (y + (+c[1] || 0));
+  }
+  return d;
+}
+function drawHTML(it) {
+  const d = drawPath(it); if (!d) return '';
+  const w = Math.max(1, +it.sw || 3);
+  // Невидимый дубль пути шириной не меньше 14 — чтобы в тонкий штрих можно было
+  // попасть курсором. Тот же приём, что у #edges path.hit.
+  return `<path class="jhit" data-i="${esc(it.id)}" d="${d}" stroke-width="${Math.max(14, w * 2)}"/>`
+    + `<path class="jdraw" data-i="${esc(it.id)}" d="${d}" stroke="${esc(it.stroke || '#1b1f2a')}" stroke-width="${w}"/>`;
 }
 // Пустой холст раньше показывал только точки — что делать дальше, узнать было неоткуда.
 // Три разных пустых состояния: страница совсем пустая, фильтр всё отсёк, схема без узлов.
@@ -870,6 +1338,21 @@ function emptyBlock(pg, total) {
 function paintEmptyHint(pg, nodes) {
   const host = $('cvhost'); if (!host) return;
   const old = $('cvempty'); if (old) old.remove();
+  // На доске «пусто» — это когда нет НИ объектов, ни положенных узлов: она пустая
+  // не по фильтру, а по содержимому.
+  if (isJam(pg)) {
+    if (nodes.length || jamItems(pg).length) return;
+    const el2 = document.createElement('div');
+    el2.id = 'cvempty';
+    el2.innerHTML = `<div class="ttl">Доска пока пустая</div><div class="txt">${VIEWER
+      ? 'Автор ещё ничего сюда не положил.'
+      : 'Возьмите инструмент внизу и щёлкните по холсту.<br>' +
+        '<b>N</b> — стикер, <b>T</b> — текст, <b>R</b> — фигура, <b>P</b> — перо.<br>' +
+        'Колесо — панорама, <b>Ctrl</b> + колесо — масштаб.'}</div>`;
+    host.appendChild(el2);
+    el2.onmousedown = e => e.stopPropagation();
+    return;
+  }
   if (nodes.length) return;
   const total = P.nodes.length;
   const filtered = total > 0 && pg.kind !== 'space';
@@ -916,7 +1399,7 @@ function nodeHTML(n) {
     <div class="ns">${subBits.join(' ')} ${esc(n.sub || '')}</div>
     <div class="port l" data-port="l"></div><div class="port r" data-port="r"></div>
     <div class="port t" data-port="t"></div><div class="port b" data-port="b"></div>
-    ${curPage().kind === 'space' && !ro() ? '<div class="rs" title="потянуть, чтобы изменить размер"></div>' : ''}
+    ${(curPage().kind === 'space' || curPage().kind === 'jam') && !ro() ? '<div class="rs" title="потянуть, чтобы изменить размер"></div>' : ''}
   </div>`;
 }
 function paintNodes() {
@@ -976,7 +1459,7 @@ function edgePathAuto(a, b, aw, ah, bw, bh) {
   return `M${p1.x},${p1.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${p2.x},${p2.y}`;
 }
 // какую геометрию использовать для страницы
-const edgeFor = pg => (pg && pg.kind === 'space') ? edgePathAuto : edgePath;
+const edgeFor = pg => (pg && (pg.kind === 'space' || pg.kind === 'jam')) ? edgePathAuto : edgePath;
 function paintEdges() {
   const svg = $('edges'); if (!svg) return;
   const pid = UI.page;                       // размеры узлов хранятся по страницам
@@ -1001,8 +1484,58 @@ function paintEdges() {
       h += `<text x="${m.x}" y="${m.y - 5}" text-anchor="middle" font-size="10" fill="${t.color}" style="font-weight:600">${esc(l.label)}</text>`;
     }
   });
+  // Коннекторы доски рисуются в ЭТОТ ЖЕ svg, вторым проходом. Отдельный слой
+  // означал бы второй набор маркеров-стрелок и разъехавшийся порядок наложения.
+  // Отличаются они атрибутом: у связи графа data-l, у коннектора доски data-c.
+  const pgJ = curPage();
+  if (isJam(pgJ)) {
+    const caps = new Set();
+    let cp = '';
+    for (const it of jamItems(pgJ)) {
+      if (it.kind !== 'conn') continue;
+      const d = connPath(pgJ, it); if (!d) continue;
+      const col = it.stroke || '#5a6172', w = Math.max(1, +it.sw || 2);
+      const capB = it.capB === undefined ? 'arrow' : it.capB;
+      const mk2 = (cap, at) => {
+        if (!cap || cap === 'none') return '';
+        const key = 'c' + cap + col.replace(/\W/g, '') + at;
+        caps.add(key + '\u0000' + cap + '\u0000' + col + '\u0000' + at);
+        return ` marker-${at}="url(#${key})"`;
+      };
+      const dash = it.dash ? ` stroke-dasharray="${esc(it.dash)}"` : '';
+      cp += `<path class="hit" data-c="${esc(it.id)}" d="${d}"/>`;
+      cp += `<path class="conn" data-c="${esc(it.id)}" d="${d}" fill="none" stroke="${esc(col)}" stroke-width="${w}"${dash}`
+        + mk2(it.capA, 'start') + mk2(capB, 'end') + '/>';
+      if (it.text) {
+        const m = (it.style === 'curve' || !it.style) ? midOf(d) : midOfLine(d);
+        cp += `<text x="${m.x}" y="${m.y - 5}" text-anchor="middle" font-size="10" fill="${esc(col)}" style="font-weight:600">${esc(it.text)}</text>`;
+      }
+    }
+    // Маркеры заводятся ПО КЛЮЧУ, а не по коннектору: иначе на сотне стрелок
+    // одного цвета получилась бы сотня одинаковых <marker>.
+    let extra = '';
+    for (const key of caps) {
+      const [id, cap, col, at] = key.split('\u0000');
+      const flip = at === 'start' ? ' transform="rotate(180 3.25 2.5)"' : '';
+      const body = cap === 'dot'
+        ? `<circle cx="2.5" cy="2.5" r="2.5" fill="${col}"/>`
+        : `<path d="M0,0 L6.5,2.5 L0,5 z" fill="${col}"${flip}/>`;
+      extra += `<marker id="${id}" markerWidth="7" markerHeight="7" refX="${at === 'start' ? 0.5 : 6.5}" refY="2.5" orient="auto">${body}</marker>`;
+    }
+    if (extra) h = h.replace('</defs>', extra + '</defs>');
+    h += cp;
+  }
   h += '<path id="tmpLink" fill="none" stroke="#3355d1" stroke-width="2" stroke-dasharray="5,4" style="display:none"/>';
   svg.innerHTML = h;
+}
+// Для прямой и ортогональной линии середину считаем арифметически: midOf() создаёт
+// <path> вне DOM на КАЖДУЮ подпись при каждой отрисовке, и на десятке подписанных
+// коннекторов это заметно.
+function midOfLine(d) {
+  const nums = d.match(/-?\d+(\.\d+)?/g) || [];
+  if (nums.length < 4) return {x: 0, y: 0};
+  const x1 = +nums[0], y1 = +nums[1], x2 = +nums[nums.length - 2], y2 = +nums[nums.length - 1];
+  return {x: (x1 + x2) / 2, y: (y1 + y2) / 2};
 }
 function midOf(d) {
   const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -1020,6 +1553,18 @@ function paintNotes() {
     <div class="txt">${esc(n.text)}</div><div class="rs"></div></div>`).join('');
 }
 function applyHi() {
+  const pgJ = curPage();
+  // Объекты доски подсвечиваются всегда, независимо от графа.
+  if (isJam(pgJ)) {
+    qsa('.jitem').forEach(e => e.classList.toggle('sel', UI.selItems.has(e.dataset.i)));
+    qsa('.jsect').forEach(e => e.classList.toggle('sel', UI.selItems.has(e.dataset.i)));
+    qsa('#lyDraw path.jdraw').forEach(e => e.classList.toggle('sel', UI.selItems.has(e.dataset.i)));
+    qsa('#edges .conn').forEach(e => e.classList.toggle('sel', UI.selItems.has(e.dataset.c)));
+    paintProps();
+    // Гонять G() — построение всего графа проекта — на каждое движение мыши над
+    // стикером незачем: узлов графа на доске может не быть вовсе.
+    if (!UI.sel.size && !UI.hover) return;
+  }
   const focus = UI.hover || (UI.sel.size === 1 ? [...UI.sel][0] : null);
   const g = G();
   // Режимы «критический путь» и «доступное сейчас» — акцент, а не фильтр:
@@ -1065,12 +1610,42 @@ function updatePositions(ids) {
 }
 
 /* ---------- миникарта ---------- */
+// Всё, что занимает место на текущей странице: узлы графа, области — и объекты
+// доски. Без этой ветки fitAll() на доске без узлов каждый раз сбрасывал бы камеру
+// в {40,40,1}, а миникарта оставалась бы пустой: обе строили список только по cvNodes.
+function sceneBoxes(pg) {
+  const out = cvNodes.map(n => ({...cvPos[n.id], ...nsize(n, UI.page), c: catOf(n.cat).color}));
+  if (isJam(pg)) {
+    for (const it of jamItems(pg)) {
+      if (it.kind === 'conn') continue;                  // у стрелки нет своих габаритов
+      if (it.kind === 'draw') { const b = drawBox(it); if (b) out.push({...b, c: it.stroke || '#1b1f2a'}); continue; }
+      out.push({...itemBox(it), c: it.kind === 'section' ? null : (it.fill || '#ffd93b')});
+    }
+  } else {
+    (P.frames || []).forEach(f => out.push({x: f.x, y: f.y, w: f.w, h: f.h, c: null}));
+  }
+  return out.filter(i => isFinite(i.x) && isFinite(i.y) && isFinite(i.w) && isFinite(i.h));
+}
+// Габариты штриха считаются по точкам: ширины и высоты у него в документе нет.
+function drawBox(it) {
+  const pts = String(it.d || '').trim().split(/\s+/);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p2 of pts) {
+    const c = p2.split(','); if (c.length < 2) continue;
+    const px = +c[0] || 0, py = +c[1] || 0;
+    if (px < x0) x0 = px; if (py < y0) y0 = py;
+    if (px > x1) x1 = px; if (py > y1) y1 = py;
+  }
+  if (!isFinite(x0)) return null;
+  const pad = Math.max(1, +it.sw || 3);
+  return {x: (+it.x || 0) + x0 - pad, y: (+it.y || 0) + y0 - pad,
+          w: (x1 - x0) + pad * 2, h: (y1 - y0) + pad * 2};
+}
 function drawMini() {
-  const c = $('mini'); if (!c || !cvNodes.length) return;
+  const c = $('mini'); if (!c) return;
   const ctx = c.getContext('2d'), W = c.width, H = c.height;
   ctx.clearRect(0, 0, W, H);
-  const items = cvNodes.map(n => ({...cvPos[n.id], ...nsize(n, UI.page), c: catOf(n.cat).color}));
-  (P.frames || []).forEach(f => items.push({x: f.x, y: f.y, w: f.w, h: f.h, c: null}));
+  const items = sceneBoxes(curPage());
   if (!items.length) return;
   const x0 = Math.min(...items.map(i => i.x)) - 60, y0 = Math.min(...items.map(i => i.y)) - 60;
   const x1 = Math.max(...items.map(i => i.x + i.w)) + 60, y1 = Math.max(...items.map(i => i.y + i.h)) + 60;
@@ -1087,8 +1662,7 @@ function drawMini() {
   ctx.strokeRect((-v.x / v.k - x0) * k, (-v.y / v.k - y0) * k, (r.width / v.k) * k, (r.height / v.k) * k);
 }
 function fitAll() {
-  const items = cvNodes.map(n => ({...cvPos[n.id], ...nsize(n, UI.page)}));
-  (P.frames || []).forEach(f => items.push(f));
+  const items = sceneBoxes(curPage());
   if (!items.length) {const v = view(); v.x = 40; v.y = 40; v.k = 1; applyView(); return;}
   const r = visibleRect();
   const x0 = Math.min(...items.map(i => i.x)), y0 = Math.min(...items.map(i => i.y));
@@ -1239,6 +1813,28 @@ function wireCanvas() {
 // или создать узел на пустом месте.
 function onDoubleTap(e) {
   if (VIEWER) return;
+  // На доске двойной клик по пустому месту даёт СТИКЕР, а не узел графа: функция
+  // про тип страницы раньше не знала вовсе и создавала узел где угодно.
+  const pgD = curPage();
+  if (isJam(pgD)) {
+    const jt = e.target.closest('.jitem');
+    if (jt) { jamInlineText(jt); return; }
+    const sh = e.target.closest('.jsect .jsh');
+    if (sh) {
+      const it = jamItemById(pgD, sh.closest('[data-i]').dataset.i);
+      if (it) promptBox('Секция', 'Название', it.text || '', v => jamEdit(() => { it.text = v; }));
+      return;
+    }
+    if (ro()) return;
+    const w2 = toWorld(e.clientX, e.clientY), def = jamDefaults('sticky');
+    const it = Object.assign({id: uid('i'), kind: 'sticky', text: ''}, def,
+      {x: Math.round(w2.x - def.w / 2), y: Math.round(w2.y - def.h / 2)});
+    jamEdit(() => { pgD.jam.items.push(it); });
+    setSelItems([it.id]);
+    const el = qs(`.jitem[data-i="${CSS.escape(it.id)}"]`);
+    if (el) jamInlineText(el);
+    return;
+  }
   const nd = e.target.closest('.nd');
   if (nd) {inlineRename(nd); return;}
   const stk = e.target.closest('.stk');
@@ -1263,12 +1859,87 @@ function cancelDrag() {
   if (ids) {updatePositions(ids); paintEdges();}
 }
 
+/* ---------- жесты доски ---------- */
+// Что под курсором: объект доски, узел графа — или ничего (тогда конец коннектора
+// повиснет в точке, и это законно: в FigJam стрелку можно вывести в пустоту).
+function jamEndAt(e, pg) {
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const jt = el && el.closest && el.closest('.jitem, .jsect');
+  if (jt && jt.dataset.i) return {item: jt.dataset.i, side: 'c'};
+  const nd = el && el.closest && el.closest('.nd');
+  if (nd) return {node: nd.dataset.n, side: 'c'};
+  return null;
+}
+function jamDefaults(kind) {
+  if (kind === 'sticky') return {w: 180, h: 180, fill: JAM.fill, size: JAM.size};
+  if (kind === 'text') return {w: 300, h: 56, size: 16};
+  if (kind === 'section') return {w: 600, h: 400, fill: '#f2f4f9', text: 'Секция'};
+  return {w: 220, h: 120, fill: '#c9e3ff', stroke: '#7fa8d8', shape: JAM.shape};
+}
+function jamToolDown(e, pg) {
+  const w = toWorld(e.clientX, e.clientY), t = JAM.tool;
+  if (t === 'eraser') {
+    drag = {mode: 'jerase', hit: new Set()};
+    jamEraseAt(e);
+    e.preventDefault(); return;
+  }
+  if (t === 'pen') {
+    // Точки копятся относительно начала штриха и целыми: так строка d выходит
+    // в разы компактнее, а перемещение штриха — это правка двух чисел.
+    drag = {mode: 'jdraw', x0: w.x, y0: w.y, pts: [[0, 0]], last: w};
+    e.preventDefault(); return;
+  }
+  if (t === 'conn') {
+    drag = {mode: 'jconn', from: jamEndAt(e, pg) || {x: Math.round(w.x), y: Math.round(w.y)}, w};
+    const tl = $('tmpLink'); if (tl) tl.style.display = '';
+    e.preventDefault(); return;
+  }
+  drag = {mode: 'jplace', kind: t, sx: e.clientX, sy: e.clientY, x0: w.x, y0: w.y, moved: false};
+  e.preventDefault();
+}
+function jamEraseAt(e) {
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const t = el && el.closest && el.closest('#lyDraw path.jhit, .jitem, #edges .hit[data-c]');
+  const id = t && (t.dataset.i || t.dataset.c);
+  if (!id || (drag && drag.hit && drag.hit.has(id))) return;
+  if (drag && drag.hit) drag.hit.add(id);
+  // Ластик доски объектный: стирается штрих целиком, а не его кусок. Так же в FigJam.
+  const pg = curPage();
+  jamEdit(() => { pg.jam.items = jamItems(pg).filter(x => x.id !== id); });
+}
+// Упрощение полилинии (Рамер—Дуглас—Пейкер). Без него один штрих — это 300-400 точек,
+// а документ уезжает на сервер и в стек отмены ЦЕЛИКОМ на каждую правку.
+function rdp(pts, eps) {
+  if (pts.length < 3) return pts;
+  let idx = 0, max = 0;
+  const [ax, ay] = pts[0], [bx, by] = pts[pts.length - 1];
+  const dx = bx - ax, dy = by - ay, den = Math.hypot(dx, dy) || 1;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = Math.abs(dy * pts[i][0] - dx * pts[i][1] + bx * ay - by * ax) / den;
+    if (d > max) { max = d; idx = i; }
+  }
+  if (max <= eps) return [pts[0], pts[pts.length - 1]];
+  return rdp(pts.slice(0, idx + 1), eps).slice(0, -1).concat(rdp(pts.slice(idx), eps));
+}
 function selArr() { return [...UI.sel].map(nodeById).filter(Boolean); }
 function setSel(ids, add) {
-  if (!add) {UI.sel.clear(); UI.selNotes.clear(); UI.selFrames.clear();}
+  if (!add) {UI.sel.clear(); UI.selNotes.clear(); UI.selFrames.clear(); UI.selItems.clear();}
   ids.forEach(i => UI.sel.add(i));
   UI.selLink = null;
   applyHi(); syncBulk();
+}
+// Выделение объектов доски. Симметрично setSel: без add снимает всё остальное,
+// иначе стикер и узел графа оказались бы выделены одновременно и Delete унёс бы оба.
+function setSelItems(ids, add) {
+  if (!add) {UI.sel.clear(); UI.selNotes.clear(); UI.selFrames.clear(); UI.selItems.clear(); UI.selLink = null;}
+  ids.forEach(i => UI.selItems.add(i));
+  applyHi(); syncBulk();
+}
+// Объекты текущего выделения — в порядке документа, а не выделения: так операции
+// над группой (порядок наложения, выравнивание) дают предсказуемый результат.
+function selItemsArr() {
+  const pg = curPage(); if (!isJam(pg)) return [];
+  return jamItems(pg).filter(it => UI.selItems.has(it.id));
 }
 function startMove(e) {
   const movN = new Set(UI.sel);
@@ -1280,7 +1951,26 @@ function startMove(e) {
   });
   const nodeIds = [...movN].filter(i => cvPos[i]);
   drag = {mode: 'move', sx: e.clientX, sy: e.clientY, moved: false,
-    nodeIds, notes: [...UI.selNotes], frames: [...UI.selFrames], orig: {}, noteOrig: {}, frameOrig: {}};
+    nodeIds, notes: [...UI.selNotes], frames: [...UI.selFrames],
+    items: [...UI.selItems], orig: {}, noteOrig: {}, frameOrig: {}, itemOrig: {}};
+  // Секция тащит вложенное: объекты, целиком лежащие внутри неё, едут вместе.
+  const pgM = curPage();
+  if (isJam(pgM)) {
+    for (const id of [...UI.selItems]) {
+      const sec = jamItemById(pgM, id);
+      if (!sec || sec.kind !== 'section') continue;
+      const b = itemBox(sec);
+      for (const it of jamItems(pgM)) {
+        if (it.id === id || it.kind === 'conn' || drag.items.includes(it.id)) continue;
+        const q = it.kind === 'draw' ? drawBox(it) : itemBox(it);
+        if (!q) continue;
+        if (q.x >= b.x - 4 && q.y >= b.y - 4 && q.x + q.w <= b.x + b.w + 4 && q.y + q.h <= b.y + b.h + 4) drag.items.push(it.id);
+      }
+    }
+    drag.items.forEach(id => {
+      const it = jamItemById(pgM, id); if (it) drag.itemOrig[id] = {x: +it.x || 0, y: +it.y || 0};
+    });
+  }
   nodeIds.forEach(i => drag.orig[i] = {...cvPos[i]});
   drag.notes.forEach(id => {const t = (P.notes || []).find(x => x.id === id); if (t) drag.noteOrig[id] = {x: t.x, y: t.y};});
   drag.frames.forEach(id => {const f = (P.frames || []).find(x => x.id === id); if (f) drag.frameOrig[id] = {x: f.x, y: f.y};});
@@ -1289,11 +1979,17 @@ function startMove(e) {
 function onDown(e) {
   if (e.button === 2) return;
   const cv = $('cv');
+  // ДОСКА: выбранный инструмент важнее попадания. Нажатие пером по стикеру должно
+  // рисовать, а не тащить его, — поэтому ветка идёт до всех остальных проверок.
+  const pgJ = curPage();
+  if (isJam(pgJ) && !ro() && JAM.tool !== 'sel' && JAM.tool !== 'hand') {
+    jamToolDown(e, pgJ); return;
+  }
   const touch = e.pointerType === 'touch';
   // Одним пальцем по пустому месту холст ВОЗИТСЯ, а не выделяется рамкой:
   // иначе карту на телефоне нечем двигать, а рамка там почти не нужна.
   const emptyTouch = touch && !e.target.closest('.nd, .stk, .fr, .port, #edges .hit');
-  const pan = e.button === 1 || UI.spaceDown || emptyTouch;
+  const pan = e.button === 1 || UI.spaceDown || emptyTouch || (isJam(pgJ) && JAM.tool === 'hand');
   const port = e.target.closest('.port');
   const nd = e.target.closest('.nd');
   const frh = e.target.closest('.fr .fh'), frs = e.target.closest('.fr .rs');
@@ -1302,6 +1998,34 @@ function onDown(e) {
   if (pan) {
     drag = {mode: 'pan', sx: e.clientX, sy: e.clientY, vx: view().x, vy: view().y};
     cv.classList.add('panning'); e.preventDefault(); return;
+  }
+  // Ресайз объекта доски — ДО ветки самого объекта, иначе он просто начнёт двигаться.
+  const jrs = e.target.closest('.jitem .jrs, .jsect .jrs');
+  if (isJam(pgJ) && jrs && !ro()) {
+    const host = jrs.closest('[data-i]'), it = jamItemById(pgJ, host.dataset.i);
+    if (it) {
+      drag = {mode: 'jitemRS', it, sx: e.clientX, sy: e.clientY, w: itemBox(it).w, h: itemBox(it).h};
+      e.preventDefault(); return;
+    }
+  }
+  // Коннектор доски и штрих: попадание ловят их невидимые дубли.
+  const chit = e.target.closest('#edges .hit[data-c], #lyDraw path.jhit');
+  if (isJam(pgJ) && chit) {
+    setSelItems([chit.dataset.c || chit.dataset.i], e.shiftKey || e.metaKey || e.ctrlKey);
+    e.preventDefault(); return;
+  }
+  const jit = e.target.closest('.jitem, .jsect .jsh');
+  if (isJam(pgJ) && jit) {
+    const host = jit.closest('[data-i]'), id = host.dataset.i;
+    const it = jamItemById(pgJ, id);
+    if (it && it.lock) { e.preventDefault(); return; }
+    const addKey = e.shiftKey || e.metaKey || e.ctrlKey;
+    if (addKey) {
+      if (UI.selItems.has(id)) UI.selItems.delete(id); else UI.selItems.add(id);
+      applyHi(); syncBulk();
+    } else if (!UI.selItems.has(id)) setSelItems([id]);
+    if (VIEWER) return;
+    startMove(e); e.preventDefault(); return;
   }
   if (hit && !ro()) { selectLink(hit.dataset.l); e.preventDefault(); return; }
   if (port && !ro()) {
@@ -1375,6 +2099,55 @@ function onDown(e) {
 window.addEventListener('pointermove', e => {
   if (!drag) return;
   const v = view();
+  if (drag.mode === 'jdraw') {
+    const w = toWorld(e.clientX, e.clientY);
+    // Прореживание на лету: pointermove при медленном движении выдаёт десятки точек
+    // на один пиксель. Порог в мировых единицах, чтобы он не зависел от зума.
+    const min = 2 / v.k;
+    if (Math.hypot(w.x - drag.last.x, w.y - drag.last.y) < min) return;
+    drag.last = w;
+    drag.pts.push([Math.round(w.x - drag.x0), Math.round(w.y - drag.y0)]);
+    const ld = $('lyDraw');
+    if (ld) {
+      const d = drag.pts.map((q, i) => (i ? 'L' : 'M') + (drag.x0 + q[0]) + ',' + (drag.y0 + q[1])).join(' ');
+      let tmp = qs('#jtmp', ld);
+      if (!tmp) { ld.insertAdjacentHTML('beforeend',
+        `<path id="jtmp" class="jdraw" fill="none" stroke="${esc(JAM.stroke)}" stroke-width="${JAM.sw}"/>`); tmp = qs('#jtmp', ld); }
+      if (tmp) tmp.setAttribute('d', d);
+    }
+    return;
+  }
+  if (drag.mode === 'jerase') { jamEraseAt(e); return; }
+  if (drag.mode === 'jplace') {
+    // Клик ставит объект умолчательного размера, протяжка — по нарисованной рамке.
+    const m = $('marq'), r = cvRect();
+    if (Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) > 4) drag.moved = true;
+    if (!drag.moved || !m) return;
+    m.style.cssText += `display:block;left:${Math.min(drag.sx, e.clientX) - r.left}px;top:${Math.min(drag.sy, e.clientY) - r.top}px;`
+      + `width:${Math.abs(e.clientX - drag.sx)}px;height:${Math.abs(e.clientY - drag.sy)}px`;
+    return;
+  }
+  if (drag.mode === 'jconn') {
+    const w = toWorld(e.clientX, e.clientY);
+    const pg = curPage();
+    const a = connAnchor(pg, drag.from) || {x: drag.from.x, y: drag.from.y, box: null};
+    const p1 = a.box ? connSide(a.box, drag.from.side, w) : {x: a.x, y: a.y};
+    const tl = $('tmpLink');
+    if (tl) tl.setAttribute('d', `M${p1.x},${p1.y} L${w.x},${w.y}`);
+    const over = jamEndAt(e, pg);
+    qsa('.jitem, .nd').forEach(x => x.classList.toggle('droptgt',
+      !!over && (x.dataset.i === over.item || x.dataset.n === over.node)));
+    return;
+  }
+  if (drag.mode === 'jitemRS') {
+    // По ходу жеста меняется ТОЛЬКО DOM: снимок для отмены снимается на отпускании,
+    // иначе он уже содержал бы новый размер и Ctrl+Z ресайз не отменял бы.
+    drag.cw = Math.max(40, Math.round((drag.w + (e.clientX - drag.sx) / v.k) / GRID) * GRID);
+    drag.ch = Math.max(40, Math.round((drag.h + (e.clientY - drag.sy) / v.k) / GRID) * GRID);
+    const el = qs(`[data-i="${CSS.escape(drag.it.id)}"]`);
+    if (el) { el.style.width = drag.cw + 'px'; el.style.height = drag.ch + 'px'; }
+    return;
+  }
   if (drag.mode === 'pan') {
     v.x = drag.vx + (e.clientX - drag.sx); v.y = drag.vy + (e.clientY - drag.sy); applyView(); return;
   }
@@ -1383,6 +2156,11 @@ window.addEventListener('pointermove', e => {
     if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 3 / v.k) return;
     drag.moved = true;
     const snap = z => Math.round(z / GRID) * GRID;
+    (drag.items || []).forEach(id => {
+      const o = drag.itemOrig[id]; if (!o) return;
+      const el = qs(`[data-i="${CSS.escape(id)}"]`);
+      if (el) { el.style.left = snap(o.x + dx) + 'px'; el.style.top = snap(o.y + dy) + 'px'; }
+    });
     drag.nodeIds.forEach(i => {const o = drag.orig[i]; cvPos[i] = {x: snap(o.x + dx), y: snap(o.y + dy)};});
     updatePositions(drag.nodeIds);
     // заметки/области двигаем только визуально; в P пишем на mouseup, чтобы undo работал
@@ -1422,6 +2200,16 @@ window.addEventListener('pointermove', e => {
     (P.frames || []).forEach(f => {
       if (f.x < bx[1] && f.x + f.w > bx[0] && f.y < by[1] && f.y + f.h > by[0]) UI.selFrames.add(f.id);
     });
+    // Рамка ловит по КАСАНИЮ, а не по полному покрытию — так в обоих продуктах.
+    const pgQ = curPage();
+    if (isJam(pgQ)) {
+      for (const it of jamItems(pgQ)) {
+        if (it.lock) continue;
+        const q = it.kind === 'draw' ? drawBox(it) : (it.kind === 'conn' ? connBox(it) : itemBox(it));
+        if (!q) continue;
+        if (q.x < bx[1] && q.x + q.w > bx[0] && q.y < by[1] && q.y + q.h > by[0]) UI.selItems.add(it.id);
+      }
+    }
     applyHi(); syncBulk();
     return;
   }
@@ -1448,6 +2236,9 @@ window.addEventListener('pointermove', e => {
 window.addEventListener('pointerup', e => {
   if (!drag) return;
   const d = drag; drag = null;
+  if (d.mode === 'jdraw' || d.mode === 'jplace' || d.mode === 'jconn' || d.mode === 'jitemRS' || d.mode === 'jerase') {
+    jamGestureUp(d, e); return;
+  }
   const cv = $('cv'); if (cv) cv.classList.remove('panning', 'linking');
   qsa('.nd').forEach(el => el.classList.remove('drag', 'droptgt'));
   const m = $('marq'); if (m) m.style.display = 'none';
@@ -1464,7 +2255,12 @@ window.addEventListener('pointerup', e => {
     d.nodeIds.forEach(i => {const n = nodeById(i); if (n) setNpos(n, pid, cvPos[i].x, cvPos[i].y);});
     d.notes.forEach(id => {const t = (P.notes || []).find(x => x.id === id), o = d.noteOrig[id]; if (t && o) {t.x = snap(o.x + dx); t.y = snap(o.y + dy);}});
     d.frames.forEach(id => {const f = (P.frames || []).find(x => x.id === id), o = d.frameOrig[id]; if (f && o) {f.x = snap(o.x + dx); f.y = snap(o.y + dy);}});
-    save(); paintNodes(); paintEdges(); paintNotes(); paintFrames(); drawMini(); applyHi();
+    const pgU = curPage();
+    (d.items || []).forEach(id => {
+      const it = jamItemById(pgU, id), o = d.itemOrig[id];
+      if (it && o) { it.x = snap(o.x + dx); it.y = snap(o.y + dy); }
+    });
+    save(); paintNodes(); paintEdges(); paintNotes(); paintFrames(); paintItems(); drawMini(); applyHi();
   }
   if (d.mode === 'link') {
     const t = $('tmpLink'); if (t) t.style.display = 'none';
@@ -1495,12 +2291,100 @@ window.addEventListener('pointerup', e => {
   }
   drawMini();
 });
+// Завершение жестов доски. Всё, что меняет документ, происходит ЗДЕСЬ, а не по ходу
+// движения: иначе снимок для отмены снимался бы уже с изменённого состояния.
+function jamGestureUp(d, e) {
+  const pg = curPage(); if (!isJam(pg)) return;
+  const cv = $('cv'); if (cv) cv.classList.remove('linking');
+  const m = $('marq'); if (m) m.style.display = 'none';
+  const tl = $('tmpLink'); if (tl) tl.style.display = 'none';
+  qsa('.jitem, .nd').forEach(x => x.classList.remove('droptgt'));
+  const tmp = qs('#jtmp'); if (tmp) tmp.remove();
+
+  if (d.mode === 'jerase') { doneTool(); return; }
+
+  if (d.mode === 'jitemRS') {
+    if (d.cw != null) jamEdit(() => { d.it.w = d.cw; d.it.h = d.ch; });
+    return;
+  }
+
+  if (d.mode === 'jdraw') {
+    // 400 сырых точек ужимаются до полусотни: штрих ≈ 500 байт вместо нескольких КБ.
+    const pts = rdp(d.pts, 0.6);
+    if (pts.length < 2) { doneTool(); return; }
+    jamEdit(() => {
+      pg.jam.items.push({id: uid('i'), kind: 'draw', x: Math.round(d.x0), y: Math.round(d.y0),
+        stroke: JAM.stroke, sw: JAM.sw, d: pts.map(q => q[0] + ',' + q[1]).join(' ')});
+    });
+    doneTool(); return;
+  }
+
+  if (d.mode === 'jconn') {
+    const w = toWorld(e.clientX, e.clientY);
+    const to = jamEndAt(e, pg) || {x: Math.round(w.x), y: Math.round(w.y)};
+    const same = d.from.item && to.item && d.from.item === to.item;
+    if (!same) {
+      jamEdit(() => {
+        pg.jam.items.push({id: uid('i'), kind: 'conn', a: d.from, b: to,
+          style: 'curve', capB: 'arrow', stroke: '#5a6172', sw: 2});
+      });
+    }
+    doneTool(); return;
+  }
+
+  // jplace
+  const w = toWorld(e.clientX, e.clientY);
+  const def = jamDefaults(d.kind);
+  const snap = z => Math.round(z / GRID) * GRID;
+  let box;
+  if (d.moved) {
+    box = {x: snap(Math.min(d.x0, w.x)), y: snap(Math.min(d.y0, w.y)),
+           w: Math.max(40, snap(Math.abs(w.x - d.x0))), h: Math.max(40, snap(Math.abs(w.y - d.y0)))};
+  } else {
+    box = {x: snap(d.x0 - def.w / 2), y: snap(d.y0 - def.h / 2), w: def.w, h: def.h};
+  }
+  const it = Object.assign({id: uid('i'), kind: d.kind, text: ''}, def, box);
+  jamEdit(() => { pg.jam.items.push(it); });
+  setSelItems([it.id]);
+  doneTool();
+  // Каретка появляется сразу: «создать → выделить → двойной клик» это три действия
+  // там, где в FigJam одно.
+  if (d.kind !== 'section') {
+    const el = qs(`.jitem[data-i="${CSS.escape(it.id)}"]`);
+    if (el) jamInlineText(el);
+  }
+}
+// Инструмент одноразовый, если его не закрепили двойным кликом.
+function doneTool() { if (!JAM.sticky) setTool('sel'); }
+// Правка текста на месте. contentEditable на .jtxt, запись — на blur:
+// перерисовка по каждому символу крала бы каретку.
+function jamInlineText(el) {
+  const pg = curPage(); if (!isJam(pg) || ro()) return;
+  const id = el.dataset.i, it = jamItemById(pg, id); if (!it || it.lock) return;
+  const t = qs('.jtxt', el); if (!t) return;
+  t.contentEditable = 'true';
+  t.focus();
+  const r = document.createRange(); r.selectNodeContents(t);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  const commit = () => {
+    t.contentEditable = 'false';
+    const v = t.textContent.trim();
+    if (v !== (it.text || '')) { snapNow(); it.text = v; save(); }
+    paintItems(); paintEdges(); applyHi();
+  };
+  t.onblur = commit;
+  t.onkeydown = ev => {
+    ev.stopPropagation();
+    if (ev.key === 'Escape') { ev.preventDefault(); t.textContent = it.text || ''; t.blur(); }
+    // Enter переносит строку — стикер растёт вниз. Завершает ввод Escape или клик мимо.
+  };
+}
 function addLink(from, to, type) {
   if (P.links.some(l => l.from === from && l.to === to)) {toast('Такая связь уже есть'); return;}
   snapNow();
   P.links.push({id: uid('l'), from, to, type});
   gInval();
-  if (hasCycle()) {P.links.pop(); gInval(); undoS.pop(); toast('Отклонено: получился цикл зависимостей'); return;}
+  if (hasCycle()) {P.links.pop(); gInval(); undoPop(); toast('Отклонено: получился цикл зависимостей'); return;}
   save(); renderPage(); toast('Связь: ' + ltOf(type).name.toLowerCase());
 }
 function selectLink(id) {
@@ -2391,6 +3275,11 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if ($('pal').classList.contains('open')) {$('pal').classList.remove('open'); return;}
     if ($('modal').classList.contains('open')) {closeModal(); return;}
+    // На доске Esc сначала отпускает инструмент и только потом снимает выделение:
+    // иначе выйти из режима рисования было бы нечем.
+    if (P && isJam(curPage()) && (JAM.tool !== 'sel' || JAM.sticky)) {
+      JAM.sticky = false; setTool('sel'); return;
+    }
     if (home.homeOpen() && P) {home.hideAll(); return;}
     if (!started) return;
     setSel([]); closeInsp(); return;
@@ -2411,14 +3300,42 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (VIEWER) return;
+  // Буквы-инструменты доски. Раскладка взята у Miro (её знает больше людей),
+  // сверка — по e.code, иначе в русской раскладке не работает ни одна.
+  if (!mod && isJam(curPage())) {
+    const TOOLS = {KeyV: 'sel', KeyH: 'hand', KeyN: 'sticky', KeyT: 'text', KeyR: 'shape',
+                   KeyP: 'pen', KeyE: 'eraser', KeyX: 'conn', KeyF: 'section'};
+    const t = TOOLS[e.code];
+    if (t) {e.preventDefault(); JAM.sticky = false; setTool(t); return;}
+  }
+  if (mod && isJam(curPage()) && (e.code === 'BracketRight' || e.code === 'BracketLeft')) {
+    e.preventDefault(); jamRaise(e.code === 'BracketRight' ? 'front' : 'back'); return;
+  }
+  if (mod && isKey(e, 'KeyA', 'a') && isJam(curPage())) {
+    e.preventDefault();
+    setSelItems(jamItems(curPage()).filter(i => !i.lock).map(i => i.id));
+    cvNodes.forEach(n => UI.sel.add(n.id));
+    applyHi(); syncBulk(); return;
+  }
   if (mod && isKey(e, 'KeyA', 'a') && isSpatial(curPage())) {e.preventDefault(); setSel(cvNodes.map(n => n.id)); return;}
-  if (mod && isKey(e, 'KeyD', 'd')) {e.preventDefault(); duplicateSelection(); return;}
+  if (mod && isKey(e, 'KeyD', 'd')) {
+    e.preventDefault();
+    if (isJam(curPage()) && UI.selItems.size) jamDuplicate(); else duplicateSelection();
+    return;
+  }
   if (mod && isKey(e, 'KeyC', 'c') && UI.sel.size) {e.preventDefault(); copySelection(); return;}
   if (mod && isKey(e, 'KeyV', 'v')) {e.preventDefault(); pasteSelection(); return;}
   if (mod && isKey(e, 'KeyB', 'b')) {e.preventDefault(); toggleSideRail(); return;}
   if (mod && isKey(e, 'KeyG', 'g')) {e.preventDefault(); if (UI.sel.size) addFrame('frame'); return;}
-  if (e.key === 'Delete' || e.key === 'Backspace') {e.preventDefault(); deleteSelection(); return;}
-  if (!mod && isKey(e, 'KeyN', 'n') && isSpatial(curPage())) {addNode(); return;}
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    e.preventDefault();
+    // Забыть здесь UI.selItems значило бы «стикер выделен, но клавишей не удаляется» —
+    // ровно та половинчатость, которую замечают в первую минуту.
+    if (isJam(curPage()) && UI.selItems.size) jamDelete();
+    if (UI.sel.size || UI.selNotes.size || UI.selFrames.size) deleteSelection();
+    return;
+  }
+  if (!mod && isKey(e, 'KeyN', 'n') && isGraphCv(curPage())) {addNode(); return;}
   // Панель больше не открывается сама по клику (см. onDown), поэтому нужен явный способ.
   if (e.key === 'Enter' && UI.sel.size === 1) {
     e.preventDefault();
@@ -2426,7 +3343,8 @@ document.addEventListener('keydown', e => {
     if (UI.insp === only) closeInsp(); else openNode(only);
     return;
   }
-  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && UI.sel.size && isSpatial(curPage())) {
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)
+      && (UI.sel.size || UI.selItems.size) && isSpatial(curPage())) {
     e.preventDefault();
     const d = e.shiftKey ? 1 : GRID;
     const dx = e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0;
@@ -2436,7 +3354,10 @@ document.addEventListener('keydown', e => {
       cvPos[n.id].x += dx; cvPos[n.id].y += dy; setNpos(n, curPage().id, cvPos[n.id].x, cvPos[n.id].y);
       if ((curPage().canvas || {}).layout === 'auto') n.pinned = 1;
     });
-    updatePositions([...UI.sel]); save();
+    selItemsArr().forEach(it => {it.x = (+it.x || 0) + dx; it.y = (+it.y || 0) + dy;});
+    updatePositions([...UI.sel]);
+    if (isJam(curPage())) {paintItems(); paintEdges(); applyHi();}
+    save();
   }
 });
 document.addEventListener('keyup', e => {
@@ -2518,8 +3439,17 @@ $('bFind').onclick = openPalette;
 /* ==========================================================================
    СТРАНИЦЫ
    ========================================================================== */
-const KIND = {canvas: {n: 'Холст', i: '◇'}, space: {n: 'Схема', i: '⬚'},
-  table: {n: 'Таблица', i: '▤'}, board: {n: 'Канбан', i: '▥'}, dash: {n: 'Дашборд', i: '◎'}};
+// Каталог видов страницы. Пояснение (d) лежит ЗДЕСЬ, а не в шаблоне диалога
+// «Новая страница»: иначе каждый новый вид требует правки в трёх разных местах,
+// и одно из них обязательно забывается.
+const KIND = {
+  canvas: {n: 'Холст', i: '◇', d: 'колонка = глубина зависимости'},
+  space: {n: 'Схема', i: '⬚', d: 'свободная схема: кладёшь что хочешь и куда хочешь'},
+  jam: {n: 'Доска', i: '▩', d: 'стикеры, фигуры, стрелки и рисунки на бесконечном холсте'},
+  table: {n: 'Таблица', i: '▤', d: 'строки, колонки, правка в ячейках'},
+  board: {n: 'Канбан', i: '▥', d: 'карточки по колонкам, drag&drop'},
+  dash: {n: 'Дашборд', i: '◎', d: 'плитки и сводка из данных'},
+};
 const kindName = k => (KIND[k] || {n: k}).n;
 
 function renderPages() {
@@ -2548,7 +3478,10 @@ function renderPages() {
   $('projBtn').querySelector('.pn').textContent = P.name;
 }
 function gotoPage(id) {
-  UI.page = id; UI.sel.clear(); UI.selNotes.clear(); UI.selFrames.clear(); UI.selLink = null; closeInsp();
+  // Инструмент — состояние руки на КОНКРЕТНОЙ доске. Утёкший на холст-граф «ластик»
+  // означал бы, что ветка инструмента в onDown перехватывает нажатия там, где её не ждут.
+  JAM.tool = 'sel'; JAM.sticky = false;
+  UI.page = id; UI.sel.clear(); UI.selNotes.clear(); UI.selFrames.clear(); UI.selItems.clear(); UI.selLink = null; closeInsp();
   renderPages(); renderPage();
 }
 function renderPage() {
@@ -2561,7 +3494,8 @@ function renderPage() {
   $('pgSub').textContent = `${kindName(pg.kind)} · ${ns.length} из ${P.nodes.length} узлов`;
   renderPageBar(pg);
   const old = $('bulk'); if (old) old.remove();
-  if (isSpatial(pg)) renderCanvas(pg);
+  if (isJam(pg)) renderJam(pg);
+  else if (isGraphCv(pg)) renderCanvas(pg);
   else if (pg.kind === 'table') renderTable(pg);
   else if (pg.kind === 'board') renderBoard(pg);
   else if (pg.kind === 'dash') renderDash(pg);
@@ -2605,6 +3539,19 @@ function renderPageBar(pg) {
       <div class="mi" data-img="png">Экспорт в PNG<small>2× — для презентации</small></div>
       <div class="mi" data-img="svg">Экспорт в SVG<small>вектор — для правки</small></div></div></div>`;
     h += `<span class="spacer"></span><span class="hint">Свободная схема: узлы лежат там, где положил</span>`;
+  }
+  if (pg.kind === 'jam') {
+    // Тот же поиск, что на схеме: доска показывает только положенное, и должен
+    // быть способ вынести на неё существующий узел проекта — ради этого гибрид.
+    h += `<span class="sep"></span>
+      <div class="menu noview" id="mPut"><button class="btn">↧ Положить узел ▾</button>
+      <div class="mlist left" style="min-width:300px;padding:6px">
+        <input type="text" id="putq" placeholder="найти узел проекта…" style="width:100%">
+        <div id="putlist" style="max-height:240px;overflow:auto;margin-top:5px"></div></div></div>`;
+    h += `<div class="menu noview" id="mBg"><button class="btn">Фон ▾</button><div class="mlist left">
+      <div class="mi" data-bg="dots">Точки</div><div class="mi" data-bg="grid">Клетка</div>
+      <div class="mi" data-bg="none">Без сетки</div></div></div>`;
+    h += `<span class="spacer"></span><span class="hint">Инструменты внизу · V стрелка, N стикер, T текст, R фигура, P перо</span>`;
   }
   if (pg.kind === 'table') {
     h += `<div class="menu" id="mCols"><button class="btn">Колонки ▾</button><div class="mlist left" style="max-height:60vh;overflow:auto"></div></div>`;
@@ -2677,12 +3624,20 @@ function renderPageBar(pg) {
       save(); $('cReady').classList.toggle('on', !!pg.canvas.ready); $('cCrit').classList.remove('on'); applyHi();
     };
   }
-  if (pg.kind === 'space') {
+  if (pg.kind === 'jam') {
+    qsa('#mBg .mi').forEach(el => el.onclick = () => {
+      pg.jam.bg = el.dataset.bg; save(); renderPage();
+    });
+  }
+  if (pg.kind === 'space' || pg.kind === 'jam') {
     qsa('#mAddObj .mi').forEach(el => el.onclick = () => {
       const o = el.dataset.o;
       if (o === 'node') addNode(); if (o === 'note') addNote(); if (o === 'frame') addFrame('frame');
     });
     qsa('#mImg .mi').forEach(el => el.onclick = () => {el.dataset.img === 'png' ? exportCanvasPNG() : exportCanvasSVG();});
+    // Поиск «положить узел» общий со схемой, а вот выбор типа связи — нет:
+    // на доске стрелка это линия, а не зависимость, и меню типов там не рисуется.
+    if ($('ltName')) {
     UI.linkType = UI.linkType && P.schema.linkTypes.some(t => t.key === UI.linkType) ? UI.linkType : P.schema.linkTypes[0].key;
     $('ltName').textContent = ltOf(UI.linkType).name;
     qs('#mLType .mlist').innerHTML = P.schema.linkTypes.map(t =>
@@ -2692,7 +3647,8 @@ function renderPageBar(pg) {
       if (el.dataset.lt === '__') {showSchema('links'); return;}
       UI.linkType = el.dataset.lt; $('ltName').textContent = ltOf(UI.linkType).name;
     });
-    // «Положить узел»: схема показывает только то, что на неё положили, поэтому
+    }
+    // «Положить узел»: схема и доска показывают только то, что на них положили, поэтому
     // должен быть способ вынести на неё уже существующий узел проекта
     const putq = $('putq'), putlist = $('putlist');
     const paintPut = () => {
@@ -2706,7 +3662,7 @@ function renderPageBar(pg) {
             <span style="width:7px;height:7px;border-radius:50%;background:${catOf(n.cat).color}"></span>
             <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(n.name)}</span>
             <span style="font-size:9.6px;color:var(--muted);font-family:ui-monospace,Menlo,monospace">${esc(n.id)}</span></div>`).join('')
-        : `<div class="kv" style="padding:4px 6px">${q ? 'ничего не нашлось' : 'все узлы проекта уже на схеме'}</div>`;
+        : `<div class="kv" style="padding:4px 6px">${q ? 'ничего не нашлось' : 'все узлы проекта уже здесь'}</div>`;
       qsa('[data-put]', putlist).forEach(el => {
         el.onmouseenter = () => el.style.background = 'var(--accent-bg)';
         el.onmouseleave = () => el.style.background = '';
@@ -2719,7 +3675,7 @@ function renderPageBar(pg) {
           setNpos(n, pg.id, Math.round((c.x + (k % 5) * 40) / GRID) * GRID,
                             Math.round((c.y + Math.floor(k / 5) * 30) / GRID) * GRID);
           save(); renderPage(); setSel([n.id]);
-          toast('Узел на схеме: ' + n.name);
+          toast((isJam(pg) ? 'Узел на доске: ' : 'Узел на схеме: ') + n.name);
         };
       });
     };
@@ -3113,9 +4069,7 @@ function newPage() {
       ${Object.keys(KIND).map((k, i) => `<label class="pk" style="border:1px solid var(--line);border-radius:9px;padding:9px 11px">
         <input type="radio" name="npk" value="${k}" ${i === 0 ? 'checked' : ''}>
         <span><b>${KIND[k].i} ${KIND[k].n}</b><br><small style="color:var(--muted)">${
-          {canvas: 'колонка = глубина зависимости', space: 'свободная схема: кладёшь что хочешь и куда хочешь',
-           table: 'строки, колонки, правка в ячейках',
-           board: 'карточки по колонкам, drag&drop', dash: 'плитки и сводка из данных'}[k]}</small></span></label>`).join('')}
+          KIND[k].d}</small></span></label>`).join('')}
       </div></div>
     <div class="f"><label>Копировать фильтр с текущей страницы</label>
       <label class="cbx"><input type="checkbox" id="npf">да</label></div>
@@ -3128,6 +4082,7 @@ function newPage() {
         filter: $('npf').checked ? clone(curPage().filter) : {q: '', cats: [], statuses: [], types: [], f: {}}};
       if (kind === 'canvas') pg.canvas = {layout: 'free', lanes: ['блокировки', 'этап 1', 'этап 2', 'этап 3', 'этап 4', 'этап 5']};
       if (kind === 'space') pg.space = {};
+      if (kind === 'jam') pg.jam = {items: [], bg: 'dots'};
       if (kind === 'table') pg.table = {cols: ['name', 'cat', 'status', 'step', 'weight', 'checks'], sort: 'name', dir: 1, group: ''};
       if (kind === 'board') pg.board = {groupBy: 'status'};
       P.pages.push(pg); seedFreePositions(pg); save(); closeModal(); gotoPage(pg.id);
@@ -3135,6 +4090,34 @@ function newPage() {
   });
 }
 $('addPage').onclick = newPage;
+// Копия страницы. Дословный clone() здесь неверен по двум причинам, и обе тихие:
+// позиции узлов лежат снаружи страницы (в n.p[старыйId]) и не копируются, из-за чего
+// копия холста приходит пустой; а объекты доски лежат ВНУТРИ и копируются вместе
+// со своими id — два набора с одинаковыми идентификаторами, и коннекторы копии
+// указывают в оригинал.
+function duplicatePage(pg) {
+  const c = clone(pg);
+  c.id = uid('p');
+  c.name = pg.name + ' (копия)';
+  // раскладка узлов переезжает на новый ключ страницы
+  for (const n of P.nodes) {
+    const slot = n.p && n.p[pg.id];
+    if (slot) {n.p[c.id] = clone(slot);}
+  }
+  // объекты доски получают новые id, ссылки коннекторов переписываются на них
+  if (c.jam && Array.isArray(c.jam.items)) {
+    const map = {};
+    for (const it of c.jam.items) {const nid = uid('i'); map[it.id] = nid; it.id = nid;}
+    for (const it of c.jam.items) {
+      if (it.kind !== 'conn') continue;
+      for (const end of ['a', 'b']) {
+        const e2 = it[end];
+        if (e2 && e2.item && map[e2.item]) e2.item = map[e2.item];
+      }
+    }
+  }
+  return c;
+}
 function pageMenu(e, id) {
   e.stopPropagation();
   const pg = pageById(id);
@@ -3149,7 +4132,7 @@ function pageMenu(e, id) {
   };
   showCtx(e.clientX, e.clientY, [
     ['Переименовать', () => promptBox('Страница', 'Название', pg.name, v => {snapNow(); pg.name = v; save(); renderPages(); renderPage();})],
-    ['Дублировать', () => {snapNow(); const c = clone(pg); c.id = uid('p'); c.name = pg.name + ' (копия)'; P.pages.push(c); save(); gotoPage(c.id);}],
+    ['Дублировать', () => {snapNow(); const c = duplicatePage(pg); P.pages.push(c); save(); gotoPage(c.id);}],
     ['—'],
     ...(i > 0 ? [['Переместить выше', () => swap(-1)]] : []),
     ...(i < P.pages.length - 1 ? [['Переместить ниже', () => swap(1)]] : []),
@@ -3157,7 +4140,13 @@ function pageMenu(e, id) {
     ['Удалить', () => {
       if (P.pages.length < 2) {toast('Последнюю страницу удалить нельзя'); return;}
       confirmBox(`Удалить страницу «${pg.name}»? Узлы останутся — удалится только вид.`, () => {
-        snapNow(); P.pages = P.pages.filter(x => x.id !== id); save();
+        snapNow();
+        P.pages = P.pages.filter(x => x.id !== id);
+        // Позиции и размеры узлов живут в n.p[pageId] — без этой уборки они остаются
+        // в документе навсегда и уезжают в каждый экспорт. Серверный deletePage
+        // так делает давно, приложение — нет.
+        for (const n of P.nodes) if (n.p) delete n.p[id];
+        save();
         if (UI.page === id) gotoPage(P.pages[0].id); else renderPages();
       }, 'Удалить');
     }, null, null, 1]
@@ -3367,7 +4356,7 @@ function wrapLines(s, maxChars, maxLines) {
 const SF = 'font-family="-apple-system,Segoe UI,Roboto,sans-serif"';
 function buildCanvasSVG() {
   const pg = curPage();
-  if (!isSpatial(pg)) {toast('Экспорт карты доступен только на холсте или схеме'); return null;}
+  if (!isGraphCv(pg)) {toast('Экспорт карты доступен только на холсте или схеме'); return null;}
   if (!cvNodes || !cvNodes.length) {toast('Нет узлов для экспорта'); return null;}
   const PAD = 64;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -3493,7 +4482,7 @@ function showExport() {
     <div style="${row}">
       <button class="btn" data-x="png">PNG (2×)</button>
       <button class="btn" data-x="svg">SVG</button>
-      <span class="hint" style="align-self:center">${isSpatial(curPage()) ? 'экспорт текущего холста' : 'откройте холст или схему'}</span>
+      <span class="hint" style="align-self:center">${isGraphCv(curPage()) ? 'экспорт текущего холста' : 'откройте холст или схему'}</span>
     </div>
     ${VIEWER ? '' : `${cap('Загрузить файл')}
     <div style="${row}">
@@ -3681,7 +4670,7 @@ async function restoreVersion(v) {
     P = normalize(r.doc); gInval();
     cloud.bindBoard(Object.assign({}, cloud.CLOUD.board, {version: r.version}));
     cloud.setBaseline(fingerprint(P));
-    undoS.length = 0; redoS.length = 0;
+    undoReset();
     setReadonly(cloud.CLOUD.board.role === 'viewer');
     if (!P.pages.some(p => p.id === UI.page)) UI.page = (P.pages[0] || {}).id;
     renderPages(); renderPage(); paintSave();
@@ -3708,7 +4697,7 @@ async function restoreSnap(id) {
   const rec = await dbGet(SNAP, id); if (!rec) {toast('Снимок не найден'); return;}
   closeModal();
   P = normalize(JSON.parse(rec.data));
-  undoS.length = 0; redoS.length = 0; snapArmed = true;
+  undoReset(); snapArmed = true;
   gInval(); await dbPut(STORE, P); refreshProjMeta();
   UI.view = {}; UI.sel.clear(); UI.selNotes && UI.selNotes.clear(); UI.selFrames && UI.selFrames.clear();
   UI.insp = null; closeInsp();
@@ -3870,6 +4859,21 @@ function fromLegacy(d) {
     table: {cols: ['name', 'cat', 'status', 'step', 'weight', 'checks'], sort: 'step', dir: 1, group: ''}});
   return pr;
 }
+// Размеры узлов, выставленные из коннектора до 2.5.0, лежат в отдельном n.sz[pid],
+// которого редактор не знал: узел, которому Claude задал размер, рисовался обычным.
+// Переносим к позиции и убираем поле, чтобы двух носителей размера не осталось.
+function migrateNodeSizes(pr) {
+  for (const n of pr.nodes || []) {
+    if (!n.sz || typeof n.sz !== 'object') continue;
+    for (const pid in n.sz) {
+      const z = n.sz[pid]; if (!z) continue;
+      const slot = (n.p[pid] = n.p[pid] || {x: 0, y: 0});
+      if (slot.w == null && z.w) slot.w = z.w;
+      if (slot.h == null && z.h) slot.h = z.h;
+    }
+    delete n.sz;
+  }
+}
 function normalize(pr) {
   pr.id = pr.id || uid('pr'); pr.frames = pr.frames || []; pr.notes = pr.notes || []; pr.links = pr.links || [];
   pr.schema = pr.schema || {}; const S = pr.schema;
@@ -3879,11 +4883,19 @@ function normalize(pr) {
   S.linkTypes = S.linkTypes || [{key: 'hard', name: 'Жёсткая', color: '#9aa1b2', style: 'solid', blocking: 1}];
   S.fields = S.fields || [];
   pr.nodes.forEach(n => {n.f = n.f || {}; n.checks = n.checks || []; n.sub = n.sub || ''; n.body = n.body || ''; n.p = n.p || {};});
+  migrateNodeSizes(pr);
   if (!pr.pages || !pr.pages.length) pr.pages = [{id: uid('p'), name: 'Холст', kind: 'canvas',
     filter: {q: '', cats: [], statuses: [], types: [], f: {}}, canvas: {layout: 'auto', lanes: []}}];
   pr.pages.forEach(p => {p.filter = p.filter || {q: '', cats: [], statuses: [], types: [], f: {}};
     if (p.kind === 'canvas') p.canvas = p.canvas || {layout: 'auto', lanes: []};
-    if (p.kind === 'space') p.space = p.space || {};});
+    if (p.kind === 'space') p.space = p.space || {};
+    // Умолчания доски проставляются ТОЛЬКО здесь: версии документа нет, и всё,
+    // что не досыпано в normalize, пришлось бы проверять в каждой точке чтения.
+    if (p.kind === 'jam') {
+      p.jam = p.jam || {};
+      p.jam.items = Array.isArray(p.jam.items) ? p.jam.items.filter(it => it && it.kind && it.id) : [];
+      p.jam.bg = p.jam.bg || 'dots';
+    }});
   return pr;
 }
 // Восстановление бэкап-бандла. Общая точка для «Импорт → JSON» и для «Открыть файл»:
@@ -4212,7 +5224,7 @@ async function openServerBoard(id, opts) {
     cloud.bindBoard({id, version: r.version, role: r.role, asAdmin: !!r.asAdmin});
     try { await dbPut(STORE, P); await loadProjects(); } catch {}
     UI.page = (P.pages[0] || {}).id;
-    undoS.length = 0; redoS.length = 0;
+    undoReset();
     migrateLegacyViews();
     document.title = (P.name || 'Доска') + ' — Graph Studio';
     home.hideAll();
@@ -4417,7 +5429,7 @@ function openDemo() {
   cloud.unbindBoard();
   P = normalize(clone(SEED));
   P.id = 'demo_preview';
-  gInval(); undoS.length = 0; redoS.length = 0;
+  gInval(); undoReset();
   UI.view = {}; UI.sel.clear(); UI.selNotes.clear(); UI.selFrames.clear(); UI.insp = null; closeInsp();
   UI.page = (P.pages[0] || {}).id;
   setReadonly(true, 'Демо-доска: смотреть можно всё, править — после входа');
@@ -4455,7 +5467,7 @@ async function openProject(id) {
   setReadonly(false);   // локальный проект всегда свой и правится
   const pr = await dbGet(STORE, id);
   if (!pr) {toast('Проект не найден'); return;}
-  P = normalize(pr); gInval(); undoS.length = 0; redoS.length = 0;
+  P = normalize(pr); gInval(); undoReset();
   UI.view = {}; UI.sel.clear(); UI.selNotes.clear(); UI.selFrames.clear(); UI.insp = null; closeInsp();
   await dbPut(META, {k: 'last', v: id});
   migrateLegacyViews();
@@ -4580,7 +5592,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, drawMini, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, emptyBlock, endPtr, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isKey, isLegacy, isPinned, isSpatial, jumpToNode, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, midOf, migrateLegacyViews, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, scheduleViewSave, schemaKey, sectOpen, seedFreePositions, selArr, selectLink, setNpos, setNsize, setReadonly, setSel, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireEdit, wrapLines, zoomAt});
+Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, emptyBlock, endPtr, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamToolDown, jumpToNode, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireEdit, wireJam, wrapLines, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, 'RO', {get: () => RO, set: v => {RO = v;}, configurable: true});
@@ -4593,6 +5605,8 @@ Object.defineProperty(window, 'deferredInstall', {get: () => deferredInstall, se
 Object.defineProperty(window, 'drag', {get: () => drag, set: v => {drag = v;}, configurable: true});
 Object.defineProperty(window, 'idb', {get: () => idb, set: v => {idb = v;}, configurable: true});
 Object.defineProperty(window, 'laneInfo', {get: () => laneInfo, set: v => {laneInfo = v;}, configurable: true});
+Object.defineProperty(window, 'liveFetching', {get: () => liveFetching, set: v => {liveFetching = v;}, configurable: true});
+Object.defineProperty(window, 'liveWanted', {get: () => liveWanted, set: v => {liveWanted = v;}, configurable: true});
 Object.defineProperty(window, 'palIdx', {get: () => palIdx, set: v => {palIdx = v;}, configurable: true});
 Object.defineProperty(window, 'palItems', {get: () => palItems, set: v => {palItems = v;}, configurable: true});
 Object.defineProperty(window, 'pasteShift', {get: () => pasteShift, set: v => {pasteShift = v;}, configurable: true});
@@ -4602,6 +5616,7 @@ Object.defineProperty(window, 'snapArmed', {get: () => snapArmed, set: v => {sna
 Object.defineProperty(window, 'snapT', {get: () => snapT, set: v => {snapT = v;}, configurable: true});
 Object.defineProperty(window, 'staleT', {get: () => staleT, set: v => {staleT = v;}, configurable: true});
 Object.defineProperty(window, 'toastT', {get: () => toastT, set: v => {toastT = v;}, configurable: true});
+Object.defineProperty(window, 'undoBytes', {get: () => undoBytes, set: v => {undoBytes = v;}, configurable: true});
 Object.defineProperty(window, 'viewSaveT', {get: () => viewSaveT, set: v => {viewSaveT = v;}, configurable: true});
 
 // Модуль серверной части получает нужные функции явно, а не лезет в глобальные:

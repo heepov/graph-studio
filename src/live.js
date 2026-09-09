@@ -59,7 +59,10 @@ function open() {
       H.onCursors(LIVE.cursors);
       return;
     }
-    if (m.t === 'update') { H.onUpdate(m); return; }
+    // 'stale' — та же новость о новой версии, но без документа: он слишком велик,
+    // чтобы рассылать его всем на каждое сохранение. Обработчик один и тот же,
+    // отличает случаи он по отсутствию m.doc.
+    if (m.t === 'update' || m.t === 'stale') { H.onUpdate(m); return; }
     if (m.t === 'error') { H.onError(m.error); try { ws.close(); } catch {} }
   };
 

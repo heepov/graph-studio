@@ -48,6 +48,9 @@ node test/live.js
 echo "── холст пальцем"
 node test/touch.js
 
+echo "── свободная доска"
+node test/jam.js
+
 echo "── коннектор для Claude: OAuth и MCP"
 node test/mcp.js
 

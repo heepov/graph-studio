@@ -794,3 +794,111 @@ body.dark #zoombar,body.dark #mini,body.dark #toolrail{background:var(--card)}
    без этого он читается как справочная надпись, а не как то, на что можно нажать. */
 .verlink{cursor:pointer;border-bottom:1px dotted var(--muted)}
 .verlink:hover{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* ==========================================================================
+   ДОСКА (страница kind:'jam') — стикеры, фигуры, текст, секции, рисунки
+   ==========================================================================
+   Слои лежат внутри #scene и едут вместе с камерой. Порядок наложения задан
+   порядком в разметке (canvasShell): секции → объекты → рисунки → связи → узлы.
+   Порядок ОБЪЕКТОВ между собой — это порядок в pg.jam.items, отдельного поля z нет. */
+#lySect,#lyItems{position:absolute;left:0;top:0}
+#lyDraw{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
+#lyDraw path.jdraw{fill:none;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+/* Невидимый дубль пути: в штрих толщиной 3px иначе не попасть курсором. */
+#lyDraw path.jhit{fill:none;stroke:transparent;stroke-linecap:round;pointer-events:stroke;cursor:pointer}
+
+.jitem{position:absolute;box-sizing:border-box;user-select:none;cursor:grab;
+  display:flex;align-items:center;justify-content:center;overflow:hidden}
+.jitem .jtxt{outline:none;white-space:pre-wrap;word-break:break-word;width:100%;padding:10px 12px;
+  text-align:center;line-height:1.35}
+.jitem.sel{box-shadow:0 0 0 2px var(--accent)}
+.jitem.lock{cursor:default}
+
+/* Стикер: кегль фиксирован, стикер растёт вниз. Miro ужимает шрифт под объём
+   текста — это даёт нечитаемые 4pt; модель FigJam предсказуемее. */
+.jsticky{background:#ffd93b;border-radius:2px;box-shadow:0 1px 3px rgba(16,20,32,.16),0 6px 14px rgba(16,20,32,.10);
+  font-size:15px;font-weight:500;color:#20242e}
+.jsticky .jtxt{align-self:flex-start;padding:14px}
+
+.jshape{background:#c9e3ff;border:1.5px solid #7fa8d8;font-size:14px;color:#1b1f2a}
+.jshape.shp-roundrect{border-radius:12px}
+.jshape.shp-rect{border-radius:0}
+.jshape.shp-ellipse{border-radius:50%}
+.jshape.shp-diamond{border-radius:0;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
+.jshape.shp-triangle{border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%)}
+.jshape.shp-star{border-radius:0;clip-path:polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%)}
+.jshape.shp-arrow{border-radius:0;clip-path:polygon(0 30%,62% 30%,62% 5%,100% 50%,62% 95%,62% 70%,0 70%)}
+
+.jtext{background:transparent;font-size:16px;color:var(--ink);align-items:flex-start}
+.jtext .jtxt{text-align:left;padding:4px 6px}
+
+/* Секция: подпись стоит НАД рамкой, как в FigJam, а не внутри — иначе она
+   съедает место у содержимого и мешает класть объекты в левый верхний угол. */
+.jsect{position:absolute;box-sizing:border-box;background:#f2f4f9;border:1px solid var(--line);
+  border-radius:14px;pointer-events:none}
+.jsect .jsh{position:absolute;top:-22px;left:2px;font-size:12px;font-weight:700;color:var(--ink2);
+  padding:1px 6px;border-radius:5px;cursor:grab;white-space:nowrap;user-select:none;pointer-events:auto}
+.jsect .jsh:hover{background:#eceff6}
+.jsect.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-br)}
+
+/* Тёмная тема. Цвета стикеров лежат в документе значениями — жёлтый остаётся
+   жёлтым, и это правильно. А вот собственные поверхности доски переопределяются,
+   иначе секции и текст светятся белым на тёмном холсте. */
+body.dark .jsect{background:rgba(255,255,255,.04);border-color:var(--line)}
+body.dark .jsect .jsh:hover{background:var(--hov)}
+body.dark .jtext{color:var(--ink)}
+
+/* --- панель инструментов доски: внизу по центру, как в FigJam ------------- */
+/* Лежит в #cvhost, а НЕ в #scene: не должна ездить и масштабироваться с камерой. */
+#jambar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:32;
+  display:flex;align-items:center;gap:2px;padding:5px;
+  background:rgba(255,255,255,.97);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shf);
+  transition:left .16s}
+#jambar button{width:34px;height:34px;border:none;background:transparent;border-radius:9px;cursor:pointer;
+  font-size:16px;line-height:1;color:var(--ink2);display:flex;align-items:center;justify-content:center}
+#jambar button:hover{background:#f1f3f9;color:var(--ink)}
+#jambar button.on{background:var(--accent);color:#fff}
+#jambar .jsep{width:1px;height:22px;background:var(--line);margin:0 4px}
+/* Панель массовых действий стоит ровно там же (left:50%;bottom:22px) — без сдвига
+   две панели наложились бы друг на друга, и это заметно с первой минуты. */
+#cvstack.jam #bulk{bottom:74px}
+body.inspopen #jambar{left:calc(50% - var(--insp-w) / 2)}
+
+/* --- плавающая панель свойств: над выделением --------------------------- */
+#jprops{position:absolute;z-index:33;display:none;transform:translate(-50%,-100%);
+  background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shf);padding:5px}
+#jprops.open{display:block}
+#jprops .jrow{display:flex;align-items:center;gap:3px}
+#jprops .jrow+.jrow{margin-top:4px;padding-top:4px;border-top:1px solid var(--line2)}
+#jprops .jsw{width:20px;height:20px;border:1px solid rgba(16,20,32,.18);border-radius:5px;cursor:pointer;padding:0}
+#jprops .jsw:hover{outline:2px solid var(--accent-br)}
+#jprops .jw{width:26px;height:22px;border:none;background:transparent;border-radius:5px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center}
+#jprops .jw:hover{background:#f1f3f9}
+#jprops .jw i{display:block;width:16px;background:var(--ink2);border-radius:2px}
+#jprops .jb{height:24px;min-width:26px;border:none;background:transparent;border-radius:6px;cursor:pointer;
+  font-size:13px;color:var(--ink2);padding:0 5px}
+#jprops .jb:hover{background:#f1f3f9;color:var(--ink)}
+body.dark #jambar,body.dark #jprops{background:var(--card)}
+body.dark #jambar button:hover,body.dark #jprops .jb:hover,body.dark #jprops .jw:hover{background:var(--hov)}
+
+/* --- ручка размера и курсоры инструментов ------------------------------- */
+.jitem .jrs,.jsect .jrs{position:absolute;right:-5px;bottom:-5px;width:12px;height:12px;
+  border:1.5px solid var(--accent);background:#fff;border-radius:3px;cursor:nwse-resize;opacity:0;pointer-events:auto}
+.jitem:hover .jrs,.jitem.sel .jrs,.jsect:hover .jrs,.jsect.sel .jrs{opacity:1}
+.jitem.droptgt{outline:2px solid var(--accent)}
+#cv.jplace{cursor:crosshair}
+#cv.jdraw{cursor:crosshair}
+#edges path.conn.sel{stroke-width:3.4}
+#lyDraw path.jdraw.sel{filter:drop-shadow(0 0 0 var(--accent));stroke-dasharray:none;opacity:.85}
+
+/* Фон доски. Точки рисуются тем же приёмом, что у холста-графа (фон на #cv,
+   который камерой не двигается, а applyView() сам сдвигает и масштабирует его),
+   поэтому здесь меняется только рисунок, не механика. */
+#cv.bg-none{background-image:none}
+#cv.bg-grid{background-image:
+  linear-gradient(to right, rgba(16,20,32,.07) 1px, transparent 1px),
+  linear-gradient(to bottom, rgba(16,20,32,.07) 1px, transparent 1px)}
+body.dark #cv.bg-grid{background-image:
+  linear-gradient(to right, rgba(255,255,255,.07) 1px, transparent 1px),
+  linear-gradient(to bottom, rgba(255,255,255,.07) 1px, transparent 1px)}

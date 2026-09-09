@@ -12,7 +12,10 @@
 
 const uid = p => p + '_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3);
 
-export const PAGE_KINDS = ['canvas', 'space', 'table', 'board', 'dash'];
+export const PAGE_KINDS = ['canvas', 'space', 'jam', 'table', 'board', 'dash'];
+// Пространственные страницы — те, где у узла есть координата. Доска сюда входит:
+// на неё, как и на схему, узел кладут руками.
+const SPATIAL = ['canvas', 'space', 'jam'];
 export const SHAPES = ['rect', 'pill', 'diamond'];
 export const LINK_STYLES = ['solid', 'dashed'];
 export const FIELD_TYPES = ['text', 'longtext', 'select', 'list', 'number', 'date'];
@@ -56,7 +59,7 @@ function resolveKey(list, v, what) {
 export function summarize(doc, opts = {}) {
   const S = doc.schema || {};
   // Страницы, на которых узел вообще может стоять в координатах.
-  const spatial = (doc.pages || []).filter(p => p.kind === 'canvas' || p.kind === 'space').map(p => p.id);
+  const spatial = (doc.pages || []).filter(p => SPATIAL.includes(p.kind)).map(p => p.id);
   const short = n => {
     const o = { id: n.id, name: n.name };
     if (n.sub) o.sub = n.sub;
@@ -74,11 +77,15 @@ export function summarize(doc, opts = {}) {
       const pos = {};
       for (const pid of spatial) if (n.p && n.p[pid]) pos[pid] = { x: n.p[pid].x, y: n.p[pid].y };
       if (Object.keys(pos).length) o.positions = pos;
-      if (n.sz) {
-        const sz = {};
-        for (const pid of spatial) if (n.sz[pid]) sz[pid] = { w: n.sz[pid].w, h: n.sz[pid].h };
-        if (Object.keys(sz).length) o.sizes = sz;
+      // Размер — из n.p[pid].w/h. Поле n.sz читается как наследие: так писал
+      // place_nodes до 2.5.0, и в старых досках оно ещё лежит.
+      const sz = {};
+      for (const pid of spatial) {
+        const a = (n.p && n.p[pid]) || {}, b = (n.sz && n.sz[pid]) || {};
+        const w = a.w || b.w, h = a.h || b.h;
+        if (w || h) sz[pid] = { w, h };
       }
+      if (Object.keys(sz).length) o.sizes = sz;
     }
     return o;
   };
@@ -102,7 +109,19 @@ export function summarize(doc, opts = {}) {
         columns: p.table ? p.table.cols : undefined,
         filter: filterSummary(p.filter),
       };
-      if (opts.layout && (p.kind === 'canvas' || p.kind === 'space')) {
+      // У доски своё содержимое. Сами объекты в ответ НЕ включаются ни при каких
+      // флагах: их бывает больше, чем всего остального документа, и один get_board
+      // сжёг бы контекст целиком. Для них отдельное чтение.
+      if (p.kind === 'jam') {
+        const items = (p.jam && Array.isArray(p.jam.items)) ? p.jam.items : [];
+        o.jam_items = items.length;
+        if (items.length) {
+          const by = {};
+          for (const it of items) by[it.kind] = (by[it.kind] || 0) + 1;
+          o.jam_kinds = by;
+        }
+      }
+      if (opts.layout && SPATIAL.includes(p.kind)) {
         // Два РАЗНЫХ числа, и путать их нельзя: закреплённых позиций может быть
         // больше, чем узлов на странице, — фильтр страницы отсекает часть из них,
         // а координаты у отсечённых остаются лежать в документе.
@@ -154,7 +173,8 @@ export function visibleOn(doc, page) {
   // На свободной схеме присутствие узла — это наличие его позиции: иначе туда
   // вываливались бы все узлы доски кучей.
   const list = (doc.nodes || []).filter(match);
-  return page.kind === 'space' ? list.filter(n => n.p && n.p[page.id]) : list;
+  // На схеме и на доске узел «есть на странице», только если его туда положили.
+  return (page.kind === 'space' || page.kind === 'jam') ? list.filter(n => n.p && n.p[page.id]) : list;
 }
 
 function filterSummary(f) {
@@ -392,7 +412,14 @@ export function deleteField(doc, key) {
 /* ---------- страницы ---------- */
 
 export function addPage(doc, raw) {
-  const kind = PAGE_KINDS.includes(raw.kind) ? raw.kind : 'canvas';
+  // Незнакомый вид — это ОТКАЗ, а не молчаливый холст. Раньше здесь стояла подмена
+  // на 'canvas', и модель, попросившая вид, которого сервер ещё не умеет, получала
+  // обычный холст и рапортовала об успехе. import_board на том же значении честно
+  // падает — расходиться этим двум путям незачем.
+  const kind = String(raw.kind || '').trim();
+  if (!PAGE_KINDS.includes(kind)) {
+    fail(`вида страницы «${kind}» не бывает. Допустимо: ${PAGE_KINDS.join(', ')}`);
+  }
   const p = {
     id: uid('p'),
     name: String(raw.name || '').trim() || 'Страница',
@@ -401,6 +428,7 @@ export function addPage(doc, raw) {
   };
   if (kind === 'canvas') p.canvas = { layout: raw.layout === 'free' ? 'free' : 'auto', lanes: Array.isArray(raw.lanes) ? raw.lanes.map(String) : [] };
   if (kind === 'space') p.space = {};
+  if (kind === 'jam') p.jam = { items: [], bg: 'dots' };
   if (kind === 'table') p.table = { cols: Array.isArray(raw.columns) ? raw.columns.map(String) : ['name', 'cat', 'status', 'step', 'weight'], sort: 'name', dir: 1, group: '' };
   if (kind === 'board') p.board = { groupBy: String(raw.groupBy || 'status') };
   applyFilter(doc, p, raw.filter);
@@ -473,15 +501,22 @@ export function reorderPages(doc, order) {
 // на разных холстах, и это главное свойство модели «одни узлы — много видов».
 export function placeNodes(doc, pageId, list) {
   const p = doc.pages.find(x => x.id === pageId) || fail(`страницы ${pageId} нет`);
-  if (p.kind !== 'canvas' && p.kind !== 'space') fail(`на странице «${p.name}» (${p.kind}) узлы не расставляются: это не холст`);
+  if (!SPATIAL.includes(p.kind)) fail(`на странице «${p.name}» (${p.kind}) узлы не расставляются: это не холст`);
   const done = [];
   for (const raw of list) {
     const n = need(doc, raw.node ?? raw.id);
     n.p = n.p || {};
-    n.p[pageId] = { x: Math.round(+raw.x || 0), y: Math.round(+raw.y || 0) };
+    // Размер лежит РЯДОМ с позицией, в n.p[pageId].w/h — так его читает приложение
+    // (nsize() в src/main.js). Раньше здесь было отдельное поле n.sz[pageId], про
+    // которое редактор не знает вовсе: размер из place_nodes до холста не доезжал.
+    // Слот правится на месте, а не пересобирается: иначе пропали бы и уже
+    // сохранённый размер, и незнакомые поля.
+    const slot = (n.p[pageId] = n.p[pageId] || {});
+    slot.x = Math.round(+raw.x || 0);
+    slot.y = Math.round(+raw.y || 0);
     if (raw.w || raw.h) {
-      n.sz = n.sz || {};
-      n.sz[pageId] = { w: Math.max(120, Math.round(+raw.w || 210)), h: Math.max(52, Math.round(+raw.h || 64)) };
+      slot.w = Math.max(120, Math.round(+raw.w || slot.w || 210));
+      slot.h = Math.max(52, Math.round(+raw.h || slot.h || 64));
     }
     done.push(n.id);
   }

@@ -103,6 +103,23 @@ const DOC = (name) => ({
       ? ok('устаревшая версия отклоняется и возвращает актуальную', 'код 409')
       : bad('запись поверх чужой версии прошла молча', JSON.stringify(stale).slice(0, 160));
 
+    // ---- большой документ проходит через nginx ----
+    // Доска со стикерами и рисунками весит мегабайты. В docker/nginx.conf не было
+    // client_max_body_size, поэтому действовало умолчание в 1 МБ: nginx отвечал 413
+    // СТРАНИЦЕЙ, а клиент ждал JSON и показывал «сервер ответил не JSON».
+    const big = DOC('Тестовая доска');
+    big.notes = [];
+    // ~2 МБ текстом: заведомо больше прежнего потолка и заведомо меньше нового
+    for (let i = 0; i < 2000; i++) {
+      big.notes.push({ id: 'big' + i, text: 'x'.repeat(1000), x: i, y: i, w: 200, h: 96, color: '' });
+    }
+    const bigLen = JSON.stringify(big).length;
+    const heavy = await put('admin', '/api/boards/' + bid, { doc: big, baseVersion: saved.body.version });
+    heavy.status === 200
+      ? ok('документ на 2 МБ принимается', `${Math.round(bigLen / 1024)} КБ`)
+      : bad('большой документ отклонён — проверьте client_max_body_size в docker/nginx.conf',
+            `код ${heavy.status}`);
+
     // ---- ссылки-доступы ----
     const sv = await post('admin', `/api/boards/${bid}/shares`, { role: 'viewer' });
     const se = await post('admin', `/api/boards/${bid}/shares`, { role: 'editor' });

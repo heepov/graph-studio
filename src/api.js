@@ -27,6 +27,12 @@ async function req(method, path, body) {
   } catch (e) {
     throw new ApiError('нет связи с сервером', 0, null);
   }
+  // 413 приходит СТРАНИЦЕЙ от nginx, а не JSON от приложения, поэтому разбирается
+  // до общей проверки типа — иначе про упёршийся в лимит документ сообщалось бы
+  // загадочным «сервер ответил не JSON».
+  if (res.status === 413) {
+    throw new ApiError('доска слишком большая, сервер её не принял — удалите часть рисунков или разнесите их по страницам', 413, null);
+  }
   const type = res.headers.get('content-type') || '';
   if (!/json/.test(type)) {
     const head = (await res.text().catch(() => '')).slice(0, 80);

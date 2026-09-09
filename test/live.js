@@ -96,6 +96,25 @@ const GUEST_PASS = 'test-pass-12345';
     }
     back ? ok('правка едет в обе стороны') : bad('обратная правка не доехала');
 
+    // --- большая доска: сервер шлёт уведомление, клиент догружает сам ---------
+    // Документ больше LIVE_FULL_MAX по живому каналу не рассылается: он ушёл бы
+    // каждому на каждое сохранение. Вместо него приходит {t:'stale'} без doc,
+    // и правка обязана доехать всё равно — просто другим путём.
+    await A.eval(`(() => {
+      P.notes = [];
+      for (let i = 0; i < 400; i++) P.notes.push({id: 'big' + i, text: 'z'.repeat(900), x: i, y: i, w: 200, h: 96, color: ''});
+      P.nodes[0].sub = 'ТОЛСТАЯ ДОСКА';
+      save(1); return JSON.stringify(P).length;
+    })()`);
+    let heavy = false;
+    for (let i = 0; i < 60 && !heavy; i++) {
+      heavy = await B.eval(`P.nodes[0].sub === 'ТОЛСТАЯ ДОСКА' && (P.notes || []).length === 400`).catch(() => false);
+      if (!heavy) await sleep(300);
+    }
+    const size = await B.eval(`JSON.stringify(P).length`).catch(() => 0);
+    heavy ? ok('правка на большой доске доезжает уведомлением с догрузкой', Math.round(size / 1024) + ' КБ')
+          : bad('большая доска не доехала до второго', Math.round(size / 1024) + ' КБ');
+
     // --- курсоры ------------------------------------------------------------
     await A.eval(`(() => { live.sendCursor(500, 400, UI.page); return true; })()`);
     let cur = null;

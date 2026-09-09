@@ -185,9 +185,13 @@ async function json(path, opts = {}) {
 
     const tools = await rpc('tools/list');
     const names = tools.result.tools.map(t => t.name);
-    (names.length >= 18 && names.includes('add_nodes') && names.includes('place_nodes') && names.includes('edit_schema'))
+    // Число ТОЧНОЕ, а не «хотя бы столько»: мягкая проверка означала, что реестр
+    // можно нечаянно урезать или раздуть, и никто не заметит. Добавили инструмент —
+    // поправьте здесь, это одна строка и осознанное действие.
+    const TOOLS_EXPECTED = 24;
+    (names.length === TOOLS_EXPECTED && names.includes('add_nodes') && names.includes('place_nodes') && names.includes('edit_schema'))
       ? ok('инструменты объявлены', names.length + ' шт.')
-      : bad('инструментов мало или не те', names.join(', '));
+      : bad(`инструментов ${names.length}, а ожидалось ${TOOLS_EXPECTED}`, names.join(', '));
 
     /* ---------- полный цикл работы с доской ---------- */
     const created = await call('create_board', {
@@ -232,6 +236,21 @@ async function json(path, opts = {}) {
 
     const page = await call('add_page', { board: B, name: 'Свободная схема', kind: 'space' });
     page.kind === 'space' ? ok('страница-холст добавляется') : bad('add_page не сработал', JSON.stringify(page));
+
+    // Незнакомый вид — отказ, а не молчаливый холст: раньше add_page подменял его
+    // на canvas, и модель считала, что получила то, что просила.
+    let badPageKind = '';
+    try { await call('add_page', { board: B, name: 'Таймлайн', kind: 'gantt' }); }
+    catch (e) { badPageKind = e.message; }
+    /вида страницы «gantt» не бывает/.test(badPageKind)
+      ? ok('add_page отказывает на незнакомом виде страницы')
+      : bad('незнакомый вид страницы принят молча', badPageKind || 'ошибки не было');
+
+    // Доска — такой же вид страницы для коннектора. Без этого экспорт доски с такой
+    // страницей нельзя было бы импортировать обратно: import_board отвергает
+    // незнакомый вид, и запрет добавления обернулся бы запретом на возврат.
+    const jam = await call('add_page', { board: B, name: 'Свободная доска', kind: 'jam' });
+    jam.kind === 'jam' ? ok('страница-доска добавляется через коннектор') : bad('add_page jam не сработал', JSON.stringify(jam));
 
     const placed = await call('place_nodes', { board: B, page: page.id, positions: [
       { node: n1, x: 100, y: 100 }, { node: n2, x: 400, y: 100 }, { node: n3, x: 700, y: 220, w: 240 },
@@ -289,6 +308,11 @@ async function json(path, opts = {}) {
       ? ok('pages_only отдаёт структуру без узлов', pages.pages.length + ' страниц')
       : bad('pages_only не работает', JSON.stringify(pages).slice(0, 150));
 
+    const jamPage = pages.pages.find(p => p.kind === 'jam');
+    (jamPage && jamPage.jam_items === 0)
+      ? ok('в структуре доски видно число объектов, а не они сами')
+      : bad('счётчик объектов доски не отдаётся', JSON.stringify(jamPage));
+
     const canvasPage = pages.pages.find(p => p.kind === 'canvas');
     await call('update_page', { board: B, page: canvasPage.id, lanes: ['сейчас', 'потом', 'когда-нибудь'] });
     await call('update_nodes', { board: B, nodes: [{ id: n1, lane: 2 }] });
@@ -300,6 +324,25 @@ async function json(path, opts = {}) {
       ? ok('видно колонку узла, его координаты и сколько закреплено на холсте',
           `lane ${laid.lane}, закреплено ${spacePage.nodes_pinned}`)
       : bad('раскладка не отдаётся', JSON.stringify({ laid, spacePage }).slice(0, 250));
+
+    // Размер из place_nodes обязан лежать РЯДОМ с позицией, в n.p[pageId].w/h —
+    // именно оттуда его читает nsize() в приложении. До 2.5.0 сервер писал его
+    // в отдельное n.sz[pageId], и заданный из Claude размер в редакторе не было видно.
+    const laid3 = lay.nodes.find(n => n.id === n3);
+    (laid3.sizes && laid3.sizes[page.id] && laid3.sizes[page.id].w === 240)
+      ? ok('размер узла отдаётся в раскладке', `${laid3.sizes[page.id].w} px`)
+      : bad('размер из place_nodes не виден в include_layout', JSON.stringify(laid3).slice(0, 200));
+
+    const whereSize = execSync(`docker compose exec -T api node -e "
+      const db = require('better-sqlite3')('/data/graphstudio.sqlite');
+      const d = JSON.parse(db.prepare('SELECT doc FROM boards WHERE id = ?').get('${B}').doc);
+      const n = d.nodes.find(x => x.id === '${n3}');
+      console.log(JSON.stringify({ p: (n.p||{})['${page.id}'], sz: n.sz || null }));
+    "`).toString().trim();
+    const ws = JSON.parse(whereSize);
+    (ws.p && ws.p.w === 240 && ws.sz === null)
+      ? ok('размер хранится рядом с позицией, а не отдельным полем n.sz')
+      : bad('размер лежит не там, где его ищет редактор', whereSize);
 
     // Закреплено и видно — РАЗНЫЕ числа: фильтр страницы отсекает часть узлов,
     // а их координаты остаются в документе. Путать их нельзя.
