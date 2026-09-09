@@ -25,50 +25,9 @@ export function goTo(path, replace) {
   CLOUD.route = parseRoute(location.pathname);
 }
 
-/* ---------- вход ---------- */
-export function showAuth(opts) {
-  const o = opts || {};
-  const invite = o.invite || null;
-  const mode = o.mode || (invite ? 'register' : 'login');
-  const draw = (m, msg) => {
-    H.modal(`<h3>${m === 'login' ? 'Вход' : 'Регистрация'}</h3>
-      ${o.reason ? `<div class="kv" style="font-size:13px;margin-bottom:4px">${esc(o.reason)}</div>` : ''}
-      ${msg ? `<div class="kv" style="color:var(--red);font-size:12.5px">${esc(msg)}</div>` : ''}
-      <div class="f"><label>Почта</label><input type="email" id="auEmail" value="${esc(o.email || '')}" autocomplete="username"></div>
-      ${m === 'register' ? '<div class="f"><label>Как вас зовут</label><input type="text" id="auName" autocomplete="name"></div>' : ''}
-      <div class="f"><label>Пароль</label><input type="password" id="auPass" autocomplete="${m === 'login' ? 'current-password' : 'new-password'}"></div>
-      ${m === 'register' ? '<div class="hint" style="margin-top:6px">Пароль от 8 символов.</div>' : ''}
-      <div class="mfoot">
-        ${invite ? '' : `<button class="btn" data-a="alt">${m === 'login' ? 'У меня есть приглашение' : 'У меня есть аккаунт'}</button>`}
-        <button class="btn pri" data-a="go">${m === 'login' ? 'Войти' : 'Создать аккаунт'}</button>
-      </div>`, b => {
-      const alt = b.querySelector('[data-a=alt]');
-      if (alt) alt.onclick = () => draw(m === 'login' ? 'register' : 'login');
-      const go = async () => {
-        const email = H.$('auEmail').value.trim();
-        const pass = H.$('auPass').value;
-        if (!email || !pass) return draw(m, 'Заполните почту и пароль');
-        try {
-          const r = m === 'login'
-            ? await api.login(email, pass)
-            : await api.register(email, pass, (H.$('auName') || {}).value || '', invite);
-          CLOUD.account = r.user;
-          H.closeModal();
-          H.toast(m === 'login' ? 'Вы вошли' : 'Аккаунт создан');
-          if (o.then) o.then();
-        } catch (e) {
-          draw(m, err(e));
-        }
-      };
-      b.querySelector('[data-a=go]').onclick = go;
-      const enter = ev => { if (ev.key === 'Enter') go(); };
-      H.$('auEmail').onkeydown = enter;
-      H.$('auPass').onkeydown = enter;
-      setTimeout(() => H.$(o.email ? 'auPass' : 'auEmail').focus(), 30);
-    });
-  };
-  draw(mode);
-}
+/* ---------- вход ----------
+   Экран входа живёт в src/home.js: это отдельный экран, а не окно поверх пустоты.
+   Прежняя модальная реализация убрана, чтобы не расходились две формы входа. */
 
 /* ---------- состояние аккаунта ---------- */
 export async function loadAccount() {
