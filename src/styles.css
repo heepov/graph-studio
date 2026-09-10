@@ -84,7 +84,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica N
 button,input,select,textarea{font-family:inherit}
 .hidden{display:none!important}
 ::-webkit-scrollbar{width:10px;height:10px}
-::-webkit-scrollbar-thumb{background:var(--line-str);border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb{background:var(--line-str);border-radius:var(--r-s);border:2px solid transparent;background-clip:padding-box}
 ::-webkit-scrollbar-thumb:hover{background:var(--muted);background-clip:padding-box}
 ::-webkit-scrollbar-track{background:transparent}
 
@@ -93,7 +93,7 @@ button,input,select,textarea{font-family:inherit}
 #app{display:flex;height:100vh;position:relative}
 #side{width:var(--side);min-width:var(--side);background:var(--surf);border-right:1px solid var(--line);display:flex;flex-direction:column}
 #main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
-#topbar{height:54px;min-height:54px;border-bottom:1px solid var(--line);background:var(--card);display:flex;align-items:center;gap:8px;padding:0 12px}
+#topbar{height:54px;min-height:54px;border-bottom:1px solid var(--line);background:var(--card);display:flex;align-items:center;gap:10px;padding:0 12px}
 #pagebar{min-height:44px;border-bottom:1px solid var(--line);background:var(--card);display:flex;align-items:center;gap:7px;padding:5px 12px;flex-wrap:wrap}
 #view{flex:1;min-height:0;position:relative;overflow:hidden}
 .scroller{position:absolute;inset:0;overflow:auto;padding:18px 22px 60px}
@@ -101,7 +101,7 @@ button,input,select,textarea{font-family:inherit}
 /* ============ сайдбар ============ */
 .brand{padding:12px 12px 8px;display:flex;align-items:center;gap:8px}
 #sideToggle{margin-left:auto;border:none;background:transparent;color:var(--muted);cursor:pointer;
-  font-size:15px;line-height:1;padding:3px 5px;border-radius:6px}
+  font-size:15px;line-height:1;padding:3px 5px;border-radius:var(--r-s)}
 #sideToggle:hover{background:var(--hov);color:var(--ink)}
 
 /* Узкий режим боковой панели: остаются только иконки, навигация по страницам
@@ -133,12 +133,12 @@ button,input,select,textarea{font-family:inherit}
 .logo .lg{width:70%;height:70%;display:block}
 .brand .logo{width:22px;height:22px}
 .brand .nm{font-weight:750;font-size:14px;letter-spacing:-.2px}
-#projBtn{margin:0 8px 8px;padding:7px 9px;border:1px solid var(--line);background:var(--card);border-radius:9px;cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;width:calc(100% - 16px)}
+#projBtn{margin:0 8px 8px;padding:7px 9px;border:1px solid var(--line);background:var(--card);border-radius:var(--r-m);cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;width:calc(100% - 16px)}
 #projBtn:hover{border-color:var(--line-str);box-shadow:var(--sh1)}
 #projBtn .pn{font-weight:700;font-size:12.8px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #projBtn .cnt{font-size:10.5px;color:var(--muted)}
 .sidecap{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);padding:10px 14px 4px;display:flex;align-items:center}
-.sidecap .add{margin-left:auto;cursor:pointer;font-size:14px;color:var(--muted);line-height:1;padding:0 3px;border-radius:4px}
+.sidecap .add{margin-left:auto;cursor:pointer;font-size:14px;color:var(--muted);line-height:1;padding:0 3px;border-radius:var(--r-xs)}
 .sidecap .add:hover{background:var(--hov);color:var(--ink)}
 #pageList{flex:1;overflow:auto;padding:0 8px 10px}
 .pgi{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--r-s);cursor:pointer;font-size:13.4px;color:var(--ink2);user-select:none}
@@ -146,7 +146,7 @@ button,input,select,textarea{font-family:inherit}
 .pgi.on{background:var(--accent-bg);color:var(--accent);font-weight:650}
 .pgi .ic{width:15px;text-align:center;font-size:12px;opacity:.85}
 .pgi .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pgi .mo{opacity:0;font-size:13px;color:var(--muted);padding:0 2px;border-radius:4px}
+.pgi .mo{opacity:0;font-size:13px;color:var(--muted);padding:0 2px;border-radius:var(--r-xs)}
 .pgi:hover .mo{opacity:1}
 .pgi .mo:hover{background:var(--hov2);color:var(--ink)}
 .pgi.drop{box-shadow:inset 0 -2px 0 var(--accent)}
@@ -165,21 +165,21 @@ button,input,select,textarea{font-family:inherit}
 .btn[disabled]{opacity:.38;cursor:default;pointer-events:none}
 .btn.sm{font-size:12px;padding:4px 9px}
 .btn.ico{padding:7px 9px}
-.chip{font-size:12.4px;font-weight:600;padding:4px 11px;border-radius:14px;border:1px solid var(--line);background:var(--card);cursor:pointer;color:var(--ink2);user-select:none;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.chip{font-size:12.4px;font-weight:600;padding:4px 11px;border-radius:var(--r-pill);border:1px solid var(--line);background:var(--card);cursor:pointer;color:var(--ink2);user-select:none;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
 .chip:hover{background:var(--hov)}
 .chip.on{color:var(--ink-inv);border-color:transparent;background:#3d4657}
 .chip .dt{width:7px;height:7px;border-radius:50%;display:inline-block}
 .sep{width:1px;height:20px;background:var(--line);margin:0 3px}
 .spacer{flex:1}
 .hint{font-size:12.4px;color:var(--muted)}
-.kbd{font:600 10.5px ui-monospace,Menlo,monospace;background:var(--line2);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 4px;color:var(--ink2)}
+.kbd{font:600 10.5px ui-monospace,Menlo,monospace;background:var(--line2);border:1px solid var(--line);border-bottom-width:2px;border-radius:var(--r-xs);padding:1px 4px;color:var(--ink2)}
 
 /* ============ меню ============ */
 .menu{position:relative;display:inline-block}
 .mlist{display:none;position:absolute;background:var(--card);border:1px solid var(--line);border-radius:var(--r-m);box-shadow:var(--shf);padding:6px;min-width:236px;z-index:120}
 .menu.open>.mlist{display:block}
 .mlist.right{right:0;top:calc(100% + 5px)} .mlist.left{left:0;top:calc(100% + 5px)}
-.mi{padding:7px 10px;font-size:13px;border-radius:6px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:8px;color:var(--ink2)}
+.mi{padding:7px 10px;font-size:13px;border-radius:var(--r-s);cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:8px;color:var(--ink2)}
 .mi:hover{background:var(--hov);color:var(--ink)}
 .mi small{display:block;color:var(--muted);font-size:11.4px;font-weight:400}
 .mi .k{margin-left:auto;font-size:10px;color:var(--muted)}
@@ -198,20 +198,20 @@ button,input,select,textarea{font-family:inherit}
 #edges path.hit{stroke-width:14;stroke:transparent;fill:none;pointer-events:stroke;cursor:pointer}
 .lanebg{position:absolute;border-left:1px dashed var(--line);pointer-events:none}
 .lanecap{position:absolute;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--ink2);pointer-events:none;white-space:nowrap}
-.nd{position:absolute;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 11px 8px 13px;
+.nd{position:absolute;background:var(--card);border:1px solid var(--line);border-radius:var(--r-m);padding:8px 11px 8px 13px;
    box-shadow:var(--sh1);user-select:none;cursor:grab}
 .nd:hover{box-shadow:var(--sh2);border-color:var(--line-str)}
-.nd .bar{position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:9px 0 0 9px}
+.nd .bar{position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:var(--r-m) 0 0 9px}
 .nd.shp-pill .bar{border-radius:22px 0 0 22px}
 .nd .nt{font-size:12.4px;font-weight:700;line-height:1.26;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;padding-right:46px}
 .nd .ns{font-size:10.5px;color:var(--muted);line-height:1.3;margin-top:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .nd .bdg{position:absolute;right:7px;top:7px;display:flex;gap:3px}
-.nd .b{font-size:9.4px;font-weight:800;border-radius:9px;padding:1px 6px;line-height:1.5}
+.nd .b{font-size:9.4px;font-weight:800;border-radius:var(--r-m);padding:1px 6px;line-height:1.5}
 .b.blk{background:var(--red-bg);color:var(--red);border:1px solid var(--red-br)}
 .b.wt{background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-br)}
 .b.pin{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-br)}
 .nd.shp-pill{border-radius:22px;background:#fffdf6;border-color:var(--amber-br)}
-.nd.shp-di{border-radius:10px;background:#f7f4ff;border-color:#ded3f6}
+.nd.shp-di{border-radius:var(--r-m);background:#f7f4ff;border-color:#ded3f6}
 .nd.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-br),var(--sh2)}
 .nd.dim{opacity:.2}
 /* акцент режимов «критический путь» и «доступное сейчас»: узел не исчезает,
@@ -222,7 +222,7 @@ button,input,select,textarea{font-family:inherit}
 .nd.drag{cursor:grabbing;z-index:20;box-shadow:var(--sh3)}
 /* бейдж значения своего поля на карточке узла: цвета были захардкожены светлыми
    прямо в nodeHTML и в тёмной теме светились белым пятном */
-.nd .fbadge{font-size:9px;font-weight:800;color:var(--ink2);background:var(--line2);border-radius:5px;padding:0 4px}
+.nd .fbadge{font-size:9px;font-weight:800;color:var(--ink2);background:var(--line2);border-radius:var(--r-xs);padding:0 4px}
 .nd .dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:1px}
 .nd .nte{outline:none;cursor:text}
 .port{position:absolute;width:13px;height:13px;border-radius:50%;background:var(--card);border:2px solid var(--accent);
@@ -245,20 +245,20 @@ button,input,select,textarea{font-family:inherit}
 /* ручка размера узла — только на свободной схеме (на холсте-зависимостях
    раскладку считает граф, и разные размеры узлов её сломали бы) */
 .nd .rs{position:absolute;right:-4px;bottom:-4px;width:11px;height:11px;border:1.5px solid var(--accent);
-  background:var(--card);border-radius:3px;cursor:nwse-resize;opacity:0;z-index:23}
+  background:var(--card);border-radius:var(--r-xs);cursor:nwse-resize;opacity:0;z-index:23}
 .nd:hover .rs,.nd.sel .rs{opacity:1}
-.fr{position:absolute;border:1.5px solid var(--line-str);border-radius:12px;background:rgba(255,255,255,.42)}
+.fr{position:absolute;border:1.5px solid var(--line-str);border-radius:var(--r-l);background:rgba(255,255,255,.42)}
 .fr.lane{border-style:dashed;background:rgba(240,242,248,.5)}
 .fr .fh{position:absolute;top:-21px;left:0;font-size:11px;font-weight:750;color:#767d8f;background:transparent;
-  padding:1px 5px;border-radius:5px;cursor:grab;white-space:nowrap;user-select:none}
+  padding:1px 5px;border-radius:var(--r-xs);cursor:grab;white-space:nowrap;user-select:none}
 .fr .fh:hover{background:var(--hov)}
 .fr.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-br)}
-.fr .rs{position:absolute;right:-5px;bottom:-5px;width:12px;height:12px;border:1.5px solid var(--accent);background:var(--card);border-radius:3px;cursor:nwse-resize;opacity:0}
+.fr .rs{position:absolute;right:-5px;bottom:-5px;width:12px;height:12px;border:1.5px solid var(--accent);background:var(--card);border-radius:var(--r-xs);cursor:nwse-resize;opacity:0}
 .fr:hover .rs,.fr.sel .rs{opacity:1}
-.stk{position:absolute;background:#fff8c8;border:1px solid #eadf9a;border-radius:8px;padding:8px 10px;font-size:12px;
+.stk{position:absolute;background:#fff8c8;border:1px solid #eadf9a;border-radius:var(--r-m);padding:8px 10px;font-size:12px;
   line-height:1.4;box-shadow:var(--sh1);cursor:grab;white-space:pre-wrap;overflow:hidden}
 .stk.sel{box-shadow:0 0 0 2px var(--accent-br),var(--sh1);border-color:var(--accent)}
-.stk .rs{position:absolute;right:-5px;bottom:-5px;width:12px;height:12px;border:1.5px solid var(--accent);background:var(--card);border-radius:3px;cursor:nwse-resize;opacity:0}
+.stk .rs{position:absolute;right:-5px;bottom:-5px;width:12px;height:12px;border:1.5px solid var(--accent);background:var(--card);border-radius:var(--r-xs);cursor:nwse-resize;opacity:0}
 .stk:hover .rs,.stk.sel .rs{opacity:1}
 .stk .txt{outline:none;min-height:16px}
 .fr{pointer-events:none}
@@ -267,11 +267,11 @@ button,input,select,textarea{font-family:inherit}
    что делать дальше. pointer-events:none, чтобы не мешать рамке выделения. */
 #cvempty{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);z-index:15;
   max-width:420px;text-align:center;pointer-events:none;
-  background:rgba(255,255,255,.82);border:1px solid var(--line);border-radius:14px;
+  background:rgba(255,255,255,.82);border:1px solid var(--line);border-radius:var(--r-l);
   padding:18px 22px;box-shadow:var(--sh1);backdrop-filter:blur(2px)}
 /* пустое состояние списковых страниц (таблица, канбан) */
 .emptybox{margin:40px auto;max-width:440px;text-align:center;background:var(--card);border:1px solid var(--line);
-  border-radius:14px;padding:22px 24px;box-shadow:var(--sh1)}
+  border-radius:var(--r-l);padding:22px 24px;box-shadow:var(--sh1)}
 .emptybox .ttl{font-size:14px;font-weight:750;color:var(--ink);margin-bottom:6px}
 .emptybox .txt{font-size:12.6px;color:var(--ink2);line-height:1.55}
 #cvempty .ttl{font-size:14px;font-weight:750;color:var(--ink);margin-bottom:6px}
@@ -280,13 +280,9 @@ button,input,select,textarea{font-family:inherit}
 body.dark #cvempty{background:rgba(30,35,46,.86)}
 #tmpLink{stroke:var(--accent)}
 #marq{position:absolute;border:1px solid var(--accent);background:rgba(var(--accent-rgb),.08);pointer-events:none;display:none;z-index:60}
-#mini{position:absolute;right:12px;bottom:12px;transition:right .16s;width:190px;height:126px;background:rgba(255,255,255,.93);border:1px solid var(--line);
-  border-radius:9px;box-shadow:var(--sh1);z-index:30;cursor:pointer}
-#zoombar{position:absolute;left:12px;bottom:12px;z-index:30;display:flex;gap:5px;background:rgba(255,255,255,.93);
-  border:1px solid var(--line);border-radius:9px;padding:4px;box-shadow:var(--sh1);align-items:center}
 #cvintro{background:var(--card);border-bottom:1px solid var(--line);border-left:3px solid var(--accent);padding:7px 14px;font-size:12.2px;color:var(--ink2);line-height:1.45;position:relative}
 #cvintro b{color:var(--ink)}
-#cvintro .x{position:absolute;right:8px;top:5px;cursor:pointer;color:var(--muted);font-size:14px;padding:0 5px;border-radius:5px}
+#cvintro .x{position:absolute;right:8px;top:5px;cursor:pointer;color:var(--muted);font-size:14px;padding:0 5px;border-radius:var(--r-xs)}
 #cvintro .x:hover{background:var(--line2)}
 #cvstack{position:absolute;inset:0;display:flex;flex-direction:column}
 #cvhost{position:relative;flex:1;min-height:0}
@@ -298,7 +294,7 @@ body.dark #cvempty{background:rgba(30,35,46,.86)}
 #ctx .mlist{display:block;position:static}
 
 /* ============ таблица ============ */
-.tblwrap{background:var(--card);border:1px solid var(--line);border-radius:11px;overflow:auto;box-shadow:var(--sh1)}
+.tblwrap{background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);overflow:auto;box-shadow:var(--sh1)}
 table.grid{border-collapse:separate;border-spacing:0;width:100%;font-size:12.6px}
 table.grid th{position:sticky;top:0;z-index:5;background:var(--surf);text-align:left;font-size:10.2px;text-transform:uppercase;
   letter-spacing:.4px;color:var(--muted);font-weight:750;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;cursor:pointer;user-select:none}
@@ -309,55 +305,55 @@ table.grid tr:hover td{background:var(--surf)}
 table.grid tr.selrow td{background:var(--accent-bg)}
 table.grid td.nm{font-weight:650}
 table.grid .grouphd td{background:var(--hov);font-weight:750;font-size:11.4px;color:var(--ink2);padding:6px 10px;position:sticky;top:29px}
-.cellin{border:1px solid transparent;background:transparent;border-radius:5px;padding:2px 5px;font-size:12.5px;width:100%;color:inherit;font-weight:inherit}
+.cellin{border:1px solid transparent;background:transparent;border-radius:var(--r-xs);padding:2px 5px;font-size:12.5px;width:100%;color:inherit;font-weight:inherit}
 .cellin:hover{border-color:var(--line);background:var(--card)}
 .cellin:focus{border-color:var(--accent);background:var(--card);outline:none;box-shadow:0 0 0 2px var(--accent-bg)}
-select.cellsel{border:1px solid transparent;background:transparent;font-size:11.6px;padding:2px 4px;border-radius:5px;font-weight:650;cursor:pointer;max-width:100%}
+select.cellsel{border:1px solid transparent;background:transparent;font-size:11.6px;padding:2px 4px;border-radius:var(--r-xs);font-weight:650;cursor:pointer;max-width:100%}
 select.cellsel:hover{border-color:var(--line);background:var(--card)}
-.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:11px;white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:var(--r-l);white-space:nowrap}
 .pill i{width:7px;height:7px;border-radius:50%;display:inline-block}
 .catdot{width:4px;height:14px;border-radius:2px;display:inline-block;vertical-align:-2px;margin-right:7px}
-#bulk{position:absolute;left:50%;bottom:22px;transform:translateX(-50%) translateY(30px);background:var(--dark-surf);color:var(--ink-inv);border-radius:11px;
+#bulk{position:absolute;left:50%;bottom:22px;transform:translateX(-50%) translateY(30px);background:var(--dark-surf);color:var(--ink-inv);border-radius:var(--r-l);
   padding:8px 12px;display:flex;gap:8px;align-items:center;box-shadow:var(--sh3);z-index:40;opacity:0;transition:.18s;pointer-events:none;flex-wrap:wrap;max-width:92%}
 #bulk.on{opacity:1;transform:translateX(-50%);pointer-events:auto}
 #bulk .btn{background:var(--dark-surf2);border-color:var(--dark-line);color:var(--dark-ink)}
 #bulk .btn:hover{background:#39405280;color:var(--ink-inv)}
-#bulk select{background:var(--dark-surf2);border:1px solid var(--dark-line);color:var(--dark-ink);border-radius:7px;padding:4px 7px;font-size:12px}
+#bulk select{background:var(--dark-surf2);border:1px solid var(--dark-line);color:var(--dark-ink);border-radius:var(--r-s);padding:4px 7px;font-size:12px}
 
 /* ============ канбан ============ */
 .kb{display:flex;gap:12px;align-items:flex-start;height:100%;overflow-x:auto;padding:4px 2px 20px}
-.kbcol{min-width:262px;width:262px;background:var(--surf2);border-radius:11px;padding:8px;display:flex;flex-direction:column;max-height:100%}
+.kbcol{min-width:262px;width:262px;background:var(--surf2);border-radius:var(--r-l);padding:8px;display:flex;flex-direction:column;max-height:100%}
 .kbcol.over{background:var(--accent-bg);outline:2px dashed var(--accent-br)}
 .kbh{display:flex;align-items:center;gap:7px;font-size:12.2px;font-weight:750;padding:2px 4px 8px;color:var(--ink2)}
 .kbh .n{margin-left:auto;font-size:11px;color:var(--muted);font-weight:600}
 .kbl{overflow-y:auto;display:flex;flex-direction:column;gap:6px;min-height:34px;padding-bottom:2px}
-.kc{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:8px 10px 8px 12px;position:relative;cursor:grab;box-shadow:var(--sh1)}
+.kc{background:var(--card);border:1px solid var(--line);border-radius:var(--r-m);padding:8px 10px 8px 12px;position:relative;cursor:grab;box-shadow:var(--sh1)}
 .kc:hover{box-shadow:var(--sh2)}
 .kc.drag{opacity:.45}
-.kc .bar{position:absolute;left:0;top:0;bottom:0;width:3.5px;border-radius:9px 0 0 9px}
+.kc .bar{position:absolute;left:0;top:0;bottom:0;width:3.5px;border-radius:var(--r-m) 0 0 9px}
 .kc .t{font-size:12.3px;font-weight:650;line-height:1.3}
 .kc .s{font-size:10.6px;color:var(--muted);margin-top:2px}
 .kc .m{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;align-items:center}
 
 /* ============ дашборд ============ */
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin-bottom:16px}
-.tile{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:11px 14px;box-shadow:var(--sh1)}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);padding:11px 14px;box-shadow:var(--sh1)}
 .tile .n{font-size:22px;font-weight:760;line-height:1.15;letter-spacing:-.5px}
 .tile .l{font-size:10.6px;color:var(--muted);margin-top:2px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:14px 16px;margin-bottom:14px;box-shadow:var(--sh1)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);padding:14px 16px;margin-bottom:14px;box-shadow:var(--sh1)}
 .card h3{margin:0 0 10px;font-size:13.5px;font-weight:750}
 .cards2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;align-items:start}
 .barrow{display:flex;align-items:center;gap:9px;padding:4px 0;font-size:12.4px}
 .barrow .lb{flex:0 0 44%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
 .barrow .lb:hover{color:var(--accent)}
-.barrow .bw{flex:1;height:8px;background:var(--line2);border-radius:5px;overflow:hidden}
-.barrow .bw i{display:block;height:100%;border-radius:5px}
+.barrow .bw{flex:1;height:8px;background:var(--line2);border-radius:var(--r-xs);overflow:hidden}
+.barrow .bw i{display:block;height:100%;border-radius:var(--r-xs)}
 .barrow .vv{width:34px;text-align:right;font-weight:700;font-size:11.6px}
 .lrow{display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px solid var(--line2);font-size:12.5px}
 .lrow:last-child{border:none}
 .lrow .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
 .lrow .t:hover{color:var(--accent)}
-.intro{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:9px;padding:10px 14px;
+.intro{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:var(--r-m);padding:10px 14px;
   font-size:12.6px;color:var(--ink2);margin-bottom:14px;box-shadow:var(--sh1)}
 .intro b{color:var(--ink)}
 
@@ -384,14 +380,14 @@ body.inspopen #bulk.on{transform:translateX(calc(-50% - var(--insp-w) / 2))}
 body.inspdrag{cursor:col-resize;user-select:none}
 #ih{padding:11px 16px 0;border-bottom:1px solid var(--line);position:relative}
 #ih h3{margin:0;font-size:15px;font-weight:750;padding-right:30px;line-height:1.3}
-#iclose{position:absolute;right:11px;top:11px;border:none;background:var(--hov);border-radius:6px;width:25px;height:25px;cursor:pointer;color:var(--ink2);font-size:14px}
+#iclose{position:absolute;right:11px;top:11px;border:none;background:var(--hov);border-radius:var(--r-s);width:25px;height:25px;cursor:pointer;color:var(--ink2);font-size:14px}
 #iclose:hover{background:#e4e8f1}
 #imeta{font-size:12px;color:var(--ink2);margin-top:5px}
 /* вторая строка шапки: производные метрики, читаются реже названия и статуса */
 .imetrics{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:5px;font-size:11.4px;color:var(--muted)}
 .imetrics b{color:var(--ink2)}
 #itabs{display:flex;gap:2px;margin-top:9px}
-#itabs .t{font-size:12px;font-weight:650;padding:5px 10px;border-radius:7px 7px 0 0;cursor:pointer;color:var(--ink2);border:1px solid transparent;border-bottom:none;margin-bottom:-1px}
+#itabs .t{font-size:12px;font-weight:650;padding:5px 10px;border-radius:var(--r-s) 7px 0 0;cursor:pointer;color:var(--ink2);border:1px solid transparent;border-bottom:none;margin-bottom:-1px}
 #itabs .t.on{background:var(--card);border-color:var(--line);color:var(--accent)}
 #ib{padding:10px 16px 20px;overflow:auto;flex:1}
 /* Постоянный футер панели: «Дублировать» и «Удалить узел» лежали внутри свёрнутого
@@ -404,28 +400,28 @@ body.inspdrag{cursor:col-resize;user-select:none}
 .kv b{color:var(--ink)}
 .body{font-size:12.9px;line-height:1.55;background:#f7f9fd;border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:10px 13px;white-space:pre-wrap}
 .tag{display:inline-block;font-size:11px;font-weight:650;color:var(--accent);background:var(--accent-bg);border:1px solid var(--accent-br);
-  border-radius:11px;padding:2px 9px;margin:3px 4px 0 0;cursor:pointer}
+  border-radius:var(--r-l);padding:2px 9px;margin:3px 4px 0 0;cursor:pointer}
 .tag:hover{background:#e2e8fa}
 .chk{border-bottom:1px solid var(--line2);padding:7px 0}
 .chk:last-child{border:none}
-.chk.blk{background:#fef7f6;margin:0 -8px;padding:7px 8px;border-radius:6px;border-bottom:none}
+.chk.blk{background:#fef7f6;margin:0 -8px;padding:7px 8px;border-radius:var(--r-s);border-bottom:none}
 .chk .t{font-weight:650;font-size:12.4px}
 .chk .z{font-size:11.6px;color:var(--ink2);margin-top:2px}
 .draft{display:inline-block;font-size:9.4px;font-weight:800;color:var(--amber);background:var(--amber-bg);border:1px solid var(--amber-br);
-  border-radius:9px;padding:1px 7px;margin-left:6px;letter-spacing:0;text-transform:none}
+  border-radius:var(--r-m);padding:1px 7px;margin-left:6px;letter-spacing:0;text-transform:none}
 
 /* ============ формы ============ */
 .f{margin-top:10px}
 .f>label,.flab{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:3px}
 input[type=text],input[type=number],input[type=date],select,textarea{width:100%;font-size:12.8px;color:var(--ink);border:1px solid var(--line);
-  border-radius:7px;padding:6px 9px;background:var(--card);outline:none}
+  border-radius:var(--r-s);padding:6px 9px;background:var(--card);outline:none}
 input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
 textarea{resize:vertical;min-height:70px;line-height:1.5}
 .frow{display:flex;gap:9px}.frow>.f{flex:1;min-width:0}
 .cbx{display:inline-flex;align-items:center;gap:6px;font-size:12.4px;color:var(--ink2);cursor:pointer;user-select:none}
 .cbx input{width:15px;height:15px;accent-color:var(--accent)}
-.picker{border:1px solid var(--line);border-radius:8px;padding:5px;max-height:180px;overflow:auto;background:var(--surf)}
-.pk{display:flex;align-items:center;gap:7px;padding:3px 5px;border-radius:5px;font-size:12.2px;cursor:pointer}
+.picker{border:1px solid var(--line);border-radius:var(--r-m);padding:5px;max-height:180px;overflow:auto;background:var(--surf)}
+.pk{display:flex;align-items:center;gap:7px;padding:3px 5px;border-radius:var(--r-xs);font-size:12.2px;cursor:pointer}
 .pk:hover{background:var(--accent-bg)}
 .pk input{accent-color:var(--accent)}
 .pk .id{font-size:9.6px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;margin-left:auto}
@@ -439,7 +435,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
   border-top:1px solid var(--line2);user-select:none}
 .isect:first-child{border-top:none;margin-top:4px}
 .isect .ttl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink2)}
-.isect .cnt{font-size:10.5px;font-weight:700;color:var(--muted);background:var(--line2);border-radius:9px;padding:0 6px}
+.isect .cnt{font-size:10.5px;font-weight:700;color:var(--muted);background:var(--line2);border-radius:var(--r-m);padding:0 6px}
 .isect .chev{margin-left:auto;color:var(--muted);font-size:10px;transition:transform .13s}
 .isect:hover .ttl{color:var(--ink)}
 .isect.closed .chev{transform:rotate(-90deg)}
@@ -447,28 +443,28 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
 .ibody.hidden{display:none}
 .ihint{font-size:11px;color:var(--muted);line-height:1.4;margin:2px 0 6px}
 .deps{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
-.dchip{font-size:11.4px;font-weight:600;padding:3px 5px 3px 9px;border-radius:12px;
+.dchip{font-size:11.4px;font-weight:600;padding:3px 5px 3px 9px;border-radius:var(--r-l);
   border:1px solid var(--accent-br);background:var(--accent-bg);color:var(--accent);
   display:inline-flex;align-items:center;gap:4px;max-width:100%}
 .dchip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px}
-.dchip i{font-style:normal;cursor:pointer;opacity:.55;padding:0 3px;border-radius:7px;font-size:13px;line-height:1}
+.dchip i{font-style:normal;cursor:pointer;opacity:.55;padding:0 3px;border-radius:var(--r-s);font-size:13px;line-height:1}
 .dchip i:hover{opacity:1;background:var(--card);color:var(--red)}
 .dempty{font-size:11.5px;color:var(--muted);padding:2px 0}
 .depadd{position:relative;margin-top:5px}
 .depadd input{width:100%}
 .deplist{position:absolute;left:0;right:0;top:100%;z-index:5;margin-top:3px;background:var(--card);
-  border:1px solid var(--line);border-radius:9px;box-shadow:var(--sh2);max-height:210px;overflow:auto;padding:4px}
-.deplist .di{display:flex;align-items:center;gap:7px;padding:5px 7px;border-radius:6px;font-size:12.2px;cursor:pointer}
+  border:1px solid var(--line);border-radius:var(--r-m);box-shadow:var(--sh2);max-height:210px;overflow:auto;padding:4px}
+.deplist .di{display:flex;align-items:center;gap:7px;padding:5px 7px;border-radius:var(--r-s);font-size:12.2px;cursor:pointer}
 .deplist .di:hover,.deplist .di.on{background:var(--accent-bg)}
 .deplist .di .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .deplist .di .id{font-size:9.6px;color:var(--muted);font-family:ui-monospace,Menlo,monospace}
 .lrw{display:flex;gap:6px;align-items:center;margin-bottom:5px}
-.ib{border:1px solid var(--line);background:var(--card);border-radius:6px;width:26px;height:26px;min-width:26px;cursor:pointer;color:var(--ink2);font-size:12px;line-height:1;display:inline-flex;align-items:center;justify-content:center}
+.ib{border:1px solid var(--line);background:var(--card);border-radius:var(--r-s);width:26px;height:26px;min-width:26px;cursor:pointer;color:var(--ink2);font-size:12px;line-height:1;display:inline-flex;align-items:center;justify-content:center}
 .ib:hover{background:var(--hov);color:var(--ink)}
 .ib.dgr:hover{background:var(--red-bg);color:var(--red);border-color:var(--red-br)}
-.crow{border:1px solid var(--line);border-radius:8px;padding:7px;margin-bottom:6px;background:var(--surf)}
+.crow{border:1px solid var(--line);border-radius:var(--r-m);padding:7px;margin-bottom:6px;background:var(--surf)}
 .crow .h{display:flex;gap:6px;align-items:center;margin-bottom:5px}
-.swatch{width:26px;height:26px;padding:1px;border:1px solid var(--line);border-radius:6px;cursor:pointer;background:var(--card)}
+.swatch{width:26px;height:26px;padding:1px;border:1px solid var(--line);border-radius:var(--r-s);cursor:pointer;background:var(--card)}
 
 /* ============ модалка, оверлеи ============ */
 #modal{position:fixed;inset:0;background:rgba(16,20,32,.45);z-index:300;display:none;align-items:center;justify-content:center;padding:24px}
@@ -477,23 +473,23 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
 #mbox h3{margin:0 0 12px;font-size:19px;font-weight:750;letter-spacing:-.2px}
 .mfoot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(18px);background:var(--dark-surf);color:var(--ink-inv);font-size:12.6px;
-  padding:9px 16px;border-radius:9px;z-index:400;opacity:0;transition:.2s;pointer-events:none;max-width:70vw;box-shadow:var(--sh3)}
+  padding:9px 16px;border-radius:var(--r-m);z-index:400;opacity:0;transition:.2s;pointer-events:none;max-width:70vw;box-shadow:var(--sh3)}
 #toast.on{opacity:1;transform:translateX(-50%)}
 /* с кнопкой тост должен ловить клики — без действия он их пропускает насквозь */
 #toast.act{pointer-events:auto}
 #toast .tact{margin-left:10px;background:#39405a;border:1px solid #4b5470;color:var(--ink-inv);
-  font-size:12px;font-weight:650;padding:3px 10px;border-radius:7px;cursor:pointer}
+  font-size:12px;font-weight:650;padding:3px 10px;border-radius:var(--r-s);cursor:pointer}
 #toast .tact:hover{background:#4a5372}
 /* панель массовых действий стоит там же внизу по центру — тост её накрывал ровно
    в тот момент, когда человек продолжает в ней работать */
 body.bulkon #toast{bottom:82px}
 #pal{position:fixed;inset:0;background:rgba(16,20,32,.35);z-index:310;display:none;justify-content:center;padding-top:12vh}
 #pal.open{display:flex}
-#palbox{background:var(--card);border-radius:13px;width:min(620px,92vw);height:fit-content;max-height:70vh;box-shadow:var(--sh3);overflow:hidden;display:flex;flex-direction:column}
+#palbox{background:var(--card);border-radius:var(--r-l);width:min(620px,92vw);height:fit-content;max-height:70vh;box-shadow:var(--sh3);overflow:hidden;display:flex;flex-direction:column}
 #palin{border:none;border-bottom:1px solid var(--line);border-radius:0;padding:13px 16px;font-size:14.5px}
 #palin:focus{box-shadow:none;border-color:var(--line)}
 #pallist{overflow:auto;padding:6px}
-.pr{padding:7px 11px;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:9px;font-size:12.8px}
+.pr{padding:7px 11px;border-radius:var(--r-m);cursor:pointer;display:flex;align-items:center;gap:9px;font-size:12.8px}
 .pr.on{background:var(--accent-bg)}
 .pr .s{color:var(--muted);font-size:11px;margin-left:auto}
 /* Стили прежнего стартового экрана (#projects, .pcard) удалены вместе с ним в 2.0. */
@@ -560,7 +556,7 @@ body.dark .tag:hover{background:var(--accent-bg)}
 
 /* Фокус с клавиатуры не был виден нигде, кроме полей ввода: пройти интерфейс
    без мыши было невозможно. :focus-visible не мешает мышиным кликам. */
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--r-s)}
 .btn:focus-visible,.chip:focus-visible,.pgi:focus-visible,.mi:focus-visible,
 .isect:focus-visible,.bcard:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
@@ -698,11 +694,11 @@ body.dark .tag:hover{background:var(--accent-bg)}
 .bcard .m .dot{opacity:.5}
 .bcard .who{font-size:11.6px;color:var(--muted);margin-top:5px;display:flex;align-items:center;gap:6px}
 /* Кнопка меню карточки: появляется по наведению, чтобы не шуметь в сетке. */
-.bcard .mo{position:absolute;right:8px;top:8px;opacity:0;width:28px;height:28px;border-radius:7px;border:none;
+.bcard .mo{position:absolute;right:8px;top:8px;opacity:0;width:28px;height:28px;border-radius:var(--r-s);border:none;
   background:rgba(255,255,255,.94);box-shadow:var(--sh1);cursor:pointer;color:var(--ink2);font-size:15px;line-height:1}
 .bcard:hover .mo,.bcard .mo:focus-visible{opacity:1}
 .bcard .mo:hover{background:var(--card);color:var(--ink)}
-.bcard .tag{position:absolute;left:9px;top:9px;font-size:10.8px;font-weight:700;padding:3px 8px;border-radius:20px;
+.bcard .tag{position:absolute;left:9px;top:9px;font-size:10.8px;font-weight:700;padding:3px 8px;border-radius:var(--r-pill);
   background:rgba(255,255,255,.94);color:var(--ink2);box-shadow:var(--sh1)}
 .bcard.new{border-style:dashed;background:transparent;display:flex;align-items:center;justify-content:center;
   flex-direction:column;gap:7px;min-height:206px;color:var(--accent);font-weight:650;font-size:14px}
@@ -721,7 +717,7 @@ body.dark .tag:hover{background:var(--accent-bg)}
 .lhero h1{font-size:44px;line-height:1.12;font-weight:800;letter-spacing:-1.2px;margin:0 0 16px}
 .lhero p{font-size:17px;line-height:1.6;color:var(--ink2);max-width:620px;margin:0 auto 26px}
 .lcta{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
-.lcta .btn{font-size:14.5px;padding:11px 22px;border-radius:10px}
+.lcta .btn{font-size:14.5px;padding:11px 22px;border-radius:var(--r-m)}
 .lnote{font-size:12.8px;color:var(--muted);margin-top:16px}
 .lshot{margin:38px auto 0;max-width:940px;border:1px solid var(--line);border-radius:var(--r-l);
   overflow:hidden;box-shadow:var(--sh3);background:var(--card)}
@@ -755,7 +751,6 @@ body.dark .tag:hover{background:var(--accent-bg)}
 /* ==========================================================================
    РЕДАКТОР: верхняя панель и плавающие панели поверх холста
    ========================================================================== */
-#topbar{gap:10px}
 .tbhome{width:32px;height:32px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--card);
   cursor:pointer;color:var(--ink2);font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .tbhome:hover{background:var(--line2);color:var(--ink)}
@@ -770,21 +765,25 @@ body.dark .tag:hover{background:var(--accent-bg)}
    на бесконечном полотне. Раньше зум-панель была прижата к краю без тени
    и читалась как часть сетки. */
 #zoombar{position:absolute;left:14px;bottom:14px;display:flex;align-items:center;gap:3px;
-  background:var(--card);border:1px solid var(--line);border-radius:11px;padding:5px 6px;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);padding:5px 6px;
   box-shadow:var(--shf);z-index:6}
 #zoombar .btn{border:none;background:transparent;padding:6px 8px}
 #zoombar .btn:hover{background:var(--line2)}
 #zval{font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink2)}
-#mini{touch-action:none;position:absolute;right:14px;bottom:14px;background:var(--card);border:1px solid var(--line);
-  border-radius:11px;box-shadow:var(--shf);z-index:6}
+/* ⚠ width/height обязаны остаться: сам элемент — <canvas> с атрибутами 264×176,
+   и без CSS-размеров миникарта вырастает в полтора раза. Раньше они приходили
+   из ВТОРОГО объявления #mini в разделе холста, а фон и тень — из этого. */
+#mini{touch-action:none;position:absolute;right:14px;bottom:14px;width:190px;height:126px;
+  transition:right .16s;cursor:pointer;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--r-l);box-shadow:var(--shf);z-index:6}
 
 /* Панель инструментов холста слева: создать узел, область, заметку.
    Была только кнопка «＋ Узел» в верхней панели — области и заметки жили
    в контекстном меню, то есть не существовали для того, кто его не открыл. */
 #toolrail{position:absolute;left:14px;top:14px;display:flex;flex-direction:column;gap:3px;
-  background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);padding:6px;
   box-shadow:var(--shf);z-index:6}
-#toolrail button{width:36px;height:36px;border:none;background:transparent;border-radius:9px;cursor:pointer;
+#toolrail button{width:36px;height:36px;border:none;background:transparent;border-radius:var(--r-m);cursor:pointer;
   color:var(--ink2);font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center}
 #toolrail button:hover{background:var(--line2);color:var(--ink)}
 #toolrail button.on{background:var(--accent-bg);color:var(--accent-ink)}
@@ -812,13 +811,13 @@ body.dark #zoombar,body.dark #mini,body.dark #toolrail{background:var(--card)}
 .curs{position:absolute;transform-origin:0 0;display:flex;align-items:flex-start;gap:0;
   will-change:transform;transition:left .09s linear,top .09s linear}
 .curs .nm{margin-left:2px;margin-top:12px;color:var(--ink-inv);font-size:11px;font-weight:650;
-  padding:2px 7px;border-radius:9px;white-space:nowrap;box-shadow:var(--sh1)}
+  padding:2px 7px;border-radius:var(--r-m);white-space:nowrap;box-shadow:var(--sh1)}
 
 /* Полоса «вы смотрите старую версию». Без неё человек глядит на прежнюю доску
    и не понимает, почему правки не сохраняются. */
 #verbar{position:absolute;left:50%;transform:translateX(-50%);bottom:18px;z-index:12;
   display:flex;align-items:center;gap:10px;background:var(--dark-surf);color:var(--ink-inv);
-  padding:8px 10px 8px 16px;border-radius:12px;box-shadow:var(--sh3);font-size:13px;font-weight:600}
+  padding:8px 10px 8px 16px;border-radius:var(--r-l);box-shadow:var(--sh3);font-size:13px;font-weight:600}
 #verbar .btn{background:#39405a;border-color:#4b5470;color:var(--ink-inv)}
 #verbar .btn:hover{background:#4a5372;color:var(--ink-inv)}
 
@@ -859,7 +858,7 @@ body.dark #zoombar,body.dark #mini,body.dark #toolrail{background:var(--card)}
 .jsticky .jtxt{align-self:flex-start;padding:14px}
 
 .jshape{background:#c9e3ff;border:1.5px solid #7fa8d8;font-size:14px;color:var(--dark-surf)}
-.jshape.shp-roundrect{border-radius:12px}
+.jshape.shp-roundrect{border-radius:var(--r-l)}
 .jshape.shp-rect{border-radius:0}
 .jshape.shp-ellipse{border-radius:50%}
 .jshape.shp-diamond{border-radius:0;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
@@ -873,9 +872,9 @@ body.dark #zoombar,body.dark #mini,body.dark #toolrail{background:var(--card)}
 /* Секция: подпись стоит НАД рамкой, как в FigJam, а не внутри — иначе она
    съедает место у содержимого и мешает класть объекты в левый верхний угол. */
 .jsect{position:absolute;box-sizing:border-box;background:#f2f4f9;border:1px solid var(--line);
-  border-radius:14px;pointer-events:none}
+  border-radius:var(--r-l);pointer-events:none}
 .jsect .jsh{position:absolute;top:-22px;left:2px;font-size:12px;font-weight:700;color:var(--ink2);
-  padding:1px 6px;border-radius:5px;cursor:grab;white-space:nowrap;user-select:none;pointer-events:auto}
+  padding:1px 6px;border-radius:var(--r-xs);cursor:grab;white-space:nowrap;user-select:none;pointer-events:auto}
 .jsect .jsh:hover{background:var(--hov)}
 .jsect.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-br)}
 
@@ -890,9 +889,9 @@ body.dark .jtext{color:var(--ink)}
 /* Лежит в #cvhost, а НЕ в #scene: не должна ездить и масштабироваться с камерой. */
 #jambar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:32;
   display:flex;align-items:center;gap:2px;padding:5px;
-  background:rgba(255,255,255,.97);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shf);
+  background:rgba(255,255,255,.97);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:var(--shf);
   transition:left .16s}
-#jambar button{width:34px;height:34px;border:none;background:transparent;border-radius:9px;cursor:pointer;
+#jambar button{width:34px;height:34px;border:none;background:transparent;border-radius:var(--r-m);cursor:pointer;
   font-size:16px;line-height:1;color:var(--ink2);display:flex;align-items:center;justify-content:center}
 #jambar button:hover{background:var(--hov);color:var(--ink)}
 #jambar button.on{background:var(--accent);color:var(--on-accent)}
@@ -904,17 +903,17 @@ body.inspopen #jambar{left:calc(50% - var(--insp-w) / 2)}
 
 /* --- плавающая панель свойств: над выделением --------------------------- */
 #jprops{position:absolute;z-index:33;display:none;transform:translate(-50%,-100%);
-  background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shf);padding:5px}
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:var(--shf);padding:5px}
 #jprops.open{display:block}
 #jprops .jrow{display:flex;align-items:center;gap:3px}
 #jprops .jrow+.jrow{margin-top:4px;padding-top:4px;border-top:1px solid var(--line2)}
-#jprops .jsw{width:20px;height:20px;border:1px solid rgba(16,20,32,.18);border-radius:5px;cursor:pointer;padding:0}
+#jprops .jsw{width:20px;height:20px;border:1px solid rgba(16,20,32,.18);border-radius:var(--r-xs);cursor:pointer;padding:0}
 #jprops .jsw:hover{outline:2px solid var(--accent-br)}
-#jprops .jw{width:26px;height:22px;border:none;background:transparent;border-radius:5px;cursor:pointer;
+#jprops .jw{width:26px;height:22px;border:none;background:transparent;border-radius:var(--r-xs);cursor:pointer;
   display:flex;align-items:center;justify-content:center}
 #jprops .jw:hover{background:var(--hov)}
 #jprops .jw i{display:block;width:16px;background:var(--ink2);border-radius:2px}
-#jprops .jb{height:24px;min-width:26px;border:none;background:transparent;border-radius:6px;cursor:pointer;
+#jprops .jb{height:24px;min-width:26px;border:none;background:transparent;border-radius:var(--r-s);cursor:pointer;
   font-size:13px;color:var(--ink2);padding:0 5px}
 #jprops .jb:hover{background:var(--hov);color:var(--ink)}
 body.dark #jambar,body.dark #jprops{background:var(--card)}
@@ -922,7 +921,7 @@ body.dark #jambar button:hover,body.dark #jprops .jb:hover,body.dark #jprops .jw
 
 /* --- ручка размера и курсоры инструментов ------------------------------- */
 .jitem .jrs,.jsect .jrs{position:absolute;right:-5px;bottom:-5px;width:12px;height:12px;
-  border:1.5px solid var(--accent);background:var(--card);border-radius:3px;cursor:nwse-resize;opacity:0;pointer-events:auto}
+  border:1.5px solid var(--accent);background:var(--card);border-radius:var(--r-xs);cursor:nwse-resize;opacity:0;pointer-events:auto}
 .jitem:hover .jrs,.jitem.sel .jrs,.jsect:hover .jrs,.jsect.sel .jrs{opacity:1}
 .jitem.droptgt{outline:2px solid var(--accent)}
 #cv.jplace{cursor:crosshair}
