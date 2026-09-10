@@ -204,7 +204,7 @@ export function showAuthPage(opts) {
       <div class="brandline"><div class="logo" style="width:28px;height:28px;border-radius:8px;
         background:linear-gradient(135deg,#4262ff,#7b3fd1);display:flex;align-items:center;justify-content:center;
         color:#fff;font-weight:800;font-size:14px">G</div>
-        <span style="font-weight:750;font-size:15px">Graph Studio</span></div>
+        <span style="font-weight:750;font-size:15px">Heepov Board</span></div>
       <h2>${reg ? 'Создание аккаунта' : 'Вход'}</h2>
       <div class="sub">${reg
         ? 'Приглашение принято. Осталось задать пароль — дальше доски будут ждать вас на любом устройстве.'
@@ -261,7 +261,7 @@ export function showAuthPage(opts) {
 export function showLanding() {
   $('landing').innerHTML = `
   <div class="lhead">
-    <div class="hbrand"><div class="logo">G</div><div class="nm">Graph Studio</div></div>
+    <div class="hbrand"><div class="logo">G</div><div class="nm">Heepov Board</div></div>
     <span class="hgrow"></span>
     <button class="btn" data-a="demo">Посмотреть демо</button>
     <button class="btn pri" data-a="login">Войти</button>
@@ -340,7 +340,7 @@ function heroArt() {
 export async function showHome(view) {
   if (view) HOME.view = view;
   only('home');
-  H.setBrowserTitle('Graph Studio — доски');
+  H.setBrowserTitle('Heepov Board — доски');
   paintAvatars();
   renderNav();
   renderMain();

@@ -3,7 +3,7 @@ import * as cloud from './cloud.js';
 import * as home from './home.js';
 import * as live from './live.js';
 /* ==========================================================================
-   GRAPH STUDIO — редактор графов зависимостей, роадмапов и схем
+   HEEPOV BOARD — редактор графов зависимостей, роадмапов и схем
    Один файл. Проекты в IndexedDB. Экспорт/импорт JSON, CSV, Markdown, viewer.
    ========================================================================== */
 // TEMPLATE (снимок собственного исходника через document.documentElement.outerHTML)
@@ -3551,7 +3551,7 @@ function renameProject() {
       if (!nm) {toast('Название не может быть пустым'); return;}
       snapNow(); P.name = nm; P.desc = $('prd').value.trim();
       save(1); refreshProjMeta(); renderPages(); closeModal();
-      document.title = P.name + ' — Graph Studio';
+      document.title = P.name + ' — Heepov Board';
       toast('Проект переименован', {label: 'Вернуть', run: undo});
     };
     b.querySelector('[data-a=ok]').onclick = go;
@@ -4762,7 +4762,7 @@ function csvLinks() {
 }
 function exportMd() {
   const g = G();
-  let o = `# ${P.name}\n\n> Graph Studio · ${today()} · ${P.nodes.length} узлов, ${P.links.length} связей\n\n${P.desc || ''}\n`;
+  let o = `# ${P.name}\n\n> Heepov Board · ${today()} · ${P.nodes.length} узлов, ${P.links.length} связей\n\n${P.desc || ''}\n`;
   const steps = uniq(P.nodes.map(stepOf)).sort((a, b) => a - b);
   steps.forEach(s => {
     o += `\n## Шаг ${s}\n\n`;
@@ -4963,7 +4963,7 @@ function showExport() {
       ${online
         ? 'Загруженная доска сразу оказывается на сервере — файл остаётся у вас копией, а не вторым хранилищем.'
         : 'Сейчас нет входа: доска ляжет только в этот браузер. После входа её можно будет перенести на сервер.'}
-      Импорт понимает и формат Graph Studio, и старый файл Roadmap Studio (nodes/deps/soft).
+      Импорт понимает и свой формат (прежнее имя — Graph Studio), и старый файл Roadmap Studio (nodes/deps/soft).
     </div>
 
     ${cap('Все доски')}
@@ -5028,7 +5028,7 @@ async function backupAll() {
   // с сервера выше, и второй раз они попали бы туда устаревшей версией.
   for (const pr of await dbAll(STORE)) if (!isCache(pr.id)) projects.push(pr);
   const snaps = (await dbAll(SNAP).catch(() => [])) || [];
-  dl('graphstudio_backup_' + today() + '.json',
+  dl('heepov_board_backup_' + today() + '.json',
      JSON.stringify({graphstudio: 2, exported: nowStr(), projects, snaps}), 'application/json');
   await dbPut(META, {k: 'lastBackup', v: Date.now()}).catch(() => {});
   const live = projects.filter(p => !p.deleted).length, trash = projects.length - live;
@@ -5695,7 +5695,7 @@ async function openServerBoard(id, opts) {
     UI.page = (P.pages[0] || {}).id;
     undoReset();
     migrateLegacyViews();
-    document.title = (P.name || 'Доска') + ' — Graph Studio';
+    document.title = (P.name || 'Доска') + ' — Heepov Board';
     home.hideAll();
     renderPages(); renderPage(); paintSave();
     if (r.asAdmin) toast('Вы открыли чужую доску как администратор — это записано в журнал');
@@ -5902,7 +5902,7 @@ function openDemo() {
   UI.view = {}; UI.sel.clear(); UI.selNotes.clear(); UI.selFrames.clear(); UI.insp = null; closeInsp();
   UI.page = (P.pages[0] || {}).id;
   setReadonly(true, 'Демо-доска: смотреть можно всё, править — после входа');
-  document.title = 'Демо — Graph Studio';
+  document.title = 'Демо — Heepov Board';
   renderPages(); renderPage(); paintSave();
 }
 
@@ -5942,7 +5942,7 @@ async function openProject(id) {
   migrateLegacyViews();
   const mb = $('tbMembers'); if (mb) mb.innerHTML = '';
   home.hideAll();
-  document.title = P.name + ' — Graph Studio';
+  document.title = P.name + ' — Heepov Board';
   UI.page = (P.pages[0] || {}).id;
   renderPages(); renderPage();
 }
@@ -6043,7 +6043,7 @@ async function doInstall() {
   deferredInstall = null; refreshInstallUI();
 }
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; refreshInstallUI(); });
-window.addEventListener('appinstalled', () => { deferredInstall = null; refreshInstallUI(); toast('Graph Studio установлен'); });
+window.addEventListener('appinstalled', () => { deferredInstall = null; refreshInstallUI(); toast('Heepov Board установлен'); });
 if ($('pInstall')) $('pInstall').onclick = doInstall;
 if ($('navInstall')) $('navInstall').onclick = doInstall;
 // Service worker больше не регистрируется: sw.js теперь kill-switch, см. комментарий в нём.
