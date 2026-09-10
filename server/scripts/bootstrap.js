@@ -42,7 +42,7 @@ if (given) {
 } else {
   try {
     writeFileSync(FIRST_RUN,
-      `Graph Studio — первый запуск\n\nАдминистратор: ${email}\nПароль: ${pass}\n\n` +
+      `Heepov Board — первый запуск\n\nАдминистратор: ${email}\nПароль: ${pass}\n\n` +
       `Смените пароль после первого входа — тогда этот файл удалится сам.\n`,
       { mode: 0o600 });
   } catch {}

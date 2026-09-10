@@ -1,6 +1,6 @@
 {
-  "name": "Graph Studio",
-  "short_name": "Graph Studio",
+  "name": "Heepov Board",
+  "short_name": "Heepov Board",
   "description": "Редактор графов зависимостей, роадмапов и схем «что чем заблокировано»",
   "lang": "ru",
   "start_url": "/",

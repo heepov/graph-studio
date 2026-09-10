@@ -24,7 +24,7 @@ RUN npm run build
 # ---------- раздача ----------
 FROM nginx:stable-alpine
 
-LABEL org.opencontainers.image.title="Graph Studio" \
+LABEL org.opencontainers.image.title="Heepov Board" \
       org.opencontainers.image.description="Редактор графов зависимостей, роадмапов и схем «что чем заблокировано»" \
       org.opencontainers.image.source="https://github.com/heepov/graph-studio" \
       org.opencontainers.image.licenses="MIT"

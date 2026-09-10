@@ -40,7 +40,7 @@ export function registerOAuth(app, db, opts) {
     authorization_servers: [ISSUER],
     scopes_supported: SCOPES,
     bearer_methods_supported: ['header'],
-    resource_name: 'Graph Studio',
+    resource_name: 'Heepov Board',
     resource_documentation: ISSUER + '/',
   });
   app.get('/.well-known/oauth-protected-resource', async () => prm());
@@ -131,7 +131,7 @@ export function registerOAuth(app, db, opts) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
   const page = (title, body) => `<!doctype html><html lang="ru"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} — Graph Studio</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} — Heepov Board</title>
 <style>
   body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f1f3f8;
     font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#141822;padding:24px}
@@ -154,7 +154,7 @@ export function registerOAuth(app, db, opts) {
   .err{background:#fdecea;border:1px solid #f0c7c2;color:#b3261e;border-radius:8px;padding:9px 11px;margin-bottom:14px}
   .hint{font-size:12.5px;color:#6b7383;text-align:center;margin-top:14px}
 </style></head><body><div class="c">
-<div class="b"><i>G</i><span>Graph Studio</span></div>${body}</div></body></html>`;
+<div class="b"><i>G</i><span>Heepov Board</span></div>${body}</div></body></html>`;
 
   const hidden = q => Object.entries(q).filter(([, v]) => v != null && v !== '')
     .map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join('');
@@ -178,7 +178,7 @@ export function registerOAuth(app, db, opts) {
 
   const consent = (q, client, msg) => page('Доступ', `
     <h1>Разрешить доступ?</h1>
-    <p><b>${esc(client.name || 'Приложение')}</b> просит доступ к вашим доскам Graph Studio.</p>
+    <p><b>${esc(client.name || 'Приложение')}</b> просит доступ к вашим доскам Heepov Board.</p>
     ${msg ? `<div class="err">${esc(msg)}</div>` : ''}
     <ul>
       <li>видеть список досок и их содержимое</li>

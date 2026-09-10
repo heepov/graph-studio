@@ -14,12 +14,12 @@ import { TOOLS } from './tools.js';
 import { DocError } from './doc.js';
 
 const VERSIONS = ['2026-07-28', '2025-11-25', '2025-06-18', '2025-03-26'];
-const SERVER_INFO = { name: 'graph-studio', title: 'Graph Studio', version: '1.0.0' };
+const SERVER_INFO = { name: 'graph-studio', title: 'Heepov Board', version: '1.0.0' };
 
 // То, что модель прочитает до первого вызова. Здесь только вещи, ошибка в которых
 // стоит дорого: направление связи и модель «одни узлы — много страниц».
 const INSTRUCTIONS = [
-  'Доски Graph Studio: список — list_boards, содержимое — get_board.',
+  'Доски Heepov Board: список — list_boards, содержимое — get_board.',
   'Узлы общие для ВСЕХ страниц доски. Страница задаёт фильтр и способ показа (холст, ' +
     'свободная схема, доска, таблица, канбан, дашборд), а не отдельный набор данных.',
   'Страница kind=jam — свободная доска: стикеры, фигуры, текст, рисунки и коннекторы. ' +

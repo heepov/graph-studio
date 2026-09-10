@@ -64,7 +64,7 @@ services:
     labels:
       ru.heeprod.showcase.enabled: "true"
       ru.heeprod.showcase.slug: "graph-studio"
-      ru.heeprod.showcase.name: "Graph Studio"
+      ru.heeprod.showcase.name: "Heepov Board"
       ru.heeprod.showcase.tagline: "Редактор графов зависимостей, роадмапов и схем «что чем заблокировано»"
       ru.heeprod.showcase.url: "https://graph.heeprod.ru/"
       ru.heeprod.showcase.health: "/healthz"

@@ -22,6 +22,6 @@ npm run dev -- --port "$PORT" >/tmp/graph-studio-dev.log 2>&1 &
 SRV=$!
 sleep 2
 open "http://localhost:$PORT/"
-echo "Graph Studio запущен на http://localhost:$PORT"
+echo "Heepov Board запущен на http://localhost:$PORT"
 echo "Это окно можно свернуть. Чтобы остановить сервер — закройте это окно Терминала."
 wait $SRV
