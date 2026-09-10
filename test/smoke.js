@@ -461,7 +461,7 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
     const resize = await c.eval(`(() => {
       const pg = pageById('p_space_test'); UI.page = pg.id; renderPage();
       const n = pageNodes(pg)[0]; if (!n) return {err: 'на схеме нет узлов'};
-      const had = document.querySelector('.nd .rs') ? 1 : 0;   // ручка есть только на схеме
+      const had = document.querySelector('.nd .rs') ? 1 : 0;
       setNsize(n, pg.id, 320, 140);
       renderPage();
       const el = document.querySelector('.nd[data-n="' + CSS.escape(n.id) + '"]');
@@ -473,7 +473,29 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       const stored = JSON.parse(JSON.stringify(n.p[pg.id]));
       UI.page = cv.id; renderPage();
       const handleOnCanvas = document.querySelector('.nd .rs') ? 1 : 0;
-      return {had, box, onCanvas, stored, handleOnCanvas};
+      // Размер на холсте с авто-раскладкой НЕ должен закреплять узел: слот
+      // заводится без координат, узел продолжает стоять по раскладке.
+      const cvN = pageNodes(cv).find(x => !isPinned(x, cv.id));
+      let autoSize = null;
+      if (cvN) {
+        const y0 = cvPos[cvN.id].y;
+        setNsize(cvN, cv.id, 260, 120); renderPage();
+        const el2 = document.querySelector('.nd[data-n="' + CSS.escape(cvN.id) + '"]');
+        autoSize = {
+          pinned: isPinned(cvN, cv.id) ? 1 : 0,
+          w: el2 ? Math.round(el2.getBoundingClientRect().width / view().k) : null,
+          y0, y1: cvPos[cvN.id].y,
+        };
+        // соседи снизу обязаны разъехаться под новую высоту
+        const col = pageNodes(cv).filter(x => Math.abs(cvPos[x.id].x - cvPos[cvN.id].x) < 2)
+          .sort((a, b) => cvPos[a.id].y - cvPos[b.id].y);
+        const i = col.findIndex(x => x.id === cvN.id);
+        autoSize.gap = (i >= 0 && col[i + 1])
+          ? Math.round(cvPos[col[i + 1].id].y - (cvPos[cvN.id].y + nsize(cvN, cv.id).h)) : null;
+        if (cvN.p) delete cvN.p[cv.id];
+        renderPage();
+      }
+      return {had, box, onCanvas, stored, handleOnCanvas, autoSize};
     })()`);
     if (resize.err) bad('размер узла: ' + resize.err);
     else {
@@ -487,9 +509,21 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       (resize.onCanvas.w === 212 && resize.onCanvas.h === 74)
         ? ok('размер: на холсте-зависимостях узел прежнего размера')
         : bad('размер: протёк на другую страницу', JSON.stringify(resize.onCanvas));
-      resize.handleOnCanvas === 0
-        ? ok('размер: на холсте-зависимостях ручки нет')
-        : bad('размер: ручка появилась на холсте, где раскладку считает граф');
+      resize.handleOnCanvas === 1
+        ? ok('размер: ручка есть и на холсте-зависимостях')
+        : bad('размер: на холсте нет ручки');
+      if (resize.autoSize) {
+        resize.autoSize.pinned === 0
+          ? ok('размер: на авто-раскладке узел не закрепился')
+          : bad('размер: правка размера закрепила узел', JSON.stringify(resize.autoSize));
+        Math.abs(resize.autoSize.w - 260) <= 2
+          ? ok('размер: на холсте узел стал заданной ширины', resize.autoSize.w + ' px')
+          : bad('размер: на холсте ширина не применилась', JSON.stringify(resize.autoSize));
+        (resize.autoSize.gap === null || Math.abs(resize.autoSize.gap - 12) <= 2)
+          ? ok('размер: соседи снизу разъехались, наложения нет',
+               'зазор ' + resize.autoSize.gap)
+          : bad('размер: увеличенный узел налез на соседа', JSON.stringify(resize.autoSize));
+      }
     }
 
     // --- горячие клавиши в русской раскладке --------------------------------

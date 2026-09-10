@@ -931,9 +931,22 @@ const endPtr = e => {
 window.addEventListener('pointerup', endPtr);
 window.addEventListener('pointercancel', endPtr);
 
-function npos(n, pid) { return (n.p && n.p[pid]) || null; }
-function setNpos(n, pid, x, y) { n.p = n.p || {}; n.p[pid] = {x: Math.round(x), y: Math.round(y)}; }
-function isPinned(n, pid) { return !!(n.p && n.p[pid]); }
+// Слот n.p[pid] хранит и позицию, и размер, но они независимы: размер можно
+// задать БЕЗ позиции — тогда узел на холсте продолжает стоять по авто-раскладке,
+// просто своего размера. Поэтому «позиция есть» — это наличие КООРДИНАТ,
+// а не наличие слота.
+function npos(n, pid) {
+  const p = n.p && n.p[pid];
+  return (p && p.x != null && p.y != null) ? p : null;
+}
+function setNpos(n, pid, x, y) {
+  n.p = n.p || {};
+  // Слот дополняем, а не заменяем: раньше здесь стоял `n.p[pid] = {x, y}`,
+  // и перетаскивание узла стирало заданный ему размер.
+  const sl = n.p[pid] = n.p[pid] || {};
+  sl.x = Math.round(x); sl.y = Math.round(y);
+}
+function isPinned(n, pid) { return !!npos(n, pid); }
 // Размер узла. Хранится ПО СТРАНИЦАМ, в n.p[pid].w/h — рядом с позицией.
 // В корень ноды (n.w/n.h) не пишем: это повторило бы техдолг n.x/n.y, когда размер
 // один на все страницы. Два запасных источника — оба легаси: n.w/n.h из старых файлов
@@ -943,8 +956,12 @@ function nsize(n, pid) {
   return {w: p.w || z.w || n.w || NW, h: p.h || z.h || n.h || NH};
 }
 function setNsize(n, pid, w, h) {
-  n.p = n.p || {}; n.p[pid] = n.p[pid] || {x: 0, y: 0};
-  n.p[pid].w = Math.round(w); n.p[pid].h = Math.round(h);
+  n.p = n.p || {};
+  // Слот заводим БЕЗ координат. Раньше здесь стояло {x: 0, y: 0}: на холсте
+  // с авто-раскладкой это утащило бы узел в начало координат и вдобавок
+  // сделало бы его «закреплённым».
+  const sl = n.p[pid] = n.p[pid] || {};
+  sl.w = Math.round(w); sl.h = Math.round(h);
 }
 // Камера — личное состояние человека, а не часть документа. Под общим сервером
 // панорамирование одного не должно писать в проект и порождать конфликты и события истории.
@@ -1049,7 +1066,11 @@ function zoomAt(cx, cy, factor) {
 }
 
 /* ---------- авто-раскладка ---------- */
-function autoLayout(nodes) {
+function autoLayout(nodes, pid) {
+  // pid нужен, чтобы колонки и строки считались по НАСТОЯЩИМ размерам узлов:
+  // без него увеличенный узел налезал бы на соседа снизу. Без pid поведение
+  // прежнее — сетка по NW/NH.
+  const SZ = n => pid ? nsize(n, pid) : {w: NW, h: NH};
   const g = G(), ids = new Set(nodes.map(n => n.id));
   const pos = {};
   if (!nodes.length) return {pos, lanes: []};
@@ -1096,15 +1117,23 @@ function autoLayout(nodes) {
     for (let i = 0; i <= mx; i++) gg.push(c.filter(n => (n._lv || 0) === i).sort((a, b) => ord[a.id] - ord[b.id]));
     return gg;
   });
-  const maxRows = Math.max(...subs.flat().map(x => x.length), 1);
-  const colX = []; let x = PADX;
-  subs.forEach(gr => {colX.push(x); x += gr.length * NW + (gr.length - 1) * SUBGAP + COLGAP;});
+  // Ширина подколонки — по самому широкому её узлу, высота стопки — сумма
+  // высот. При размерах по умолчанию считается ровно то же, что и раньше.
+  const wOf = grp => grp.length ? Math.max(...grp.map(n => SZ(n).w)) : NW;
+  const hOf = grp => grp.reduce((a, n) => a + SZ(n).h, 0) + Math.max(0, grp.length - 1) * ROWGAP;
+  const colX = [], subX = []; let x = PADX;
+  subs.forEach(gr => {
+    colX.push(x);
+    const xs = []; let cx = x;
+    gr.forEach(grp => {xs.push(cx); cx += wOf(grp) + SUBGAP;});
+    subX.push(xs); x = cx - SUBGAP + COLGAP;
+  });
+  const maxTot = Math.max(...subs.flat().map(hOf), NH);
   subs.forEach((gr, li) => gr.forEach((grp, si) => {
-    const total = grp.length * (NH + ROWGAP) - ROWGAP;
-    const y0 = PADY + (maxRows * (NH + ROWGAP) - ROWGAP - total) / 2;
-    grp.forEach((n, i) => pos[n.id] = {x: colX[li] + si * (NW + SUBGAP), y: y0 + i * (NH + ROWGAP)});
+    let y = PADY + (maxTot - hOf(grp)) / 2;
+    grp.forEach(n => {pos[n.id] = {x: subX[li][si], y}; y += SZ(n).h + ROWGAP;});
   }));
-  const H = PADY + maxRows * (NH + ROWGAP) + 40;
+  const H = PADY + maxTot + ROWGAP + 40;
   return {pos, lanes: colX.map((cx, i) => ({x: cx, idx: capIdx[i], h: H}))};
 }
 // Засев позиций для свободной раскладки. Вызывается ТОЛЬКО по явному действию —
@@ -1113,7 +1142,7 @@ function autoLayout(nodes) {
 // конкурирующие записи у всех, кто открыл доску одновременно.
 function seedFreePositions(pg) {
   if (!pg || pg.kind !== 'canvas' || !pg.canvas || pg.canvas.layout !== 'free') return false;
-  const nodes = pageNodes(pg), auto = autoLayout(nodes);
+  const nodes = pageNodes(pg), auto = autoLayout(nodes, pg.id);
   let seeded = false;
   nodes.forEach(n => {
     if (npos(n, pg.id)) return;
@@ -1131,7 +1160,7 @@ function layoutPage(pg, nodes) {
     laneInfo = [];
     return pos;
   }
-  const auto = autoLayout(nodes);
+  const auto = autoLayout(nodes, pid);
   const pos = {};
   if ((pg.canvas || {}).layout === 'auto') {
     nodes.forEach(n => pos[n.id] = npos(n, pid) || (n.pinned && n.x != null ? {x: n.x, y: n.y} : (auto.pos[n.id] || {x: 0, y: 0})));
@@ -1559,7 +1588,7 @@ function nodeHTML(n) {
     <div class="ns">${subBits.join(' ')} ${esc(n.sub || '')}</div>
     <div class="port l" data-port="l"></div><div class="port r" data-port="r"></div>
     <div class="port t" data-port="t"></div><div class="port b" data-port="b"></div>
-    ${(curPage().kind === 'space' || curPage().kind === 'jam') && !ro() ? '<div class="rs" title="потянуть, чтобы изменить размер"></div>' : ''}
+    ${isSpatial(curPage()) && !ro() ? '<div class="rs" title="потянуть, чтобы изменить размер"></div>' : ''}
   </div>`;
 }
 function paintNodes() {
@@ -2686,7 +2715,7 @@ function copySelection() {
   const pid = isSpatial(curPage()) ? curPage().id : null;
   let minx = Infinity, miny = Infinity;
   const posMap = {};
-  if (pid) arr.forEach(n => {const p = (typeof cvPos !== 'undefined' && cvPos[n.id]) || (n.p && n.p[pid]); if (p) {posMap[n.id] = p; minx = Math.min(minx, p.x); miny = Math.min(miny, p.y);}});
+  if (pid) arr.forEach(n => {const p = (typeof cvPos !== 'undefined' && cvPos[n.id]) || npos(n, pid); if (p) {posMap[n.id] = p; minx = Math.min(minx, p.x); miny = Math.min(miny, p.y);}});
   const nodes = arr.map(n => {
     const c = clone(n); c.p = {}; c.x = null; c.y = null;
     const p = posMap[n.id]; c._rel = p ? {dx: p.x - minx, dy: p.y - miny} : null;
@@ -5340,7 +5369,8 @@ function migrateNodeSizes(pr) {
     if (!n.sz || typeof n.sz !== 'object') continue;
     for (const pid in n.sz) {
       const z = n.sz[pid]; if (!z) continue;
-      const slot = (n.p[pid] = n.p[pid] || {x: 0, y: 0});
+      n.p = n.p || {};
+      const slot = (n.p[pid] = n.p[pid] || {});
       if (slot.w == null && z.w) slot.w = z.w;
       if (slot.h == null && z.h) slot.h = z.h;
     }
