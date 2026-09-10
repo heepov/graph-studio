@@ -201,9 +201,7 @@ export function showAuthPage(opts) {
   const draw = (msg) => {
     const reg = mode === 'register';
     $('authpage').innerHTML = `<div class="acard">
-      <div class="brandline"><div class="logo" style="width:28px;height:28px;border-radius:8px;
-        background:linear-gradient(135deg,#4262ff,#7b3fd1);display:flex;align-items:center;justify-content:center;
-        color:#fff;font-weight:800;font-size:14px">G</div>
+      <div class="brandline"><div class="logo" style="width:28px;height:28px"><svg class="lg" viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><circle cx="5.4" cy="5.4" r="3"/><circle cx="5.4" cy="14.6" r="3"/><circle cx="14.6" cy="14.6" r="3"/></g><path fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" d="M5.4 8.6 5.4 11.4M8.6 14.6 11.4 14.6"/></svg></div>
         <span style="font-weight:750;font-size:15px">Heepov Board</span></div>
       <h2>${reg ? 'Создание аккаунта' : 'Вход'}</h2>
       <div class="sub">${reg
@@ -261,7 +259,7 @@ export function showAuthPage(opts) {
 export function showLanding() {
   $('landing').innerHTML = `
   <div class="lhead">
-    <div class="hbrand"><div class="logo">G</div><div class="nm">Heepov Board</div></div>
+    <div class="hbrand"><div class="logo"><svg class="lg" viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><circle cx="5.4" cy="5.4" r="3"/><circle cx="5.4" cy="14.6" r="3"/><circle cx="14.6" cy="14.6" r="3"/></g><path fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" d="M5.4 8.6 5.4 11.4M8.6 14.6 11.4 14.6"/></svg></div><div class="nm">Heepov Board</div></div>
     <span class="hgrow"></span>
     <button class="btn" data-a="demo">Посмотреть демо</button>
     <button class="btn pri" data-a="login">Войти</button>
@@ -305,7 +303,7 @@ function heroArt() {
     <rect x="18" y="15" width="16" height="16" rx="5" fill="#4262ff"/>
     <rect x="42" y="19" width="86" height="8" rx="4" fill="#c8cede"/>
     <rect x="800" y="13" width="76" height="20" rx="6" fill="#4262ff"/>
-    <circle cx="900" cy="23" r="11" fill="#7b3fd1"/>
+    <circle cx="900" cy="23" r="11" fill="#2a44cc"/>
     <rect x="0" y="46" width="150" height="354" fill="#fff"/><line x1="150" y1="46" x2="150" y2="400" stroke="#e5e8f0"/>
     ${[0, 1, 2, 3].map(i => `<rect x="16" y="${72 + i * 30}" width="${96 - i * 12}" height="8" rx="4" fill="${i === 0 ? '#4262ff' : '#dfe3ec'}"/>`).join('')}
     <g stroke="#c3cad9" stroke-width="2" fill="none">

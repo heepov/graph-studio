@@ -68,6 +68,13 @@
   /* --side пока прежний: в main.js лежит своя копия (SIDE_FULL=236),
      и они уже разъехались на 12px. Сводятся в одно отдельным шагом —
      менять здесь в одиночку значит только поменять величину ошибки. */
+  /* ============ ЗНАК ============
+     Единственное определение. Раньше марка в сайдбаре, марка на главной,
+     аватар и icon.svg несли ЧЕТЫРЕ разных сине-фиолетовых градиента.
+     Знак графитовый: в интерфейсе, где синим помечено действие, логотип
+     не должен тянуть на себя внимание сильнее кнопки. */
+  --brand:#16181d; --brand-ink:#fff;
+
   --side:248px; --side-rail:52px;
   --insp-w:372px;
 }
@@ -120,7 +127,12 @@ body.dark #sideToggle:hover{background:var(--hov)}
 #app.siderail .pgi{justify-content:center;padding:8px 0}
 #app.siderail .pgi .ic{width:auto;font-size:14px}
 #app.siderail #sidefoot{padding:6px 6px 8px}
-.brand .logo{width:24px;height:24px;border-radius:7px;background:linear-gradient(135deg,#3355d1,#7b3fd1);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:13px}
+/* Знак-граф: два узла сходятся в один — «что чем заблокировано» без слов.
+   Не привязан к имени и переживёт следующее переименование. */
+.logo{border-radius:var(--r-s);background:var(--brand);color:var(--brand-ink);
+  display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.logo .lg{width:70%;height:70%;display:block}
+.brand .logo{width:22px;height:22px}
 .brand .nm{font-weight:750;font-size:14px;letter-spacing:-.2px}
 #projBtn{margin:0 8px 8px;padding:7px 9px;border:1px solid var(--line);background:#fff;border-radius:9px;cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;width:calc(100% - 16px)}
 #projBtn:hover{border-color:#c8cede;box-shadow:var(--sh1)}
@@ -268,7 +280,8 @@ body.dark .emptybox{background:var(--card)}
 #cvempty .txt{font-size:12.4px;color:var(--ink2);line-height:1.6}
 #cvempty b{color:var(--ink)}
 body.dark #cvempty{background:rgba(30,35,46,.86)}
-#marq{position:absolute;border:1px solid var(--accent);background:rgba(51,85,209,.09);pointer-events:none;display:none;z-index:60}
+#tmpLink{stroke:var(--accent)}
+#marq{position:absolute;border:1px solid var(--accent);background:rgba(var(--accent-rgb),.08);pointer-events:none;display:none;z-index:60}
 #mini{position:absolute;right:12px;bottom:12px;transition:right .16s;width:190px;height:126px;background:rgba(255,255,255,.93);border:1px solid var(--line);
   border-radius:9px;box-shadow:var(--sh1);z-index:30;cursor:pointer}
 #zoombar{position:absolute;left:12px;bottom:12px;z-index:30;display:flex;gap:5px;background:rgba(255,255,255,.93);
@@ -658,8 +671,7 @@ body.dark .chip.on{background:var(--accent-bg);border-color:var(--accent-br);col
 #hhead{height:60px;min-height:60px;display:flex;align-items:center;gap:14px;padding:0 20px;
   background:var(--card);border-bottom:1px solid var(--line)}
 .hbrand{display:flex;align-items:center;gap:9px;cursor:pointer;user-select:none;flex-shrink:0}
-.hbrand .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#4262ff,#7b3fd1);
-  display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:15px}
+.hbrand .logo{width:26px;height:26px}
 .hbrand .nm{font-weight:750;font-size:16px;letter-spacing:-.3px}
 /* Поиск по доскам. Он в шапке, а не в углу: когда досок больше десятка,
    искать глазами по сетке дольше, чем набрать три буквы. */
@@ -672,11 +684,10 @@ body.dark .chip.on{background:var(--accent-bg);border-color:var(--accent-br);col
 
 /* Аватар — единственная точка входа в аккаунт. Он в правом верхнем углу и на главной,
    и в редакторе: место, где его ищут не задумываясь. */
-.avat{width:34px;height:34px;min-width:34px;border-radius:50%;border:none;cursor:pointer;
-  background:linear-gradient(135deg,#4262ff,#7b3fd1);color:#fff;font-weight:700;font-size:13px;
+.avat{width:34px;height:34px;min-width:34px;border-radius:50%;cursor:pointer;
+  background:var(--surf2);color:var(--ink2);border:1px solid var(--line);font-weight:700;font-size:13px;
   display:flex;align-items:center;justify-content:center;letter-spacing:.3px;text-transform:uppercase}
-.avat:hover{filter:brightness(1.08)}
-.avat.guest{background:var(--line2);color:var(--ink2);border:1px solid var(--line)}
+.avat:hover{background:var(--hov2)}
 .avat.sm{width:26px;height:26px;min-width:26px;font-size:10.5px}
 /* Стопка участников доски: показывает, что доска не только твоя. */
 .avstack{display:flex;align-items:center;margin-right:2px}

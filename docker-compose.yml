@@ -73,7 +73,7 @@ services:
       ru.heeprod.showcase.visibility: "public"
       ru.heeprod.showcase.stage: "live"
       ru.heeprod.showcase.order: "10"
-      ru.heeprod.showcase.accent: "#5B8DEF"
+      ru.heeprod.showcase.accent: "#4262FF"
 
 volumes:
   gs-data:

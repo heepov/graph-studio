@@ -1691,7 +1691,7 @@ function paintEdges() {
     if (extra) h = h.replace('</defs>', extra + '</defs>');
     h += cp;
   }
-  h += '<path id="tmpLink" fill="none" stroke="#3355d1" stroke-width="2" stroke-dasharray="5,4" style="display:none"/>';
+  h += '<path id="tmpLink" fill="none" stroke-width="2" stroke-dasharray="5,4" style="display:none"/>';
   svg.innerHTML = h;
 }
 // Для прямой и ортогональной линии середину считаем арифметически: midOf() создаёт
@@ -1824,7 +1824,11 @@ function drawMini() {
     ctx.globalAlpha = 1;
   });
   const v = view(), r = cvRect();
-  ctx.strokeStyle = '#3355d1'; ctx.lineWidth = 2;
+  // Рамка окна на миникарте берёт акцент из темы: в тёмной он светлее,
+  // и прежний жёстко зашитый синий на ней тонул.
+  ctx.strokeStyle = getComputedStyle(document.documentElement)
+    .getPropertyValue('--accent').trim() || '#4262ff';
+  ctx.lineWidth = 2;
   ctx.strokeRect((-v.x / v.k - x0) * k, (-v.y / v.k - y0) * k, (r.width / v.k) * k, (r.height / v.k) * k);
 }
 function fitAll() {

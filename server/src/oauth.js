@@ -133,28 +133,29 @@ export function registerOAuth(app, db, opts) {
   const page = (title, body) => `<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} — Heepov Board</title>
 <style>
-  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f1f3f8;
-    font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#141822;padding:24px}
-  .c{background:#fff;border:1px solid #e5e8f0;border-radius:16px;box-shadow:0 4px 14px rgba(16,20,32,.1);
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f4f5f7;
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#16181d;padding:24px}
+  .c{background:#fff;border:1px solid #e3e5ea;border-radius:12px;box-shadow:0 2px 8px rgba(16,20,32,.08);
     width:100%;max-width:420px;padding:30px}
   .b{display:flex;align-items:center;gap:9px;justify-content:center;margin-bottom:18px}
-  .b i{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#4262ff,#7b3fd1);
-    display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-style:normal;font-size:14px}
+  .b i{width:26px;height:26px;border-radius:6px;background:#16181d;color:#fff;
+    display:flex;align-items:center;justify-content:center}
+  .b i .lg{width:70%;height:70%;display:block}
   .b span{font-weight:750;font-size:15px}
   h1{font-size:20px;margin:0 0 8px;text-align:center;letter-spacing:-.3px}
-  p{color:#4d5567;margin:0 0 16px;text-align:center}
-  ul{color:#4d5567;margin:0 0 18px;padding-left:20px}
+  p{color:#4a4f5a;margin:0 0 16px;text-align:center}
+  ul{color:#4a4f5a;margin:0 0 18px;padding-left:20px}
   li{margin:4px 0}
-  label{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#6b7383;margin:0 0 4px}
-  input{width:100%;box-sizing:border-box;padding:10px 12px;font-size:14px;border:1px solid #e5e8f0;
-    border-radius:8px;margin-bottom:12px;font-family:inherit}
-  button{width:100%;padding:11px;font-size:14.5px;font-weight:650;border:none;border-radius:8px;
+  label{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#696e7a;margin:0 0 4px}
+  input{width:100%;box-sizing:border-box;padding:9px 12px;font-size:14px;border:1px solid #e3e5ea;
+    border-radius:6px;margin-bottom:12px;font-family:inherit}
+  button{width:100%;padding:10px;font-size:15px;font-weight:650;border:none;border-radius:6px;
     background:#4262ff;color:#fff;cursor:pointer;font-family:inherit}
-  button.sec{background:#fff;color:#4d5567;border:1px solid #e5e8f0;margin-top:8px}
-  .err{background:#fdecea;border:1px solid #f0c7c2;color:#b3261e;border-radius:8px;padding:9px 11px;margin-bottom:14px}
-  .hint{font-size:12.5px;color:#6b7383;text-align:center;margin-top:14px}
+  button.sec{background:#fff;color:#4a4f5a;border:1px solid #e3e5ea;margin-top:8px}
+  .err{background:#fdecea;border:1px solid #f0c7c2;color:#b3261e;border-radius:6px;padding:9px 11px;margin-bottom:14px}
+  .hint{font-size:12.5px;color:#696e7a;text-align:center;margin-top:14px}
 </style></head><body><div class="c">
-<div class="b"><i>G</i><span>Heepov Board</span></div>${body}</div></body></html>`;
+<div class="b"><i><svg class="lg" viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><circle cx="5.4" cy="5.4" r="3"/><circle cx="5.4" cy="14.6" r="3"/><circle cx="14.6" cy="14.6" r="3"/></g><path fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" d="M5.4 8.6 5.4 11.4M8.6 14.6 11.4 14.6"/></svg></i><span>Heepov Board</span></div>${body}</div></body></html>`;
 
   const hidden = q => Object.entries(q).filter(([, v]) => v != null && v !== '')
     .map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join('');

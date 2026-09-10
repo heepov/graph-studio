@@ -8,7 +8,11 @@
      Относительные пути он утащил бы в /assets/ с хэшем, и манифест,
      который ссылается на "icon.svg", начал бы указывать в пустоту. -->
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#4262ff">
+<!-- Цвет обрамления браузера следует теме страницы, а не бренду: так шапка
+     приложения и рамка окна не спорят. Тема в приложении своя (body.dark),
+     поэтому расхождение возможно — это осознанно. -->
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#17191d" media="(prefers-color-scheme: dark)">
 <meta name="mobile-web-app-capable" content="yes">
 <!-- apple-* оставлен для старых iOS Safari: стандартный тег там ещё не понимается -->
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -21,7 +25,7 @@
 
 <div id="app">
   <div id="side">
-    <div class="brand"><div class="logo">G</div><div class="nm">Heepov Board</div>
+    <div class="brand"><div class="logo"><svg class="lg" viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><circle cx="5.4" cy="5.4" r="3"/><circle cx="5.4" cy="14.6" r="3"/><circle cx="14.6" cy="14.6" r="3"/></g><path fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" d="M5.4 8.6 5.4 11.4M8.6 14.6 11.4 14.6"/></svg></div><div class="nm">Heepov Board</div>
       <button id="sideToggle" title="Свернуть панель (Ctrl+B)">‹</button></div>
     <button id="projBtn"><span class="pn">—</span><span class="cnt">▾</span></button>
     <div class="sidecap">Страницы <span class="add noview" id="addPage" title="Новая страница">＋</span></div>
@@ -71,7 +75,7 @@
      у него свой адрес, своя шапка и своя точка входа в аккаунт. -->
 <div id="home">
   <div id="hhead">
-    <div class="hbrand" id="hBrand"><div class="logo">G</div><div class="nm">Heepov Board</div></div>
+    <div class="hbrand" id="hBrand"><div class="logo"><svg class="lg" viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><circle cx="5.4" cy="5.4" r="3"/><circle cx="5.4" cy="14.6" r="3"/><circle cx="14.6" cy="14.6" r="3"/></g><path fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" d="M5.4 8.6 5.4 11.4M8.6 14.6 11.4 14.6"/></svg></div><div class="nm">Heepov Board</div></div>
     <div class="hsearchw"><span class="ic">🔍</span><input id="hq" type="text" placeholder="Поиск по доскам" autocomplete="off"></div>
     <span class="hgrow"></span>
     <button class="btn" id="hImport" title="Загрузить доску из файла JSON">↥ Импорт</button>
