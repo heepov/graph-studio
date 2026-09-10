@@ -33,6 +33,57 @@ const qs = (s, r) => (r || document).querySelector(s);
 const qsa = (s, r) => [...(r || document).querySelectorAll(s)];
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
+
+/* ---------- keyed-патч списка ----------
+   Замена `box.innerHTML = list.map(html).join('')` там, где список переживает
+   перерисовку. Полная пересборка убивает DOM-узлы, а с ними всё, что живёт на
+   идентичности элемента: фокус, каретку, прокрутку, начатое перетаскивание.
+   Отсюда росли заплатки вида «снять scrollTop до renderPage и вернуть после».
+
+   Совпал ключ и совпала разметка — элемент не трогаем ВООБЩЕ. Разметку сверяем
+   с той, из которой элемент был сделан (`el.__h`), а НЕ с текущим outerHTML:
+   во время жеста в el.style пишут напрямую, и сверка с живым DOM пересоздавала
+   бы элемент прямо под рукой.
+
+   ⚠️ Элементы теперь переживают перерисовку, поэтому обработчики на них можно
+   вешать только присваиванием (el.onclick = …). addEventListener на переиспользуемом
+   элементе копится с каждой перерисовкой — см. wireKbResize и тач-драг карточек. */
+function elFromHTML(h) {
+  // <template> разбирает <tr>/<td> вне таблицы правильно, обычный div — нет.
+  const t = document.createElement('template');
+  t.innerHTML = h;
+  return t.content.firstElementChild;
+}
+function patchList(box, items, keyOf, htmlOf) {
+  if (!box) return;
+  const old = new Map();
+  for (const el of [...box.children]) {
+    const k = el.__k;
+    if (k != null && !old.has(k)) old.set(k, el); else el.remove();
+  }
+  let prev = null;
+  for (const it of items) {
+    const k = String(keyOf(it)), h = htmlOf(it);
+    let el = old.get(k);
+    if (el) {
+      old.delete(k);
+      if (el.__h !== h) {
+        const fresh = elFromHTML(h);
+        if (fresh) {fresh.__k = k; fresh.__h = h; el.replaceWith(fresh); el = fresh;}
+      }
+    } else {
+      el = elFromHTML(h);
+      if (!el) continue;
+      el.__k = k; el.__h = h;
+    }
+    // Двигаем, только если место не то: лишний insertBefore сам по себе рвёт
+    // перетаскивание и сбрасывает прокрутку, даже когда разметка совпала.
+    const want = prev ? prev.nextSibling : box.firstChild;
+    if (el !== want) box.insertBefore(el, want);
+    prev = el;
+  }
+  for (const el of old.values()) el.remove();
+}
 const uniq = a => [...new Set(a)];
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const today = () => new Date().toISOString().slice(0, 10);
@@ -1512,7 +1563,13 @@ function nodeHTML(n) {
   </div>`;
 }
 function paintNodes() {
-  $('lyNodes').innerHTML = cvNodes.map(nodeHTML).join('');
+  // Патчем, а не пересборкой: правка одного узла на доске в полтысячи узлов меняла
+  // разметку всех разом (см. «Все узлы — DOM-элементы» в техдолге). Заодно чужая
+  // правка по живому каналу больше не сносит узел, который сейчас тащат: разметка
+  // из P у него не изменилась, значит элемент не трогаем, и жест доживает до конца.
+  // Колонки дорисовываются после и ключей не имеют — patchList их снимает, а
+  // paintLanes тут же ставит заново, порядок в DOM прежний.
+  patchList($('lyNodes'), cvNodes, n => n.id, nodeHTML);
   paintLanes(); applyHi();
 }
 function paintLanes() {
@@ -2510,7 +2567,10 @@ function inlineRename(el) {
     t.contentEditable = 'false'; t.classList.remove('nte');
     const v = t.textContent.trim();
     if (v && v !== n.name) {snapNow(); n.name = v; save(); renderPage(); if (UI.insp === id) openNode(id);}
-    else paintNodes();
+    // Имя возвращаем сами: правка шла прямо в DOM, а paintNodes теперь патчит по
+    // разметке из P — она не изменилась, узел не пересоберётся, и стёртое имя
+    // так и осталось бы на экране.
+    else {t.textContent = n.name; paintNodes();}
   };
   t.onblur = done;
   t.onkeydown = ev => {if (ev.key === 'Enter') {ev.preventDefault(); t.blur();} if (ev.key === 'Escape') {t.textContent = n.name; t.blur();} ev.stopPropagation();};
@@ -3263,13 +3323,12 @@ function stalePages() {
   const pg = curPage();
   if (!pg || (pg.kind !== 'table' && pg.kind !== 'board')) return;
   clearTimeout(staleT);
+  // Дебаунс остаётся: перерисовывать на каждый символ незачем. А снимать и возвращать
+  // прокрутку руками больше не нужно — patchList оставляет на месте строки и колонки,
+  // которые не изменились, и прокрутка держится на них сама.
   staleT = setTimeout(() => {
     const p = curPage(); if (!p || (p.kind !== 'table' && p.kind !== 'board')) return;
-    const sc = qs('#view .scroller'), st = sc ? sc.scrollTop : 0;
-    const kb = qs('#view .kb'), kx = kb ? kb.scrollLeft : 0;
     renderPage(); // не трогает #insp, поэтому фокус в инспекторе сохраняется
-    const sc2 = qs('#view .scroller'); if (sc2) sc2.scrollTop = st;
-    const kb2 = qs('#view .kb'); if (kb2) kb2.scrollLeft = kx;
   }, 160);
 }
 function jumpToNode(id) {
@@ -3562,10 +3621,10 @@ const KIND = {
 const kindName = k => (KIND[k] || {n: k}).n;
 
 function renderPages() {
-  $('pageList').innerHTML = P.pages.map(p =>
+  patchList($('pageList'), P.pages, p => p.id, p =>
     `<div class="pgi${p.id === UI.page ? ' on' : ''}" data-p="${p.id}" title="${esc(p.name)} · ${esc(kindName(p.kind))}" draggable="${VIEWER ? 'false' : 'true'}">
       <span class="ic">${KIND[p.kind] ? KIND[p.kind].i : '•'}</span><span class="nm">${esc(p.name)}</span>
-      <span class="mo noview" data-mo="${p.id}">⋯</span></div>`).join('');
+      <span class="mo noview" data-mo="${p.id}">⋯</span></div>`);
   qsa('#pageList .pgi').forEach(el => {
     el.onclick = e => {if (e.target.dataset.mo) {pageMenu(e, e.target.dataset.mo); return;} gotoPage(el.dataset.p);};
     // Правая кнопка — второй вход в меню страницы. В узком режиме панели «⋯» скрыт,
@@ -3919,24 +3978,41 @@ function renderTable(pg) {
   const colgroup = sized
     ? `<colgroup>${cols.map(c => `<col data-c="${esc(c)}"${+W[c] > 0 ? ` style="width:${Math.round(+W[c])}px"` : ''}>`).join('')}<col style="width:38px"></colgroup>`
     : '';
-  const th = cols.map(c => `<th data-c="${esc(c)}"${ro() ? '' : ' draggable="true"'} title="${ro() ? '' : 'перетащить — поменять колонки местами; клик — сортировка'}">`
+  const thHTML = c => `<th data-c="${esc(c)}"${ro() ? '' : ' draggable="true"'} title="${ro() ? '' : 'перетащить — поменять колонки местами; клик — сортировка'}">`
     + `${esc(colLabel(c))}${t.sort === c ? ` <span class="ar">${t.dir > 0 ? '▲' : '▼'}</span>` : ''}`
-    + (VIEWER ? '' : '<div class="colrs" title="потянуть — ширина колонки; двойной клик — по содержимому"></div>') + '</th>').join('');
-  let rows = '';
+    + (VIEWER ? '' : '<div class="colrs" title="потянуть — ширина колонки; двойной клик — по содержимому"></div>') + '</th>';
+  // Строки собираем описаниями, а не одной простынёй разметки: patchList оставит на
+  // месте те, что не изменились, и прокрутка вместе с начатым перетаскиванием
+  // переживёт правку. Группировочной строке ключа в разметке нет — даём свой.
+  const rowItems = [];
   groups.forEach(gr => {
     const list = t.group ? ns.filter(n => String(cellValue(n, t.group)) === gr) : ns;
-    if (t.group) rows += `<tr class="grouphd"><td colspan="${cols.length + 1}">${esc(colLabel(t.group))}: ${esc(gr || '—')} · ${list.length}</td></tr>`;
-    list.forEach(n => {
-      rows += `<tr data-r="${esc(n.id)}" class="${UI.sel.has(n.id) ? 'selrow' : ''}">` + cols.map(c => `<td>${cellHTML(n, c)}</td>`).join('') +
-        `<td style="width:30px"><button class="ib" data-open="${esc(n.id)}" title="карточка">↗</button></td></tr>`;
-    });
+    if (t.group) rowItems.push({k: 'g:' + gr, h: `<tr class="grouphd"><td colspan="${cols.length + 1}">${esc(colLabel(t.group))}: ${esc(gr || '—')} · ${list.length}</td></tr>`});
+    list.forEach(n => rowItems.push({k: 'r:' + n.id, h:
+      `<tr data-r="${esc(n.id)}" class="${UI.sel.has(n.id) ? 'selrow' : ''}">` + cols.map(c => `<td>${cellHTML(n, c)}</td>`).join('') +
+      `<td style="width:30px"><button class="ib" data-open="${esc(n.id)}" title="карточка">↗</button></td></tr>`}));
   });
-  $('view').innerHTML = ns.length
-    ? `<div class="scroller"><div class="tblwrap"><table class="grid${sized ? ' fixed' : ''}">${colgroup}
-      <thead><tr>${th}<th></th></tr></thead><tbody>${rows}</tbody></table></div>
+  // Каркас пересобираем только когда изменилось то, чего патчем не поправить: набор
+  // и ширины колонок, режим fixed, право на правку. Ключ держим на самом элементе,
+  // а не в data-атрибуте — разметка обязана остаться ровно прежней.
+  const shellKey = `${pg.id}|${cols.join(',')}|${sized ? 1 : 0}|${cols.map(c => Math.round(+W[c] || 0)).join(',')}|${ro() ? 1 : 0}|${t.group || ''}`;
+  let sc = qs('#view > .scroller');
+  if (!ns.length || !sc || sc.__shell !== shellKey) {
+    $('view').innerHTML = ns.length
+      ? `<div class="scroller"><div class="tblwrap"><table class="grid${sized ? ' fixed' : ''}">${colgroup}
+      <thead><tr></tr></thead><tbody></tbody></table></div>
       ${VIEWER ? '' : `<div style="margin-top:10px"><button class="btn" id="tAdd">＋ Узел</button></div>`}
       </div>`
-    : `<div class="scroller">${emptyBlock(pg, P.nodes.length)}</div>`;
+      : `<div class="scroller">${emptyBlock(pg, P.nodes.length)}</div>`;
+    sc = qs('#view > .scroller');
+    if (sc && ns.length) sc.__shell = shellKey;
+  }
+  // Заголовок патчим тоже: смена сортировки меняет одну стрелку, и пересобирать
+  // из-за неё таблицу целиком значило бы терять прокрутку на каждый клик.
+  const thItems = cols.map(c => ({k: 'c:' + c, h: thHTML(c)}));
+  thItems.push({k: 'tail', h: '<th></th>'});
+  patchList(qs('#view thead tr'), thItems, it => it.k, it => it.h);
+  patchList(qs('#view tbody'), rowItems, it => it.k, it => it.h);
   $('tblCount').textContent = nOf(ns.length, ROWS);
   qsa('#view th[data-c]').forEach(el => el.onclick = e => {
     if (e.target.closest('.colrs')) return;   // тянут ширину, а не сортируют
@@ -3968,8 +4044,12 @@ function renderTable(pg) {
    ширина уходит на pointerup. Иначе снимок для отмены снимался бы уже с изменённой
    ширины и Ctrl+Z её не отменял — ровно те же грабли, что были с ресайзом областей.
 
-   Слушатели вешаются на элементы, которые пересоздаются вместе с #view, а состояние
-   жеста живёт в замыкании: renderTable/renderBoard зовутся на каждую перерисовку. */
+   Обработчик ставится ПРИСВАИВАНИЕМ (h.onpointerdown = …), а не addEventListener:
+   с patchList элементы переживают перерисовку, и addEventListener копил бы на них
+   по обработчику за раз — ручка ширины начинала бы тянуть в несколько потоков.
+   Присваивание всегда ставит свежее замыкание вместо прежнего, а это ещё и важно
+   после чужой правки: applyLiveDoc заменяет весь P, и замыкание со старым pg
+   писало бы ширину в отцепленную страницу. */
 const COL_MIN = 60, KBCOL_MIN = 160;
 
 function wireColResize(pg) {
@@ -3985,7 +4065,7 @@ function wireColResize(pg) {
       if (!Object.keys(t.w).length) delete t.w;
       save(); renderPage();
     };
-    h.addEventListener('pointerdown', e => {
+    h.onpointerdown = e => {
       if (ro() || e.button === 2) return;
       e.preventDefault(); e.stopPropagation();
       // Заголовок перетаскивается целиком (перестановка колонок), и нажатие на ручку
@@ -4013,7 +4093,7 @@ function wireColResize(pg) {
       };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
-    });
+    };
   });
 }
 // Таблица могла быть отрисована без colgroup (ширины ещё не задавали). Тогда он
@@ -4177,7 +4257,7 @@ function wireKbResize(pg) {
       if (!Object.keys(b.w).length) delete b.w;
       save(); renderPage();
     };
-    h.addEventListener('pointerdown', e => {
+    h.onpointerdown = e => {
       if (ro() || e.button === 2) return;
       e.preventDefault(); e.stopPropagation();
       const start = e.clientX, w0 = col.getBoundingClientRect().width;
@@ -4198,7 +4278,7 @@ function wireKbResize(pg) {
       };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
-    });
+    };
   });
 }
 function cellHTML(n, c) {
@@ -4262,29 +4342,45 @@ function renderBoard(pg) {
   const ns = pageNodes(pg), g = G();
   const val = n => by === 'step' ? String(stepOf(n)) : String(fval(n, by) == null ? '' : fval(n, by));
   const BW = (pg.board.w && typeof pg.board.w === 'object') ? pg.board.w : {};
-  let h = '<div class="kb">';
-  cols.forEach(c => {
-    const list = kbSort(ns.filter(n => val(n) === String(c.k)), pg, String(c.k), g);
-    // Ширина своя у каждой колонки: у «Готово» и «В работе» разное число карточек,
-    // и одинаковая ширина для них — не свойство канбана, а его умолчание.
-    const cw = +BW[c.k] > 0 ? ` style="width:${Math.round(+BW[c.k])}px;min-width:${Math.round(+BW[c.k])}px"` : '';
-    h += `<div class="kbcol" data-k="${esc(c.k)}"${cw}>
-      <div class="kbh">${c.c ? `<span class="dt" style="background:${c.c};width:9px;height:9px;border-radius:50%"></span>` : ''}${esc(c.n)}<span class="n">${list.length}</span></div>
-      <div class="kbl">${list.map(n => `<div class="kc" data-n="${esc(n.id)}" draggable="${VIEWER ? 'false' : 'true'}">
+  // Карточка отдельно от колонки, а счётчик в шапке — вообще не через разметку.
+  // Иначе перенос карточки менял бы разметку колонки целиком, колонка пересобиралась
+  // бы, и прокрутка уезжала в начало при каждом переносе (так и было до 2.8.0).
+  const cardHTML = n => `<div class="kc" data-n="${esc(n.id)}" draggable="${VIEWER ? 'false' : 'true'}">
         <div class="bar" style="background:${catOf(n.cat).color}"></div>
         <div class="t">${esc(n.name)}</div>${n.sub ? `<div class="s">${esc(n.sub)}</div>` : ''}
         <div class="m">${by !== 'status' ? pillOf(n.status) : ''}
           ${nBlockers(n) ? `<span class="pill" style="color:var(--red);background:var(--red-bg)">⚠${nBlockers(n)}</span>` : ''}
           ${g.W(n.id) >= 3 ? `<span class="pill" style="color:var(--accent);background:var(--accent-bg)">${g.W(n.id)}</span>` : ''}</div>
-      </div>`).join('')}</div>
+      </div>`;
+  const colItems = cols.map(c => {
+    // Ширина своя у каждой колонки: у «Готово» и «В работе» разное число карточек,
+    // и одинаковая ширина для них — не свойство канбана, а его умолчание.
+    const cw = +BW[c.k] > 0 ? ` style="width:${Math.round(+BW[c.k])}px;min-width:${Math.round(+BW[c.k])}px"` : '';
+    return {k: String(c.k), h: `<div class="kbcol" data-k="${esc(c.k)}"${cw}>
+      <div class="kbh">${c.c ? `<span class="dt" style="background:${c.c};width:9px;height:9px;border-radius:50%"></span>` : ''}${esc(c.n)}<span class="n"></span></div>
+      <div class="kbl"></div>
       ${VIEWER ? '' : `<button class="btn sm" data-add="${esc(c.k)}" style="margin-top:6px;width:100%;justify-content:center">＋</button>`}
       ${VIEWER ? '' : '<div class="kbrs" title="потянуть — ширина колонки; двойной клик — вернуть обычную"></div>'}
-    </div>`;
+    </div>`};
   });
-  h += '</div>';
-  $('view').innerHTML = ns.length
-    ? `<div class="scroller" style="padding-bottom:20px">${h}</div>`
-    : `<div class="scroller">${emptyBlock(pg, P.nodes.length)}</div>`;
+  // Каркас — только пустая доска колонок. Ключ на самом элементе, разметка прежняя.
+  const shellKey = 'kb:' + pg.id;
+  let sc = qs('#view > .scroller');
+  if (!ns.length || !sc || sc.__shell !== shellKey) {
+    $('view').innerHTML = ns.length
+      ? `<div class="scroller" style="padding-bottom:20px"><div class="kb"></div></div>`
+      : `<div class="scroller">${emptyBlock(pg, P.nodes.length)}</div>`;
+    sc = qs('#view > .scroller');
+    if (sc && ns.length) sc.__shell = shellKey;
+  }
+  patchList(qs('#view .kb'), colItems, it => it.k, it => it.h);
+  cols.forEach(c => {
+    const colEl = qs(`#view .kbcol[data-k="${CSS.escape(String(c.k))}"]`);
+    if (!colEl) return;
+    const list = kbSort(ns.filter(n => val(n) === String(c.k)), pg, String(c.k), g);
+    const cnt = qs('.kbh .n', colEl); if (cnt) cnt.textContent = list.length;
+    patchList(qs('.kbl', colEl), list, n => n.id, cardHTML);
+  });
   // Перенос карточки в другую колонку. Одна функция на оба способа: HTML5 drag&drop
   // (мышь) и перетаскивание пальцем. Раньше был только первый, и на телефоне канбан
   // работал ровно наполовину — посмотреть можно, передвинуть нельзя.
@@ -4296,7 +4392,7 @@ function renderBoard(pg) {
     el.ondragstart = e => {e.dataTransfer.setData('text/plain', el.dataset.n); el.classList.add('drag');};
     el.ondragend = () => {el.classList.remove('drag'); kbInsMark(null);};
     if (VIEWER) return;
-    el.addEventListener('pointerdown', e => {
+    el.onpointerdown = e => {
       if (e.pointerType !== 'touch' || ro()) return;
       const startX = e.clientX, startY = e.clientY;
       let ghost = null, over = null, moved = false, lastY = e.clientY;
@@ -4339,7 +4435,7 @@ function renderBoard(pg) {
       window.addEventListener('pointermove', move, {passive: false});
       window.addEventListener('pointerup', up);
       window.addEventListener('pointercancel', up);
-    });
+    };
   });
   qsa('.kbcol').forEach(col => {
     col.ondragover = e => {e.preventDefault(); col.classList.add('over'); kbInsMark(col, kbIndexAt(col, e.clientY));};
@@ -5965,7 +6061,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, COL_MIN, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KBCOL_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, emptyBlock, endPtr, ensureColgroup, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamBase, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamRest, jamSnapshot, jamToolDown, jumpToNode, kbDropTo, kbIndexAt, kbInsMark, kbScroll, kbSort, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeJamDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, moveTableCol, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireColOrder, wireColResize, wireEdit, wireJam, wireKbResize, wrapLines, zoomAt});
+Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, COL_MIN, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KBCOL_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, elFromHTML, emptyBlock, endPtr, ensureColgroup, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamBase, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamRest, jamSnapshot, jamToolDown, jumpToNode, kbDropTo, kbIndexAt, kbInsMark, kbScroll, kbSort, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeJamDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, moveTableCol, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, patchList, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireColOrder, wireColResize, wireEdit, wireJam, wireKbResize, wrapLines, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, 'RO', {get: () => RO, set: v => {RO = v;}, configurable: true});
