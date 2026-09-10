@@ -720,6 +720,82 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
     sw === 0 ? ok('service worker не регистрируется (kill-switch)')
              : bad('service worker всё ещё зарегистрирован', 'регистраций: ' + sw);
 
+    // --- ширина колонок: таблица -------------------------------------------
+    // Ширина пишется в документ на ОТПУСКАНИИ, а не по ходу жеста: иначе снимок
+    // для отмены снимался бы уже с изменённой шириной и Ctrl+Z её не отменял.
+    // Предыдущие проверки оставляют открытым диалог экспорта — он лежит поверх
+    // всего, и клики по таблице уходят в него.
+    await c.eval(`(() => { closeModal(); closeInsp(); return true; })()`);
+    await c.eval(`gotoPage(P.pages.find(p => p.kind === 'table').id)`);
+    await sleep(500);
+    const tw0 = await c.eval(`(() => {
+      const th = document.querySelector('#view th[data-c]');
+      const r = th.querySelector('.colrs').getBoundingClientRect();
+      const cx = Math.round(r.left + r.width / 2), cy = Math.round(r.top + r.height / 2);
+      const top = document.elementFromPoint(cx, cy);
+      return {col: th.dataset.c, w: Math.round(th.getBoundingClientRect().width),
+              x: cx, y: cy, stored: !!(curPage().table.w),
+              top: top ? (top.className || top.id || top.tagName) : null,
+              modal: document.getElementById('modal').classList.contains('open')}; })()`);
+    !tw0.stored ? ok('пока ширины не трогали, таблица раскладывается сама')
+                : bad('ширины откуда-то взялись до перетаскивания', JSON.stringify(tw0));
+    // Шапка обязана остаться залипающей: ручка ресайза лежит в th абсолютом,
+    // и соблазн дописать th{position:relative} расклеил бы шапку при прокрутке.
+    const thPos = await c.eval(`getComputedStyle(document.querySelector('#view th[data-c]')).position`);
+    thPos === 'sticky' ? ok('шапка таблицы осталась залипающей')
+                       : bad('ручка ресайза расклеила шапку таблицы', thPos);
+
+    await c.mouse('mousePressed', tw0.x, tw0.y);
+    for (let i = 1; i <= 5; i++) await c.mouse('mouseMoved', tw0.x + i * 24, tw0.y);
+    const twDuring = await c.eval(`!!(curPage().table.w)`);
+    await c.mouse('mouseReleased', tw0.x + 120, tw0.y, {buttons: 0});
+    await sleep(300);
+    const tw1 = await c.eval(`(() => { const t = curPage().table;
+      return {stored: t.w ? t.w[${JSON.stringify(tw0.col)}] : null,
+              fixed: document.querySelector('#view table.grid').classList.contains('fixed')}; })()`);
+    (!twDuring && tw1.stored > tw0.w + 60 && tw1.fixed)
+      ? ok('колонка таблицы тянется мышью, документ меняется на отпускании', `${tw0.w} → ${tw1.stored}px`)
+      : bad('ширина колонки таблицы не записалась', JSON.stringify({tw0, twDuring, tw1}));
+
+    // Ширина обязана пережить перерисовку: она в документе, а не в DOM.
+    await c.eval(`renderPage()`);
+    await sleep(300);
+    const twKept = await c.eval(`(() => { const col = document.querySelector('#view col[data-c]');
+      return col ? Math.round(parseFloat(col.style.width) || 0) : 0; })()`);
+    Math.abs(twKept - tw1.stored) < 3 ? ok('ширина колонки переживает перерисовку', twKept + 'px')
+                                      : bad('ширина потерялась при перерисовке', `${twKept} вместо ${tw1.stored}`);
+
+    await c.eval(`undo()`);
+    await sleep(300);
+    const twUndone = await c.eval(`!!(curPage().table.w)`);
+    !twUndone ? ok('Ctrl+Z отменяет изменение ширины')
+              : bad('отмена не вернула ширину');
+
+    // --- ширина колонок: канбан --------------------------------------------
+    await c.eval(`gotoPage(P.pages.find(p => p.kind === 'board').id)`);
+    await sleep(500);
+    const kw0 = await c.eval(`(() => {
+      const col = document.querySelector('#view .kbcol');
+      const r = col.querySelector('.kbrs').getBoundingClientRect();
+      return {k: col.dataset.k, w: Math.round(col.getBoundingClientRect().width),
+              x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}; })()`);
+    await c.mouse('mousePressed', kw0.x, kw0.y);
+    for (let i = 1; i <= 5; i++) await c.mouse('mouseMoved', kw0.x + i * 20, kw0.y);
+    await c.mouse('mouseReleased', kw0.x + 100, kw0.y, {buttons: 0});
+    await sleep(300);
+    const kw1 = await c.eval(`(() => { const b = curPage().board;
+      return {stored: b.w ? b.w[${JSON.stringify(kw0.k)}] : null,
+              shown: Math.round(document.querySelector('#view .kbcol').getBoundingClientRect().width)}; })()`);
+    (kw1.stored > kw0.w + 50 && Math.abs(kw1.shown - kw1.stored) < 3)
+      ? ok('колонка канбана тянется мышью', `${kw0.w} → ${kw1.stored}px`)
+      : bad('ширина колонки канбана не записалась', JSON.stringify({kw0, kw1}));
+
+    await c.eval(`renderPage()`);
+    await sleep(300);
+    const kwKept = await c.eval(`Math.round(document.querySelector('#view .kbcol').getBoundingClientRect().width)`);
+    Math.abs(kwKept - kw1.stored) < 3 ? ok('ширина колонки канбана переживает перерисовку', kwKept + 'px')
+                                      : bad('ширина канбана потерялась', `${kwKept} вместо ${kw1.stored}`);
+
     const errs = c.errors.filter(e => !/favicon|manifest/i.test(e));
     errs.length ? bad('исключения в консоли', errs.join(' | ').slice(0, 400)) : ok('исключений в консоли нет');
 

@@ -902,3 +902,27 @@ body.dark #jambar button:hover,body.dark #jprops .jb:hover,body.dark #jprops .jw
 body.dark #cv.bg-grid{background-image:
   linear-gradient(to right, rgba(255,255,255,.07) 1px, transparent 1px),
   linear-gradient(to bottom, rgba(255,255,255,.07) 1px, transparent 1px)}
+
+/* --- ширина колонок: таблица и канбан -----------------------------------
+   Ручка лежит на правом краю заголовка. Пока ширины не заданы, таблица
+   раскладывается по содержимому; как только задали хоть одну — table-layout
+   становится fixed, иначе браузер продолжит подгонять соседние колонки
+   под содержимое и заданная ширина будет уезжать. */
+/* position у th НЕ переопределяем: он sticky (залипающая шапка), и этого достаточно —
+   sticky тоже задаёт систему координат для absolute-потомков. Правило
+   `th{position:relative}` тихо расклеило бы шапку при прокрутке. */
+table.grid.fixed{table-layout:fixed}
+table.grid.fixed th{overflow:hidden;text-overflow:ellipsis}
+table.grid.fixed td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.grid.fixed td .cellin,table.grid.fixed td .cellsel{max-width:100%}
+.colrs{position:absolute;top:0;right:0;bottom:0;width:9px;cursor:col-resize;z-index:6;
+  touch-action:none;background:transparent}
+.colrs::after{content:'';position:absolute;top:5px;bottom:5px;right:4px;width:2px;border-radius:1px;background:transparent}
+table.grid th:hover .colrs::after,.colrs.on::after{background:var(--accent-br)}
+.colrs.on::after{background:var(--accent)}
+
+.kbcol{position:relative}
+.kbrs{position:absolute;top:0;right:-6px;bottom:0;width:12px;cursor:col-resize;z-index:4;touch-action:none}
+.kbrs::after{content:'';position:absolute;top:10px;bottom:10px;left:5px;width:2px;border-radius:1px;background:transparent}
+.kbcol:hover .kbrs::after,.kbrs.on::after{background:var(--accent-br)}
+.kbrs.on::after{background:var(--accent)}

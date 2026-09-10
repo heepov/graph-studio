@@ -3905,7 +3905,17 @@ function renderTable(pg) {
   };
   ns.sort((a, b) => {const x = key(a), y = key(b); return (x > y ? 1 : x < y ? -1 : 0) * (t.dir || 1) || String(a.name).localeCompare(b.name);});
   const groups = t.group ? uniq(ns.map(n => String(cellValue(n, t.group)))).sort() : [''];
-  const th = cols.map(c => `<th data-c="${esc(c)}">${esc(colLabel(c))}${t.sort === c ? ` <span class="ar">${t.dir > 0 ? '▲' : '▼'}</span>` : ''}</th>`).join('');
+  // Ширины колонок. Пока их не трогали, таблица раскладывается сама по содержимому —
+  // так она и должна выглядеть из коробки. Как только ширину задали хоть одной,
+  // переходим на table-layout:fixed и ведём ВСЕ колонки: иначе браузер продолжит
+  // подгонять соседние под содержимое и заданная ширина будет «уезжать».
+  const W = (t.w && typeof t.w === 'object') ? t.w : {};
+  const sized = cols.some(c => +W[c] > 0);
+  const colgroup = sized
+    ? `<colgroup>${cols.map(c => `<col data-c="${esc(c)}"${+W[c] > 0 ? ` style="width:${Math.round(+W[c])}px"` : ''}>`).join('')}<col style="width:38px"></colgroup>`
+    : '';
+  const th = cols.map(c => `<th data-c="${esc(c)}">${esc(colLabel(c))}${t.sort === c ? ` <span class="ar">${t.dir > 0 ? '▲' : '▼'}</span>` : ''}`
+    + (VIEWER ? '' : '<div class="colrs" title="потянуть — ширина колонки; двойной клик — по содержимому"></div>') + '</th>').join('');
   let rows = '';
   groups.forEach(gr => {
     const list = t.group ? ns.filter(n => String(cellValue(n, t.group)) === gr) : ns;
@@ -3916,16 +3926,18 @@ function renderTable(pg) {
     });
   });
   $('view').innerHTML = ns.length
-    ? `<div class="scroller"><div class="tblwrap"><table class="grid">
+    ? `<div class="scroller"><div class="tblwrap"><table class="grid${sized ? ' fixed' : ''}">${colgroup}
       <thead><tr>${th}<th></th></tr></thead><tbody>${rows}</tbody></table></div>
       ${VIEWER ? '' : `<div style="margin-top:10px"><button class="btn" id="tAdd">＋ Узел</button></div>`}
       </div>`
     : `<div class="scroller">${emptyBlock(pg, P.nodes.length)}</div>`;
   $('tblCount').textContent = nOf(ns.length, ROWS);
-  qsa('#view th[data-c]').forEach(el => el.onclick = () => {
+  qsa('#view th[data-c]').forEach(el => el.onclick = e => {
+    if (e.target.closest('.colrs')) return;   // тянут ширину, а не сортируют
     if (t.sort === el.dataset.c) t.dir = (t.dir || 1) * -1; else {t.sort = el.dataset.c; t.dir = 1;}
     save(); renderPage();
   });
+  wireColResize(pg);
   qsa('#view tr[data-r]').forEach(tr => {
     const n = nodeById(tr.dataset.r);
     tr.onclick = e => {
@@ -3943,6 +3955,110 @@ function renderTable(pg) {
     const ob = tr.querySelector('[data-open]'); if (ob) ob.onclick = ev => {ev.stopPropagation(); UI.iTab = 'card'; openNode(n.id);};
   });
   const ta = $('tAdd'); if (ta) ta.onclick = () => addNode();
+}
+/* ---------- ширина колонок ----------
+   Одна механика на таблицу и канбан: во время жеста меняется ТОЛЬКО DOM, в документ
+   ширина уходит на pointerup. Иначе снимок для отмены снимался бы уже с изменённой
+   ширины и Ctrl+Z её не отменял — ровно те же грабли, что были с ресайзом областей.
+
+   Слушатели вешаются на элементы, которые пересоздаются вместе с #view, а состояние
+   жеста живёт в замыкании: renderTable/renderBoard зовутся на каждую перерисовку. */
+const COL_MIN = 60, KBCOL_MIN = 160;
+
+function wireColResize(pg) {
+  const t = pg.table;
+  const tbl = qs('#view table.grid'); if (!tbl) return;
+  qsa('#view th[data-c] .colrs').forEach(h => {
+    const th = h.closest('th'), key = th.dataset.c;
+    // Двойной клик — вернуть колонку к раскладке по содержимому.
+    h.ondblclick = e => {
+      e.preventDefault(); e.stopPropagation();
+      if (!t.w || t.w[key] === undefined) return;
+      snapNow(); delete t.w[key];
+      if (!Object.keys(t.w).length) delete t.w;
+      save(); renderPage();
+    };
+    h.addEventListener('pointerdown', e => {
+      if (ro() || e.button === 2) return;
+      e.preventDefault(); e.stopPropagation();
+      // Снимок ФАКТИЧЕСКИХ ширин всех колонок: без него первое же перетаскивание
+      // схлопнуло бы остальные, потому что fixed делит поровну то, чему не задана ширина.
+      const cg = ensureColgroup(tbl);
+      const col = qs(`col[data-c="${CSS.escape(key)}"]`, cg);
+      if (!col) return;
+      const start = e.clientX, w0 = col.getBoundingClientRect
+        ? parseFloat(col.style.width) || th.getBoundingClientRect().width
+        : th.getBoundingClientRect().width;
+      h.classList.add('on');
+      const move = ev => { col.style.width = Math.max(COL_MIN, Math.round(w0 + ev.clientX - start)) + 'px'; };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        h.classList.remove('on');
+        snapNow();
+        t.w = t.w || {};
+        qsa('col[data-c]', cg).forEach(c2 => { t.w[c2.dataset.c] = Math.round(parseFloat(c2.style.width) || 0); });
+        save();
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    });
+  });
+}
+// Таблица могла быть отрисована без colgroup (ширины ещё не задавали). Тогда он
+// создаётся здесь по измеренным ширинам — так переход в фиксированную раскладку
+// происходит без прыжка.
+function ensureColgroup(tbl) {
+  let cg = qs('colgroup', tbl);
+  if (cg) { tbl.classList.add('fixed'); return cg; }
+  const ths = qsa('thead th', tbl);
+  const ws = ths.map(x => Math.round(x.getBoundingClientRect().width));
+  cg = document.createElement('colgroup');
+  ths.forEach((x, i) => {
+    const c2 = document.createElement('col');
+    if (x.dataset.c) c2.dataset.c = x.dataset.c;
+    c2.style.width = ws[i] + 'px';
+    cg.appendChild(c2);
+  });
+  tbl.insertBefore(cg, tbl.firstChild);
+  tbl.classList.add('fixed');
+  return cg;
+}
+
+function wireKbResize(pg) {
+  const b = pg.board;
+  qsa('#view .kbcol .kbrs').forEach(h => {
+    const col = h.closest('.kbcol'), key = col.dataset.k;
+    h.ondblclick = e => {
+      e.preventDefault(); e.stopPropagation();
+      if (!b.w || b.w[key] === undefined) return;
+      snapNow(); delete b.w[key];
+      if (!Object.keys(b.w).length) delete b.w;
+      save(); renderPage();
+    };
+    h.addEventListener('pointerdown', e => {
+      if (ro() || e.button === 2) return;
+      e.preventDefault(); e.stopPropagation();
+      const start = e.clientX, w0 = col.getBoundingClientRect().width;
+      h.classList.add('on');
+      const move = ev => {
+        const w = Math.max(KBCOL_MIN, Math.round(w0 + ev.clientX - start));
+        // min-width тоже: колонки лежат во флексе, и без него он ужмёт их обратно.
+        col.style.width = w + 'px'; col.style.minWidth = w + 'px';
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        h.classList.remove('on');
+        snapNow();
+        b.w = b.w || {};
+        b.w[key] = Math.round(parseFloat(col.style.width) || 0);
+        save();
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    });
+  });
 }
 function cellHTML(n, c) {
   const ro = VIEWER;
@@ -3967,8 +4083,13 @@ function buildColsMenu(pg) {
   const t = pg.table, box = qs('#mCols .mlist');
   const avail = ['name', 'sub', 'cat', 'type', 'status', 'step', 'weight', 'checks', 'blockers', 'deps', 'kids', 'body', 'id']
     .concat(P.schema.fields.map(f => 'f.' + f.key));
-  box.innerHTML = avail.map(c => `<div class="mi" data-col="${esc(c)}"><input type="checkbox" ${t.cols.includes(c) ? 'checked' : ''} style="pointer-events:none">${esc(colLabel(c))}</div>`).join('');
-  qsa('.mi', box).forEach(el => el.onclick = ev => {
+  box.innerHTML = avail.map(c => `<div class="mi" data-col="${esc(c)}"><input type="checkbox" ${t.cols.includes(c) ? 'checked' : ''} style="pointer-events:none">${esc(colLabel(c))}</div>`).join('')
+    // Ширину одной колонки возвращает двойной клик по её ручке, но если разъехалось
+    // всё сразу — нужен и общий выход.
+    + (t.w && Object.keys(t.w).length ? '<hr><div class="mi" data-wreset="1">Сбросить ширину колонок<small>вернуть раскладку по содержимому</small></div>' : '');
+  const wr = qs('[data-wreset]', box);
+  if (wr) wr.onclick = ev => {ev.stopPropagation(); snapNow(); delete t.w; save(); renderPage();};
+  qsa('.mi[data-col]', box).forEach(el => el.onclick = ev => {
     ev.stopPropagation();
     const c = el.dataset.col;
     t.cols = t.cols.includes(c) ? t.cols.filter(x => x !== c) : t.cols.concat(c);
@@ -3999,10 +4120,14 @@ function renderBoard(pg) {
   const cols = boardCols(pg), by = pg.board.groupBy;
   const ns = pageNodes(pg), g = G();
   const val = n => by === 'step' ? String(stepOf(n)) : String(fval(n, by) == null ? '' : fval(n, by));
+  const BW = (pg.board.w && typeof pg.board.w === 'object') ? pg.board.w : {};
   let h = '<div class="kb">';
   cols.forEach(c => {
     const list = ns.filter(n => val(n) === String(c.k)).sort((a, b) => g.W(b.id) - g.W(a.id));
-    h += `<div class="kbcol" data-k="${esc(c.k)}">
+    // Ширина своя у каждой колонки: у «Готово» и «В работе» разное число карточек,
+    // и одинаковая ширина для них — не свойство канбана, а его умолчание.
+    const cw = +BW[c.k] > 0 ? ` style="width:${Math.round(+BW[c.k])}px;min-width:${Math.round(+BW[c.k])}px"` : '';
+    h += `<div class="kbcol" data-k="${esc(c.k)}"${cw}>
       <div class="kbh">${c.c ? `<span class="dt" style="background:${c.c};width:9px;height:9px;border-radius:50%"></span>` : ''}${esc(c.n)}<span class="n">${list.length}</span></div>
       <div class="kbl">${list.map(n => `<div class="kc" data-n="${esc(n.id)}" draggable="${VIEWER ? 'false' : 'true'}">
         <div class="bar" style="background:${catOf(n.cat).color}"></div>
@@ -4012,6 +4137,7 @@ function renderBoard(pg) {
           ${g.W(n.id) >= 3 ? `<span class="pill" style="color:var(--accent);background:var(--accent-bg)">${g.W(n.id)}</span>` : ''}</div>
       </div>`).join('')}</div>
       ${VIEWER ? '' : `<button class="btn sm" data-add="${esc(c.k)}" style="margin-top:6px;width:100%;justify-content:center">＋</button>`}
+      ${VIEWER ? '' : '<div class="kbrs" title="потянуть — ширина колонки; двойной клик — вернуть обычную"></div>'}
     </div>`;
   });
   h += '</div>';
@@ -4021,6 +4147,7 @@ function renderBoard(pg) {
   // Перенос карточки в другую колонку. Одна функция на оба способа: HTML5 drag&drop
   // (мышь) и перетаскивание пальцем. Раньше был только первый, и на телефоне канбан
   // работал ровно наполовину — посмотреть можно, передвинуть нельзя.
+  wireKbResize(pg);
   const dropTo = (id, col) => {
     const n = nodeById(id); if (!n || ro()) return;
     snapNow();
@@ -5696,7 +5823,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, emptyBlock, endPtr, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamBase, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamRest, jamSnapshot, jamToolDown, jumpToNode, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeJamDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireEdit, wireJam, wrapLines, zoomAt});
+Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, COL_MIN, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KBCOL_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, emptyBlock, endPtr, ensureColgroup, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamBase, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamRest, jamSnapshot, jamToolDown, jumpToNode, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeJamDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireColResize, wireEdit, wireJam, wireKbResize, wrapLines, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, 'RO', {get: () => RO, set: v => {RO = v;}, configurable: true});
