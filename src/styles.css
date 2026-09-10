@@ -926,3 +926,13 @@ table.grid th:hover .colrs::after,.colrs.on::after{background:var(--accent-br)}
 .kbrs::after{content:'';position:absolute;top:10px;bottom:10px;left:5px;width:2px;border-radius:1px;background:transparent}
 .kbcol:hover .kbrs::after,.kbrs.on::after{background:var(--accent-br)}
 .kbrs.on::after{background:var(--accent)}
+
+/* Полоска на месте будущей вставки карточки в канбане. */
+.kbins{height:3px;border-radius:2px;background:var(--accent);margin:1px 0;flex:0 0 auto}
+
+/* Перестановка колонок таблицы: заголовок перетаскивается, полоска показывает,
+   с какой стороны от цели встанет колонка. */
+table.grid th[draggable="true"]{cursor:grab}
+table.grid th.dragcol{opacity:.45}
+table.grid th.dropL{box-shadow:inset 2px 0 0 var(--accent)}
+table.grid th.dropR{box-shadow:inset -2px 0 0 var(--accent)}

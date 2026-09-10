@@ -5,10 +5,11 @@ const { launch, Client, sleep } = require('./cdp');
 
 const URL = process.env.APP_URL || 'http://127.0.0.1:8081/';
 const PORT = 9333;
-// createFromTemplate() асинхронна, и P наполняется РАНЬШЕ, чем закрывается главный
-// экран. В это окно #home ещё лежит поверх редактора: elementFromPoint попадает в него,
-// клики и сочетания клавиш уходят не туда, и прогон падает «не нашёл узел на холсте».
-// Ждать надо не появления данных, а того, что редактор действительно виден.
+// boot() САМ открывает нужный экран в самом конце — и делает это уже после того,
+// как появились база и P. Ждать этих признаков мало: следом boot покажет главную
+// поверх редактора, elementFromPoint попадёт в неё, и клики уйдут не туда.
+// Ждать надо UI.booted, а после открытия проекта — что редактор действительно виден.
+const BOOTED = 'typeof UI !== "undefined" && UI.booted === true';
 const EDITOR_SHOWN = " && !document.body.classList.contains('onhome')";
 const results = [];
 const ok = (n, d = '') => { results.push(['✓', n, d]); console.log('✓', n, d); };
@@ -41,7 +42,7 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
     // проверяет редактор, а не путь входа (за него отвечает test/cloud.js).
     // idb открывается внутри boot() уже после появления глобалей — без ожидания
     // dbPut ниже падает с «нет БД»
-    await c.waitFor('typeof idb !== "undefined" && !!idb', 20000, 'база открыта');
+    await c.waitFor(BOOTED, 25000, 'приложение загрузилось');
     await c.eval(`createFromTemplate('demo')`);
     await c.waitFor('typeof P !== "undefined" && P && P.nodes.length > 0' + EDITOR_SHOWN, 15000, 'проект открылся');
     const proj = await c.eval(`({name: P.name, nodes: P.nodes.length, links: P.links.length, pages: P.pages.map(p => p.kind)})`);
@@ -380,7 +381,7 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       await c.waitFor('typeof PROJECTS !== "undefined" && typeof G === "function"', 20000, 'перезагрузка');
       // глобали появляются сразу, а idb — только после await openDB() внутри boot();
       // без этого ожидания dbGet ниже иногда падает с «нет БД»
-      await c.waitFor('typeof idb !== "undefined" && !!idb', 20000, 'база открыта');
+      await c.waitFor(BOOTED, 25000, 'приложение загрузилось');
       await sleep(1500);
       const afterReload = await c.eval(`(async () => {
         const pr = await dbGet(STORE, '${pid}');
@@ -771,6 +772,39 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
     !twUndone ? ok('Ctrl+Z отменяет изменение ширины')
               : bad('отмена не вернула ширину');
 
+    // --- перестановка колонок таблицы ---------------------------------------
+    // Порядок колонок раньше менялся только галочками в меню: там нельзя сказать
+    // «эту вперёд», можно лишь выключить и включить обратно — и она уезжала в конец.
+    const co0 = await c.eval(`curPage().table.cols.slice()`);
+    const co1 = await c.eval(`(() => {
+      const cols = curPage().table.cols.slice();
+      moveTableCol(curPage(), cols[2], cols[0], true);   // третью — перед первой
+      return curPage().table.cols.slice(); })()`);
+    (co1[0] === co0[2] && co1.length === co0.length && co1.slice().sort().join() === co0.slice().sort().join())
+      ? ok('колонка таблицы переставляется', `${co0.slice(0,3).join(',')} → ${co1.slice(0,3).join(',')}`)
+      : bad('перестановка колонок сломала список', JSON.stringify({co0, co1}));
+
+    // Перенос вправо: индекс цели съезжает на единицу, если считать по списку
+    // вместе с переносимой колонкой.
+    const co2 = await c.eval(`(() => {
+      const cols = curPage().table.cols.slice();
+      moveTableCol(curPage(), cols[0], cols[2], false);  // первую — после третьей
+      return curPage().table.cols.slice(); })()`);
+    (co2[2] === co1[0] && co2.length === co1.length)
+      ? ok('перенос вправо ставит колонку туда, куда положили', co2.slice(0,4).join(','))
+      : bad('при переносе вправо колонка встала не туда', JSON.stringify({co1, co2}));
+
+    const thDrag = await c.eval(`(() => { const th = document.querySelector('#view th[data-c]');
+      return {draggable: th.draggable, cursor: getComputedStyle(th).cursor}; })()`);
+    thDrag.draggable ? ok('заголовки колонок перетаскиваются мышью')
+                     : bad('заголовок не перетаскивается', JSON.stringify(thDrag));
+
+    await c.eval(`undo()`);
+    await sleep(200);
+    const coUndone = await c.eval(`curPage().table.cols.slice()`);
+    coUndone.join() === co1.join() ? ok('Ctrl+Z отменяет перестановку колонок')
+                                   : bad('отмена не вернула порядок колонок', coUndone.join());
+
     // --- ширина колонок: канбан --------------------------------------------
     await c.eval(`gotoPage(P.pages.find(p => p.kind === 'board').id)`);
     await sleep(500);
@@ -795,6 +829,53 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
     const kwKept = await c.eval(`Math.round(document.querySelector('#view .kbcol').getBoundingClientRect().width)`);
     Math.abs(kwKept - kw1.stored) < 3 ? ok('ширина колонки канбана переживает перерисовку', kwKept + 'px')
                                       : bad('ширина канбана потерялась', `${kwKept} вместо ${kw1.stored}`);
+
+    // --- канбан: порядок карточек и прокрутка --------------------------------
+    // Перенос карточки перерисовывает страницу целиком. Без снимка прокрутки все
+    // колонки уезжали в начало — при каждом переносе.
+    const kbPrep = await c.eval(`(() => {
+      const pg = curPage();
+      // набиваем первую колонку, чтобы её было куда прокручивать
+      const col = document.querySelector('#view .kbcol');
+      const k = col.dataset.k, by = pg.board.groupBy;
+      let added = 0;
+      for (const n of P.nodes) { if (added >= 14) break;
+        if (by === 'step') n.lane = +k; else fset(n, by, k);
+        added++; }
+      gInval(); save(1); renderPage();
+      const l = document.querySelector('#view .kbcol .kbl');
+      l.scrollTop = 60;
+      return {k, cards: document.querySelectorAll('#view .kbcol .kc').length, scrolled: l.scrollTop};
+    })()`);
+    kbPrep.scrolled > 0 ? ok('колонка канбана прокручена для проверки', kbPrep.cards + ' карточек')
+                        : bad('колонку не удалось прокрутить', JSON.stringify(kbPrep));
+
+    // Переносим вторую карточку в начало той же колонки.
+    const kbMove = await c.eval(`(() => {
+      const col = document.querySelector('#view .kbcol');
+      const cards = [...col.querySelectorAll('.kc')];
+      const moved = cards[2].dataset.n;
+      const before = cards.map(x => x.dataset.n);
+      kbDropTo(curPage(), moved, col, 0);
+      const after = [...document.querySelector('#view .kbcol').querySelectorAll('.kc')].map(x => x.dataset.n);
+      return {moved, before, after, scroll: document.querySelector('#view .kbcol .kbl').scrollTop,
+              stored: (curPage().board.order || {})[${JSON.stringify(kbPrep.k)}] || null};
+    })()`);
+    (kbMove.after[0] === kbMove.moved && kbMove.before[0] !== kbMove.moved)
+      ? ok('карточку можно поставить в произвольное место колонки', `${kbMove.before.indexOf(kbMove.moved)} → 0`)
+      : bad('порядок карточек не поменялся', JSON.stringify({b: kbMove.before.slice(0,3), a: kbMove.after.slice(0,3)}));
+    kbMove.scroll === kbPrep.scrolled
+      ? ok('прокрутка колонки переживает перенос карточки', kbMove.scroll + 'px')
+      : bad('колонки уехали в начало при переносе', `${kbMove.scroll} вместо ${kbPrep.scrolled}`);
+    Array.isArray(kbMove.stored) && kbMove.stored[0] === kbMove.moved
+      ? ok('порядок карточек записан в документ')
+      : bad('порядок не сохранился', JSON.stringify(kbMove.stored));
+
+    // Порядок обязан пережить перерисовку — он в документе, а не в разметке.
+    await c.eval(`renderPage()`);
+    const kbKept = await c.eval(`document.querySelector('#view .kbcol .kc').dataset.n`);
+    kbKept === kbMove.moved ? ok('порядок карточек переживает перерисовку')
+                            : bad('после перерисовки порядок сбросился', `${kbKept} вместо ${kbMove.moved}`);
 
     const errs = c.errors.filter(e => !/favicon|manifest/i.test(e));
     errs.length ? bad('исключения в консоли', errs.join(' | ').slice(0, 400)) : ok('исключений в консоли нет');

@@ -153,7 +153,12 @@ const UI = {
   view: {}, hover: null, linkType: null, spaceDown: false, dirty: false, lastSave: null,
   // Номер версии, которую человек сейчас РАССМАТРИВАЕТ из истории. Пока он не null,
   // доска только читается и чужие правки её не подменяют.
-  viewVersion: null
+  viewVersion: null,
+  // boot() заканчивается тем, что САМ открывает нужный экран — главную, витрину
+  // или доску по адресу. Всё, что делает вид, будто приложение готово раньше
+  // (появилась база, появился P), обманывает: следом boot покажет свой экран
+  // поверх. Признак нужен тестам и отладке — ждать надо именно его.
+  booted: false
 };
 const undoS = [], redoS = [];
 // Глубина отмены ограничена ДВУМЯ пределами, и байтовый здесь главный. Снимок —
@@ -3914,7 +3919,8 @@ function renderTable(pg) {
   const colgroup = sized
     ? `<colgroup>${cols.map(c => `<col data-c="${esc(c)}"${+W[c] > 0 ? ` style="width:${Math.round(+W[c])}px"` : ''}>`).join('')}<col style="width:38px"></colgroup>`
     : '';
-  const th = cols.map(c => `<th data-c="${esc(c)}">${esc(colLabel(c))}${t.sort === c ? ` <span class="ar">${t.dir > 0 ? '▲' : '▼'}</span>` : ''}`
+  const th = cols.map(c => `<th data-c="${esc(c)}"${ro() ? '' : ' draggable="true"'} title="${ro() ? '' : 'перетащить — поменять колонки местами; клик — сортировка'}">`
+    + `${esc(colLabel(c))}${t.sort === c ? ` <span class="ar">${t.dir > 0 ? '▲' : '▼'}</span>` : ''}`
     + (VIEWER ? '' : '<div class="colrs" title="потянуть — ширина колонки; двойной клик — по содержимому"></div>') + '</th>').join('');
   let rows = '';
   groups.forEach(gr => {
@@ -3938,6 +3944,7 @@ function renderTable(pg) {
     save(); renderPage();
   });
   wireColResize(pg);
+  wireColOrder(pg);
   qsa('#view tr[data-r]').forEach(tr => {
     const n = nodeById(tr.dataset.r);
     tr.onclick = e => {
@@ -3981,6 +3988,9 @@ function wireColResize(pg) {
     h.addEventListener('pointerdown', e => {
       if (ro() || e.button === 2) return;
       e.preventDefault(); e.stopPropagation();
+      // Заголовок перетаскивается целиком (перестановка колонок), и нажатие на ручку
+      // начало бы именно его. На время ресайза перетаскивание отключаем.
+      th.draggable = false;
       // Снимок ФАКТИЧЕСКИХ ширин всех колонок: без него первое же перетаскивание
       // схлопнуло бы остальные, потому что fixed делит поровну то, чему не задана ширина.
       const cg = ensureColgroup(tbl);
@@ -3995,6 +4005,7 @@ function wireColResize(pg) {
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
         h.classList.remove('on');
+        if (!ro()) th.draggable = true;
         snapNow();
         t.w = t.w || {};
         qsa('col[data-c]', cg).forEach(c2 => { t.w[c2.dataset.c] = Math.round(parseFloat(c2.style.width) || 0); });
@@ -4025,6 +4036,136 @@ function ensureColgroup(tbl) {
   return cg;
 }
 
+/* ---------- канбан: порядок карточек и прокрутка ---------- */
+// Ручной порядок идёт первым и в своём порядке, остальные — по весу, как было.
+// Так расставить руками можно две карточки, не будучи обязанным расставить все.
+function kbSort(list, pg, colKey, g) {
+  const ord = ((pg.board || {}).order || {})[colKey] || [];
+  const pos = new Map(ord.map((id, i) => [id, i]));
+  return list.slice().sort((a, b) => {
+    const pa = pos.has(a.id) ? pos.get(a.id) : Infinity;
+    const pb = pos.has(b.id) ? pos.get(b.id) : Infinity;
+    if (pa !== pb) return pa - pb;
+    return g.W(b.id) - g.W(a.id);
+  });
+}
+// Куда встанет карточка: перед первой, чью середину курсор ещё не перешёл.
+// Перетаскиваемая карточка из счёта исключается — она сейчас «в воздухе».
+function kbIndexAt(col, clientY) {
+  const cards = qsa('.kc', col).filter(c => !c.classList.contains('drag'));
+  for (let i = 0; i < cards.length; i++) {
+    const r = cards[i].getBoundingClientRect();
+    if (clientY < r.top + r.height / 2) return i;
+  }
+  return cards.length;
+}
+// Полоска на месте будущей вставки. Без неё «положить третьей» — это гадание.
+function kbInsMark(col, index) {
+  qsa('#view .kbins').forEach(x => x.remove());
+  if (!col || index == null) return;
+  const list = qs('.kbl', col); if (!list) return;
+  const cards = qsa('.kc', list).filter(c => !c.classList.contains('drag'));
+  const ph = document.createElement('div');
+  ph.className = 'kbins';
+  if (index >= cards.length) list.appendChild(ph); else list.insertBefore(ph, cards[index]);
+}
+// Снимок прокрутки канбана и его возврат одной функцией: без аргумента снимает,
+// с аргументом возвращает. renderPage() пересобирает #view целиком, и без этого
+// после каждого переноса карточки ВСЕ колонки уезжали в начало.
+function kbScroll(sn) {
+  const sc = qs('#view .scroller');
+  if (sn === undefined) {
+    const out = {x: sc ? sc.scrollLeft : 0, cols: {}};
+    qsa('#view .kbcol').forEach(c => {const l = qs('.kbl', c); if (l) out.cols[c.dataset.k] = l.scrollTop;});
+    return out;
+  }
+  if (!sn) return;
+  if (sc) sc.scrollLeft = sn.x;
+  qsa('#view .kbcol').forEach(c => {
+    const l = qs('.kbl', c);
+    if (l && sn.cols[c.dataset.k] != null) l.scrollTop = sn.cols[c.dataset.k];
+  });
+}
+// Перенос карточки: и в другую колонку, и на другое место внутри своей.
+// Верхнеуровневая функция, а не замыкание внутри renderBoard: это настоящая
+// операция над документом, её зовут два разных жеста (мышь и палец), и она должна
+// быть видна тестам.
+function kbDropTo(pg, id, col, index) {
+  const n = nodeById(id); if (!n || ro() || !col) return;
+  const by = pg.board.groupBy, key = col.dataset.k;
+  snapNow();
+  if (by === 'step') n.lane = +key; else fset(n, by, key);
+  // Порядок внутри колонки берём из ТЕКУЩЕЙ разметки: она уже отражает и ручной
+  // порядок, и сортировку по весу для остальных. Так «положить третьей» работает
+  // и в колонке, которую руками никогда не трогали.
+  const b = pg.board;
+  b.order = b.order || {};
+  const cur = qsa('.kc', col).map(x => x.dataset.n).filter(x => x !== id);
+  const at = (index == null || index < 0) ? cur.length : Math.min(index, cur.length);
+  cur.splice(at, 0, id);
+  b.order[key] = cur;
+  // Из прежней колонки карточку надо убрать, иначе она продолжит держать там место.
+  for (const k of Object.keys(b.order)) if (k !== key) b.order[k] = b.order[k].filter(x => x !== id);
+  gInval();
+  // Перерисовка пересобирает #view целиком, и все колонки уезжают в начало.
+  // Прокрутку снимаем ДО неё и возвращаем сразу после.
+  const sn = kbScroll();
+  save(); renderPage(); kbScroll(sn);
+  if (UI.insp === id) openNode(id);
+}
+// Перестановка колонок таблицы перетаскиванием заголовка. Порядок колонок — это
+// pg.table.cols, менять его можно было только галочками в меню «Колонки»: там
+// нельзя сказать «эту вперёд», можно только выключить и включить обратно, и она
+// уезжала в конец.
+function wireColOrder(pg) {
+  const t = pg.table;
+  let src = null;
+  qsa('#view th[data-c]').forEach(th => {
+    th.ondragstart = e => {
+      if (ro()) return;
+      src = th.dataset.c;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', src);
+      th.classList.add('dragcol');
+    };
+    th.ondragend = () => {
+      src = null;
+      qsa('#view th[data-c]').forEach(x => x.classList.remove('dragcol', 'dropL', 'dropR'));
+    };
+    th.ondragover = e => {
+      if (!src || th.dataset.c === src) return;
+      e.preventDefault();
+      const r = th.getBoundingClientRect();
+      const before = e.clientX < r.left + r.width / 2;
+      qsa('#view th[data-c]').forEach(x => x.classList.remove('dropL', 'dropR'));
+      th.classList.add(before ? 'dropL' : 'dropR');
+    };
+    th.ondragleave = () => th.classList.remove('dropL', 'dropR');
+    th.ondrop = e => {
+      e.preventDefault();
+      const from = (e.dataTransfer.getData('text/plain') || src || '').trim();
+      qsa('#view th[data-c]').forEach(x => x.classList.remove('dragcol', 'dropL', 'dropR'));
+      if (!from || from === th.dataset.c) return;
+      const r = th.getBoundingClientRect();
+      moveTableCol(pg, from, th.dataset.c, e.clientX < r.left + r.width / 2);
+    };
+  });
+}
+// Перенос колонки перед целевой или после неё. Считаем по списку БЕЗ переносимой:
+// иначе индекс цели съезжает на единицу, когда тащат слева направо, и колонка
+// встаёт не туда, куда её положили.
+function moveTableCol(pg, from, to, before) {
+  const t = pg.table;
+  const arr = t.cols.filter(c => c !== from);
+  let at = arr.indexOf(to);
+  if (at < 0) return;
+  if (!before) at += 1;
+  arr.splice(at, 0, from);
+  if (arr.join('|') === t.cols.join('|')) return;
+  snapNow();
+  t.cols = arr;
+  save(); renderPage();
+}
 function wireKbResize(pg) {
   const b = pg.board;
   qsa('#view .kbcol .kbrs').forEach(h => {
@@ -4123,7 +4264,7 @@ function renderBoard(pg) {
   const BW = (pg.board.w && typeof pg.board.w === 'object') ? pg.board.w : {};
   let h = '<div class="kb">';
   cols.forEach(c => {
-    const list = ns.filter(n => val(n) === String(c.k)).sort((a, b) => g.W(b.id) - g.W(a.id));
+    const list = kbSort(ns.filter(n => val(n) === String(c.k)), pg, String(c.k), g);
     // Ширина своя у каждой колонки: у «Готово» и «В работе» разное число карточек,
     // и одинаковая ширина для них — не свойство канбана, а его умолчание.
     const cw = +BW[c.k] > 0 ? ` style="width:${Math.round(+BW[c.k])}px;min-width:${Math.round(+BW[c.k])}px"` : '';
@@ -4148,22 +4289,17 @@ function renderBoard(pg) {
   // (мышь) и перетаскивание пальцем. Раньше был только первый, и на телефоне канбан
   // работал ровно наполовину — посмотреть можно, передвинуть нельзя.
   wireKbResize(pg);
-  const dropTo = (id, col) => {
-    const n = nodeById(id); if (!n || ro()) return;
-    snapNow();
-    if (by === 'step') n.lane = +col.dataset.k; else fset(n, by, col.dataset.k);
-    gInval(); save(); renderPage(); if (UI.insp === id) openNode(id);
-  };
+  const dropTo = (id, col, index) => kbDropTo(pg, id, col, index);
 
   qsa('.kc').forEach(el => {
     el.onclick = () => {setSel([el.dataset.n]); openNode(el.dataset.n);};
     el.ondragstart = e => {e.dataTransfer.setData('text/plain', el.dataset.n); el.classList.add('drag');};
-    el.ondragend = () => el.classList.remove('drag');
+    el.ondragend = () => {el.classList.remove('drag'); kbInsMark(null);};
     if (VIEWER) return;
     el.addEventListener('pointerdown', e => {
       if (e.pointerType !== 'touch' || ro()) return;
       const startX = e.clientX, startY = e.clientY;
-      let ghost = null, over = null, moved = false;
+      let ghost = null, over = null, moved = false, lastY = e.clientY;
       const move = ev => {
         const dx = ev.clientX - startX, dy = ev.clientY - startY;
         if (!moved && Math.abs(dx) + Math.abs(dy) < 12) return;
@@ -4187,6 +4323,8 @@ function renderBoard(pg) {
           if (over) over.classList.remove('over');
           over = col; if (over) over.classList.add('over');
         }
+        lastY = ev.clientY;
+        kbInsMark(over, over ? kbIndexAt(over, ev.clientY) : null);
       };
       const up = () => {
         window.removeEventListener('pointermove', move);
@@ -4194,7 +4332,9 @@ function renderBoard(pg) {
         window.removeEventListener('pointercancel', up);
         el.classList.remove('drag');
         if (ghost) ghost.remove();
-        if (over) { over.classList.remove('over'); if (moved) dropTo(el.dataset.n, over); }
+        const at = over ? kbIndexAt(over, lastY) : null;
+        kbInsMark(null);
+        if (over) { over.classList.remove('over'); if (moved) dropTo(el.dataset.n, over, at); }
       };
       window.addEventListener('pointermove', move, {passive: false});
       window.addEventListener('pointerup', up);
@@ -4202,11 +4342,13 @@ function renderBoard(pg) {
     });
   });
   qsa('.kbcol').forEach(col => {
-    col.ondragover = e => {e.preventDefault(); col.classList.add('over');};
-    col.ondragleave = () => col.classList.remove('over');
+    col.ondragover = e => {e.preventDefault(); col.classList.add('over'); kbInsMark(col, kbIndexAt(col, e.clientY));};
+    col.ondragleave = () => {col.classList.remove('over'); kbInsMark(null);};
     col.ondrop = e => {
       e.preventDefault(); col.classList.remove('over');
-      dropTo(e.dataTransfer.getData('text/plain'), col);
+      const at = kbIndexAt(col, e.clientY);
+      kbInsMark(null);
+      dropTo(e.dataTransfer.getData('text/plain'), col, at);
     };
     const ab = col.querySelector('[data-add]');
     if (ab) ab.onclick = () => {
@@ -5823,7 +5965,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, COL_MIN, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KBCOL_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, emptyBlock, endPtr, ensureColgroup, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamBase, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamRest, jamSnapshot, jamToolDown, jumpToNode, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeJamDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireColResize, wireEdit, wireJam, wireKbResize, wrapLines, zoomAt});
+Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, COL_MIN, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KBCOL_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, emptyBlock, endPtr, ensureColgroup, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamBase, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamRest, jamSnapshot, jamToolDown, jumpToNode, kbDropTo, kbIndexAt, kbInsMark, kbScroll, kbSort, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeJamDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, moveTableCol, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireColOrder, wireColResize, wireEdit, wireJam, wireKbResize, wrapLines, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, 'RO', {get: () => RO, set: v => {RO = v;}, configurable: true});
@@ -5889,6 +6031,7 @@ live.initLive({
     $('projBtn').style.pointerEvents = 'none';
     UI.page = (P.pages[0] || {}).id;
     renderPages(); renderPage(); paintSave();
+    UI.booted = true;
     return;
   }
   try { idb = await openDB(); } catch (e) { alert('Не удалось открыть локальную базу: ' + e.message); return; }
@@ -5904,7 +6047,7 @@ live.initLive({
   // Адрес мог указывать на конкретную доску, ссылку-доступ или приглашение.
   // Открытая ссылка обязана вести туда, куда обещает.
   const routed = await routeBoot();
-  if (routed) return;
+  if (routed) { UI.booted = true; return; }
 
   // Дальше — главная. Приложение больше НЕ открывает молча последний проект:
   // человек попадал сразу в чужую (свою вчерашнюю) доску и не понимал, где он
@@ -5920,6 +6063,8 @@ live.initLive({
   } else {
     home.showLanding();
   }
+  UI.booted = true;
+
   const seen = await dbGet(META, 'seen');
   if (!seen && live.length) {await dbPut(META, {k: 'seen', v: 1});}
 

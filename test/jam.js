@@ -7,10 +7,11 @@ const { launch, Client, sleep } = require('./cdp');
 
 const URL = process.env.APP_URL || 'http://127.0.0.1:8081/';
 const PORT = 9337;
-// createFromTemplate() асинхронна, и P наполняется РАНЬШЕ, чем закрывается главный
-// экран. В это окно #home ещё лежит поверх редактора: elementFromPoint попадает в него,
-// клики и сочетания клавиш уходят не туда, и прогон падает «не нашёл узел на холсте».
-// Ждать надо не появления данных, а того, что редактор действительно виден.
+// boot() САМ открывает нужный экран в самом конце — и делает это уже после того,
+// как появились база и P. Ждать этих признаков мало: следом boot покажет главную
+// поверх редактора, elementFromPoint попадёт в неё, и клики уйдут не туда.
+// Ждать надо UI.booted, а после открытия проекта — что редактор действительно виден.
+const BOOTED = 'typeof UI !== "undefined" && UI.booted === true';
 const EDITOR_SHOWN = " && !document.body.classList.contains('onhome')";
 const results = [];
 const ok = (n, d = '') => { results.push(['✓', n, d]); console.log('✓', n, d); };
@@ -26,7 +27,7 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
     await c.send('Page.navigate', { url: URL });
     await c.waitFor('document.getElementById("home") !== null', 20000, 'загрузка html');
     await c.waitFor('typeof PROJECTS !== "undefined" && typeof G === "function"', 20000, 'boot() отработал');
-    await c.waitFor('typeof idb !== "undefined" && !!idb', 20000, 'база открыта');
+    await c.waitFor(BOOTED, 25000, 'приложение загрузилось');
     await c.eval(`createFromTemplate('demo')`);
     await c.waitFor('typeof P !== "undefined" && P && P.nodes.length > 0' + EDITOR_SHOWN, 15000, 'проект открылся');
     ok('приложение загрузилось, проект открыт');
@@ -115,7 +116,7 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
     // --- переживает перезагрузку --------------------------------------------
     const PROJ = await c.eval(`P.id`);
     await c.send('Page.navigate', { url: URL });
-    await c.waitFor('typeof idb !== "undefined" && !!idb', 20000, 'перезагрузка');
+    await c.waitFor(BOOTED, 25000, 'перезагрузка');
     await c.eval(`openProject(${JSON.stringify(PROJ)})`);
     await c.waitFor('!!P && P.id === ' + JSON.stringify(PROJ), 15000, 'проект открылся заново');
     const after = await c.eval(`(() => { const pg = P.pages.find(p => p.id === '${PID}');

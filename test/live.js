@@ -11,10 +11,11 @@ const { execSync } = require('node:child_process');
 
 const URL = process.env.APP_URL || 'http://127.0.0.1:8081/';
 const PORT_A = 9351, PORT_B = 9352;
-// createFromTemplate() асинхронна, и P наполняется РАНЬШЕ, чем закрывается главный
-// экран. В это окно #home ещё лежит поверх редактора: elementFromPoint попадает в него,
-// клики и сочетания клавиш уходят не туда, и прогон падает «не нашёл узел на холсте».
-// Ждать надо не появления данных, а того, что редактор действительно виден.
+// boot() САМ открывает нужный экран в самом конце — и делает это уже после того,
+// как появились база и P. Ждать этих признаков мало: следом boot покажет главную
+// поверх редактора, elementFromPoint попадёт в неё, и клики уйдут не туда.
+// Ждать надо UI.booted, а после открытия проекта — что редактор действительно виден.
+const BOOTED = 'typeof UI !== "undefined" && UI.booted === true';
 const EDITOR_SHOWN = " && !document.body.classList.contains('onhome')";
 const results = [];
 const ok = (n, d = '') => { results.push(['✓', n, d]); console.log('✓', n, d); };
@@ -34,7 +35,7 @@ const GUEST_PASS = 'test-pass-12345';
     const A = await Client.attach(PORT_A);
     await A.send('Emulation.setDeviceMetricsOverride', {width: 1400, height: 900, deviceScaleFactor: 1, mobile: false});
     await A.send('Page.navigate', {url: URL});
-    await A.waitFor('typeof idb !== "undefined" && !!idb', 25000, 'загрузка A');
+    await A.waitFor(BOOTED, 25000, 'загрузка A');
 
     // --- первый человек: вход, доска, ссылка на правку для второго ----------
     await A.eval(`(async () => {
@@ -61,7 +62,7 @@ const GUEST_PASS = 'test-pass-12345';
     const B = await Client.attach(PORT_B);
     await B.send('Emulation.setDeviceMetricsOverride', {width: 1400, height: 900, deviceScaleFactor: 1, mobile: false});
     await B.send('Page.navigate', {url: URL});
-    await B.waitFor('typeof idb !== "undefined" && !!idb', 25000, 'загрузка B');
+    await B.waitFor(BOOTED, 25000, 'загрузка B');
     await B.eval(`(async () => {
       const r = await api.login(${JSON.stringify(GUEST)}, ${JSON.stringify(GUEST_PASS)});
       cloud.CLOUD.account = r.user; paintAccount();

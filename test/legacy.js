@@ -9,6 +9,12 @@ const { launch, Client, sleep } = require('./cdp');
 
 const URL = process.env.APP_URL || 'http://127.0.0.1:8081/';
 const PORT = 9334;
+// boot() САМ открывает нужный экран в самом конце — и делает это уже после того,
+// как появились база и P. Ждать этих признаков мало: следом boot покажет главную
+// поверх редактора, elementFromPoint попадёт в неё, и клики уйдут не туда.
+// Ждать надо UI.booted, а после открытия проекта — что редактор действительно виден.
+const BOOTED = 'typeof UI !== "undefined" && UI.booted === true';
+const EDITOR_SHOWN = " && !document.body.classList.contains('onhome')";
 const results = [];
 const ok = (n, d = '') => { results.push(['✓', n, d]); console.log('✓', n, d); };
 const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, d); };
@@ -100,7 +106,7 @@ E.projects[0].id = 'old_bundle';
     // Ждём именно открытую базу, а не просто разобранный скрипт: глобали существуют
     // сразу, а idb появляется только после await openDB() внутри boot(). Без этого
     // dbPut падает с «нет БД» — на быстрой машине везёт, на CI-раннере нет.
-    await c.waitFor('typeof idb !== "undefined" && !!idb', 20000, 'база открыта');
+    await c.waitFor(BOOTED, 25000, 'приложение загрузилось');
     await c.eval('(closeModal(), true)');
     if (c.errors.length) bad('исключения при загрузке', c.errors.join(' | ').slice(0, 200));
 
