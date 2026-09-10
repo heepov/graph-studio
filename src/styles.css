@@ -65,9 +65,6 @@
   --h-ctl:28px; --h-ctl-sm:22px; --h-ctl-lg:32px;
   --h-topbar:44px; --h-pagebar:34px;
 
-  /* --side пока прежний: в main.js лежит своя копия (SIDE_FULL=236),
-     и они уже разъехались на 12px. Сводятся в одно отдельным шагом —
-     менять здесь в одиночку значит только поменять величину ошибки. */
   /* ============ ЗНАК ============
      Единственное определение. Раньше марка в сайдбаре, марка на главной,
      аватар и icon.svg несли ЧЕТЫРЕ разных сине-фиолетовых градиента.
@@ -75,7 +72,11 @@
      не должен тянуть на себя внимание сильнее кнопки. */
   --brand:#16181d; --brand-ink:#fff;
 
-  --side:248px; --side-rail:52px;
+  /* ============ КАРКАС ============
+     ЕДИНСТВЕННЫЙ источник истины по ширине панели: main.js её МЕРЯЕТ,
+     а не хранит свою копию. Раньше здесь стояло 248px, а в main.js
+     SIDE_FULL=236 — холст уезжал на 12px при каждом Ctrl+B. */
+  --side:216px; --side-rail:48px;
   --insp-w:372px;
 }
 *{box-sizing:border-box}
@@ -108,7 +109,7 @@ button,input,select,textarea{font-family:inherit}
    продолжает работать. Полностью прятать панель нельзя — тогда некуда нажать,
    чтобы переключить страницу или вернуть её обратно. */
 #side{transition:width .16s,min-width .16s}
-#app.siderail #side{width:52px;min-width:52px}
+#app.siderail #side{width:var(--side-rail);min-width:var(--side-rail)}
 #app.siderail .brand{padding:12px 0 8px;justify-content:center}
 #app.siderail .brand .nm,
 #app.siderail #projBtn .pn,#app.siderail #projBtn .cnt,
@@ -569,7 +570,7 @@ body.dark .tag:hover{background:var(--accent-bg)}
    Медиазапросов не было ни одного: сайдбар 236 + инспектор 380 не оставляли места,
    а верхняя панель без переноса уводила кнопки за край экрана без возможности достать. */
 @media (max-width: 1000px) {
-  #app.siderail #side,#side{width:52px;min-width:52px}
+  #app.siderail #side,#side{width:var(--side-rail);min-width:var(--side-rail)}
   #side .brand .nm,#projBtn .pn,#projBtn .cnt,.pgi .nm,.pgi .mo,#saveState{display:none}
   #side .brand{flex-direction:column;gap:6px;padding:12px 0 6px}
   .sidecap{justify-content:center;padding:10px 0 4px;font-size:0}

@@ -230,6 +230,34 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
         ? ok('холст получает освободившуюся ширину', `${side.cv0} → ${side.cv1} px`)
         : bad('холст не расширился', JSON.stringify(side));
 
+      // Компенсация камеры при сворачивании панели. Считалась из констант
+      // (SIDE_FULL - SIDE_RAIL = 184), и это было неверно дважды: константа
+      // разъехалась с --side в стилях, а на окне ≤1000px медиазапрос держит
+      // панель узкой ВСЕГДА — переключение не двигает ничего, а камера всё
+      // равно уезжала на 184px. Теперь ширина МЕРЯЕТСЯ.
+      const camShift = async (w, h) => c.eval(`(async () => {
+        const el = document.getElementById('side');
+        applySideRail(false);
+        await new Promise(r => setTimeout(r, 300));
+        const s0 = el.getBoundingClientRect().width, x0 = view().x;
+        toggleSideRail();
+        await new Promise(r => setTimeout(r, 320));
+        const s1 = el.getBoundingClientRect().width, x1 = view().x;
+        toggleSideRail();
+        await new Promise(r => setTimeout(r, 320));
+        return {want: Math.round(s0 - s1), got: Math.round(x1 - x0), back: Math.round(view().x - x0)};
+      })()`);
+      for (const [w, h, label] of [[1440, 900, 'широкое окно'], [900, 800, 'узкое окно (≤1000)']]) {
+        await c.send('Emulation.setDeviceMetricsOverride', {width: w, height: h, deviceScaleFactor: 1, mobile: false});
+        await sleep(400);
+        const cam = await camShift(w, h);
+        (Math.abs(cam.got - cam.want) <= 1 && Math.abs(cam.back) <= 1)
+          ? ok(`камера следует за реальной шириной панели: ${label}`, `сдвиг ${cam.got}, ждали ${cam.want}`)
+          : bad(`холст уехал при сворачивании панели: ${label}`, JSON.stringify(cam));
+      }
+      await c.send('Emulation.setDeviceMetricsOverride', {width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false});
+      await sleep(400);
+
       // --- зависимости: поиск вместо стены чекбоксов -------------------------
       const deps = await c.eval(`(() => {
         const pg = P.pages.find(p => p.kind === 'canvas');

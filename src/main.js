@@ -2861,19 +2861,25 @@ function inspOpen() { $('insp').classList.add('open'); document.body.classList.a
 
 // Узкий режим боковой панели. Состояние — настройка человека, живёт в meta рядом
 // с темой и шириной инспектора, а не в проекте.
-const SIDE_FULL = 236, SIDE_RAIL = 52;
 function applySideRail(on) {
+  const el = $('side');
   const was = $('app').classList.contains('siderail');
+  // Ширину МЕРЯЕМ до и после перехода, а не считаем из констант. Своя копия
+  // чисел разъезжалась с --side в стилях, а на узком экране была просто неверна:
+  // медиазапрос держит панель узкой ВСЕГДА, переключение ничего не двигает —
+  // а компенсация всё равно уносила холст на 184px вбок.
+  const w0 = el ? el.getBoundingClientRect().width : 0;
   $('app').classList.toggle('siderail', !!on);
   const b = $('sideToggle');
   if (b) b.title = on ? 'Развернуть панель (Ctrl+B)' : 'Свернуть панель (Ctrl+B)';
-  // Холст сдвигается вместе с панелью, а камера остаётся прежней — мир визуально
-  // уезжает на 184 px. Компенсируем сдвигом камеры, чтобы под курсором осталось то же.
-  if (P && was !== !!on && isSpatial(curPage()) && $('cv')) {
-    const d = (SIDE_FULL - SIDE_RAIL) * (on ? 1 : -1);
-    const v = view(); v.x += d;
-    setTimeout(() => {applyView(); drawMini();}, 180);
-  }
+  if (!(P && was !== !!on && isSpatial(curPage()) && $('cv') && el)) return;
+  // Холст едет вместе с панелью, а камера остаётся прежней — компенсируем,
+  // чтобы под курсором осталось то же место мира.
+  setTimeout(() => {
+    const d = w0 - el.getBoundingClientRect().width;
+    if (d) view().x += d;
+    applyView(); drawMini();
+  }, 180);
 }
 function toggleSideRail() {
   const on = !$('app').classList.contains('siderail');
@@ -4829,8 +4835,17 @@ async function exportViewer() {
     return;
   }
   const marker = '<script id="seed" type="application/json">';
-  const i = tpl.indexOf(marker), j = tpl.indexOf('<' + '/script>', i);
+  // lastIndexOf, а НЕ indexOf: этот же литерал лежит строкой выше — и, значит, попадает
+  // в собранный бандл, который упаковщик вкладывает в шаблон. Закрывающий тег esbuild
+  // экранирует как <\/script>, а открывающий оставляет как есть, поэтому первым
+  // вхождением находился кусок собственного кода: вырезалось 56 КБ чужого JS,
+  // на стыке оставался незакрытый литерал, и выгруженный файл не запускался вообще.
+  const i = tpl.lastIndexOf(marker), j = tpl.indexOf('<' + '/script>', i);
   if (i < 0 || j < 0) {toast('Не найден блок данных'); return;}
+  // И убеждаемся, что нашли блок данных, а не чей-то литерал: там обязан лежать JSON.
+  // Лучше отказаться вслух, чем молча отдать человеку битый файл.
+  try { JSON.parse(tpl.slice(i + marker.length, j)); }
+  catch { toast('Блок данных в шаблоне не разобрался — просмотрщик не собран'); return; }
   let out = tpl.slice(0, i + marker.length) + JSON.stringify(P) + tpl.slice(j);
   out = out.replace('window.VIEWER=false;', 'window.VIEWER=true;');
   dl(fname('viewer.html'), out, 'text/html');
@@ -5722,7 +5737,7 @@ async function openServerBoard(id, opts) {
   const o = opts || {};
   try {
     const r = await api.boardGet(id);
-    P = normalize(r.doc);
+    P = normalize(r.doc); gInval();
     P.id = 'srv_' + id;                       // локальный ключ кэша, не путать с id доски
     cloud.bindBoard({id, version: r.version, role: r.role, asAdmin: !!r.asAdmin});
     try { await dbPut(STORE, P); await loadProjects(); } catch {}
@@ -5751,7 +5766,7 @@ async function openShare(token, wantRole) {
     if (r.role === 'viewer' && r.doc) {
       // Просмотр без входа: документ пришёл сразу, в базу его не кладём —
       // это чужая доска, ей нечего делать в списке проектов гостя.
-      P = normalize(r.doc);
+      P = normalize(r.doc); gInval();
       cloud.bindBoard(null);
       UI.page = (P.pages[0] || {}).id;
       setReadonly(true, 'Открыто только для просмотра — правки не сохранятся');
@@ -6095,7 +6110,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, COL_MIN, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KBCOL_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SIDE_FULL, SIDE_RAIL, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, elFromHTML, emptyBlock, endPtr, ensureColgroup, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamBase, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamRest, jamSnapshot, jamToolDown, jumpToNode, kbDropTo, kbIndexAt, kbInsMark, kbScroll, kbSort, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeJamDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, moveTableCol, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, patchList, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireColOrder, wireColResize, wireEdit, wireJam, wireKbResize, wrapLines, zoomAt});
+Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, COL_MIN, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KBCOL_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, elFromHTML, emptyBlock, endPtr, ensureColgroup, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamBase, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamRest, jamSnapshot, jamToolDown, jumpToNode, kbDropTo, kbIndexAt, kbInsMark, kbScroll, kbSort, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeJamDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, moveTableCol, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, patchList, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireColOrder, wireColResize, wireEdit, wireJam, wireKbResize, wrapLines, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, 'RO', {get: () => RO, set: v => {RO = v;}, configurable: true});
