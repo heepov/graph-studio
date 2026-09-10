@@ -1,20 +1,75 @@
 :root{
-  /* Палитра. Контраст проверен на белом: --muted раньше был #8b91a1 — 3.2:1 при кегле
-     10.5px, ниже нормы. Кегли подняты по всему интерфейсу: 10–11px читаемы только
-     когда смотришь в упор, а доской пользуются, откинувшись от экрана. */
-  --ink:#141822; --ink2:#4d5567; --muted:#6b7383; --line:#e5e8f0; --line2:#eef0f6;
-  --bg:#f1f3f8; --card:#fff; --accent:#4262ff; --accent-bg:#eef1ff; --accent-br:#cdd8ff;
-  --accent-ink:#2a44cc;
+  /* ============ ГРАФИТ ============
+     Нейтраль была светло-синей (насыщенность ~20% на тоне 225) и спорила
+     с акцентом: интерфейс читался синим, а не серым. Стало ~7%.
+
+     КЕГЛИ НЕ УМЕНЬШЕНЫ. Решение прежнее и в силе: 10–11px читаемы только
+     когда смотришь в упор, а доской пользуются откинувшись. Плотность взята
+     отступами и высотами (--s*, --h-*), а не кеглем. Контраст --muted
+     на --bg был 4.29 (ниже нормы), стал 4.68. */
+  --ink:#16181d; --ink2:#4a4f5a; --muted:#696e7a;
+  --line:#e3e5ea; --line2:#eeeff2; --line-str:#d5d8de;
+  --bg:#f4f5f7; --card:#fff;
+  --surf:#fafafb;    /* сайдбар, шапка таблицы, «утопленные» поверхности */
+  --surf2:#f1f2f5;   /* второй уровень: пикер, колонка канбана, .crow */
+  --hov:#f1f2f5;     /* ховер по строке и пункту меню */
+  --hov2:#e8eaee;    /* ховер по плотной мишени: .mo, #iclose, .ib */
+  /* Плашки, тёмные в ОБЕИХ темах: #bulk, #toast, #verbar, курсоры соседей. */
+  --ink-inv:#fff; --dark-surf:#1b1f2a; --dark-surf2:#2c3242;
+  --dark-line:#3b4254; --dark-ink:#dfe3ee;
+
+  /* ============ ЕДИНСТВЕННЫЙ АКЦЕНТ ============
+     Синий остаётся ровно на четырёх ролях: главная кнопка, выделение,
+     активная страница, кольцо фокуса. Везде ещё — графит.
+     --accent на --accent-bg даёт 4.22 (ниже нормы), поэтому текстом
+     на светлой заливке идёт --accent-ink (6.67). */
+  --accent:#4262ff; --accent-h:#3550e0;
+  --accent-bg:#eef1ff; --accent-br:#cdd8ff; --accent-ink:#2a44cc;
+  --accent-rgb:66,98,255;
+  --on-accent:#fff;   /* в тёмной теме — тёмный: белое на #6b8bff это 3.11 */
+
+  /* ============ СЕМАНТИКА — НЕ ТРОГАТЬ ============
+     Эти же значения лежат в документе доски (SCHEMA_PALETTE, TPL, seed)
+     и приходят в разметку инлайновым style. Разъедутся — доска станет
+     одного цвета, а её содержимое другого. */
   --red:#b3261e; --red-bg:#fdecea; --red-br:#f0c7c2;
   --amber:#8a5d00; --amber-bg:#fff5da; --amber-br:#ecd8a0;
   --green:#136c33; --green-bg:#e4f3e8; --green-br:#b9dfc4;
   --grey:#5f6673; --grey-bg:#eef0f4; --grey-br:#dbdfe8;
-  --sh1:0 1px 2px rgba(16,20,32,.06); --sh2:0 4px 14px rgba(16,20,32,.10); --sh3:0 16px 46px rgba(16,20,32,.20);
+
+  /* ============ ТЕНИ ============ Короче и слабее: плотному хрому
+     не нужна глубина, она съедает ощущение точности. */
+  --sh1:0 1px 2px rgba(16,20,32,.05); --sh2:0 2px 8px rgba(16,20,32,.08);
+  --sh3:0 12px 34px rgba(16,20,32,.18);
   /* Тень плавающих панелей поверх холста: без неё панель сливается с сеткой. */
-  --shf:0 2px 6px rgba(16,20,32,.08),0 10px 30px rgba(16,20,32,.13);
-  --side:248px;
-  --insp-w:396px;
-  --r-s:8px; --r-m:12px; --r-l:16px;
+  --shf:0 1px 3px rgba(16,20,32,.07),0 8px 24px rgba(16,20,32,.11);
+
+  /* ============ ОТСТУПЫ ============ Шкалы не было: ~1000 литералов. */
+  --s1:2px; --s2:4px; --s3:6px; --s4:8px; --s5:10px;
+  --s6:12px; --s7:16px; --s8:20px; --s9:24px;
+
+  /* ============ РАДИУСЫ ============ Имена прежние, значения плотные.
+     --r-s органы управления · --r-m меню и карточки · --r-l модалки */
+  --r-xs:4px; --r-s:6px; --r-m:8px; --r-l:12px; --r-pill:999px;
+
+  /* ============ КЕГЛЬ ============ Только приведение к ступеням:
+     были 9 / 9.4 / 9.6 / 10.2 / 10.5 / 11.6 / 12.4 / 13.6 / 14.5 и ещё
+     двадцать восемь значений. Сдвиг не более 0.4px, ничьи — вверх;
+     всё, что было мельче 10px, поднято до 10px. */
+  --t-micro:10px; --t-cap:11px; --t-meta:12px;
+  --t-body:13px;  --t-ui:14px;  --t-title:15px;
+
+  /* ============ ВЫСОТЫ ============ Плотность настраивается здесь.
+     Кнопки переходят с высоты-от-паддинга на min-height: иначе .btn,
+     .chip, input и select не выстраиваются в один ряд. */
+  --h-ctl:28px; --h-ctl-sm:22px; --h-ctl-lg:32px;
+  --h-topbar:44px; --h-pagebar:34px;
+
+  /* --side пока прежний: в main.js лежит своя копия (SIDE_FULL=236),
+     и они уже разъехались на 12px. Сводятся в одно отдельным шагом —
+     менять здесь в одиночку значит только поменять величину ошибки. */
+  --side:248px; --side-rail:52px;
+  --insp-w:372px;
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden}
@@ -447,18 +502,27 @@ body.readonly .port,body.readonly .nd .rs{display:none}
 
 /* ============ тёмная тема ============ */
 body.dark{
-  --ink:#e7eaf3; --ink2:#a7afc2; --muted:#7b8397; --line:#2b3140; --line2:#232936;
-  --bg:#0e1117; --card:#171b24; --accent:#6b8bff; --accent-bg:#1b2338; --accent-br:#374468;
+  --ink:#e8e9ec; --ink2:#a6aab4; --muted:#868b97;
+  --line:#2c2f36; --line2:#24272d; --line-str:#3a3e46;
+  --bg:#101114; --card:#17191d;
+  --surf:#14161a; --surf2:#1e2126; --hov:#23262c; --hov2:#2b2f36;
+  --ink-inv:#fff; --dark-surf:#23262c; --dark-surf2:#2e323a;
+  --dark-line:#3e434c; --dark-ink:#e8e9ec;
+  --accent:#6b8bff; --accent-h:#8aa4ff;
+  --accent-bg:#1c2233; --accent-br:#36416b; --accent-ink:#9db1ff;
+  --accent-rgb:107,139,255;
+  /* Белое на светлом акценте давало 3.11 — ниже нормы. Тёмное даёт 6.17. */
+  --on-accent:#0e1013;
   --red:#ef8b82; --red-bg:#39221f; --red-br:#5d332e;
   --amber:#e5b24d; --amber-bg:#382c14; --amber-br:#5a4620;
   --green:#5cc27f; --green-bg:#173423; --green-br:#265039;
   --grey:#9aa2b3; --grey-bg:#232936; --grey-br:#333a49;
-  --sh1:0 1px 2px rgba(0,0,0,.4); --sh2:0 4px 14px rgba(0,0,0,.5); --sh3:0 16px 46px rgba(0,0,0,.6);
+  --sh1:0 1px 2px rgba(0,0,0,.4); --sh2:0 2px 8px rgba(0,0,0,.45);
+  --sh3:0 12px 34px rgba(0,0,0,.55);
+  --shf:0 1px 3px rgba(0,0,0,.5),0 8px 24px rgba(0,0,0,.5);
   color-scheme:dark;
 }
-body.dark{--side-bg:#12151d;--surf2:#1e232e;--hov:#222836;--accent-ink:#9db1ff;
-  --shf:0 2px 6px rgba(0,0,0,.5),0 10px 30px rgba(0,0,0,.55)}
-body.dark #side{background:var(--side-bg)}
+body.dark #side{background:var(--surf)}
 body.dark #topbar,body.dark #pagebar,body.dark #cvintro{background:var(--card)}
 body.dark #projBtn,body.dark .btn,body.dark .chip,body.dark .mlist,body.dark .nd,body.dark .port,
 body.dark .fr .rs,body.dark .stk .rs,body.dark .tblwrap,body.dark .kc,body.dark .tile,body.dark .card,
