@@ -193,6 +193,15 @@ async function json(path, opts = {}) {
       ? ok('инструменты объявлены', names.length + ' шт.')
       : bad(`инструментов ${names.length}, а ожидалось ${TOOLS_EXPECTED}`, names.join(', '));
 
+    // В настройках коннектора человек видит ЗАГОЛОВКИ, а не имена. Два одинаковых
+    // означают два неразличимых пункта в списке: так «Прочитать доску» у get_board
+    // совпало с jam_read, и понять, где какой, было нельзя.
+    const titles = tools.result.tools.map(t => t.title || t.name);
+    const dupTitles = titles.filter((t, i) => titles.indexOf(t) !== i);
+    dupTitles.length === 0
+      ? ok('заголовки инструментов не повторяются')
+      : bad('одинаковые заголовки в списке инструментов', [...new Set(dupTitles)].join(' | '));
+
     /* ---------- полный цикл работы с доской ---------- */
     const created = await call('create_board', {
       name: 'MCP-проверка', description: 'создана тестом',
