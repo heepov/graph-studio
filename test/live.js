@@ -11,6 +11,11 @@ const { execSync } = require('node:child_process');
 
 const URL = process.env.APP_URL || 'http://127.0.0.1:8081/';
 const PORT_A = 9351, PORT_B = 9352;
+// createFromTemplate() асинхронна, и P наполняется РАНЬШЕ, чем закрывается главный
+// экран. В это окно #home ещё лежит поверх редактора: elementFromPoint попадает в него,
+// клики и сочетания клавиш уходят не туда, и прогон падает «не нашёл узел на холсте».
+// Ждать надо не появления данных, а того, что редактор действительно виден.
+const EDITOR_SHOWN = " && !document.body.classList.contains('onhome')";
 const results = [];
 const ok = (n, d = '') => { results.push(['✓', n, d]); console.log('✓', n, d); };
 const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, d); };
@@ -37,7 +42,7 @@ const GUEST_PASS = 'test-pass-12345';
       cloud.CLOUD.account = r.user; paintAccount();
     })()`);
     await A.eval(`createFromTemplate('demo')`);
-    await A.waitFor('P && P.nodes.length > 0 && cloud.boundToServer()', 20000, 'доска А');
+    await A.waitFor('P && P.nodes.length > 0 && cloud.boundToServer()' + EDITOR_SHOWN, 20000, 'доска А');
     await A.waitFor('live.LIVE.on === true', 15000, 'канал А открыт');
     ok('живой канал открывается при входе на доску');
 

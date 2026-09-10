@@ -7,6 +7,11 @@ const { execSync } = require('node:child_process');
 
 const URL = process.env.APP_URL || 'http://127.0.0.1:8081/';
 const PORT = 9336;
+// createFromTemplate() асинхронна, и P наполняется РАНЬШЕ, чем закрывается главный
+// экран. В это окно #home ещё лежит поверх редактора: elementFromPoint попадает в него,
+// клики и сочетания клавиш уходят не туда, и прогон падает «не нашёл узел на холсте».
+// Ждать надо не появления данных, а того, что редактор действительно виден.
+const EDITOR_SHOWN = " && !document.body.classList.contains('onhome')";
 const results = [];
 const ok = (n, d = '') => { results.push(['✓', n, d]); console.log('✓', n, d); };
 const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, d); };
@@ -51,7 +56,7 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
     // что доски нет на втором устройстве, уже потеряв её.
     await c.waitFor('typeof createFromTemplate === "function"', 15000, 'приложение готово');
     await c.eval('createFromTemplate(\'demo\')');
-    await c.waitFor('typeof P !== "undefined" && P && P.nodes.length > 0 && cloud.boundToServer()',
+    await c.waitFor('typeof P !== "undefined" && P && P.nodes.length > 0 && cloud.boundToServer()' + EDITOR_SHOWN,
       20000, 'доска на сервере');
     await sleep(800);
 

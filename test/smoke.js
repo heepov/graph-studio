@@ -5,6 +5,11 @@ const { launch, Client, sleep } = require('./cdp');
 
 const URL = process.env.APP_URL || 'http://127.0.0.1:8081/';
 const PORT = 9333;
+// createFromTemplate() асинхронна, и P наполняется РАНЬШЕ, чем закрывается главный
+// экран. В это окно #home ещё лежит поверх редактора: elementFromPoint попадает в него,
+// клики и сочетания клавиш уходят не туда, и прогон падает «не нашёл узел на холсте».
+// Ждать надо не появления данных, а того, что редактор действительно виден.
+const EDITOR_SHOWN = " && !document.body.classList.contains('onhome')";
 const results = [];
 const ok = (n, d = '') => { results.push(['✓', n, d]); console.log('✓', n, d); };
 const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, d); };
@@ -38,7 +43,7 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
     // dbPut ниже падает с «нет БД»
     await c.waitFor('typeof idb !== "undefined" && !!idb', 20000, 'база открыта');
     await c.eval(`createFromTemplate('demo')`);
-    await c.waitFor('typeof P !== "undefined" && P && P.nodes.length > 0', 15000, 'проект открылся');
+    await c.waitFor('typeof P !== "undefined" && P && P.nodes.length > 0' + EDITOR_SHOWN, 15000, 'проект открылся');
     const proj = await c.eval(`({name: P.name, nodes: P.nodes.length, links: P.links.length, pages: P.pages.map(p => p.kind)})`);
     ok('проект создан из шаблона', JSON.stringify(proj));
 
