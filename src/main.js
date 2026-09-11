@@ -1,4 +1,5 @@
 import { api, ApiError, parseRoute } from './api.js';
+import { icon } from './icons.js';
 import * as cloud from './cloud.js';
 import * as home from './home.js';
 import * as live from './live.js';
@@ -1197,11 +1198,11 @@ function layoutPage(pg, nodes) {
 function canvasShell(pg, cfg, opts) {
   const jam = !!(opts && opts.jam);
   const rail = jam ? '' : `<div id="toolrail" class="noview">
-      <button data-tool="node" title="Новый узел · двойной клик по холсту">＋</button>
-      <button data-tool="frame" title="Область: рамка вокруг группы узлов">▭</button>
-      <button data-tool="note" title="Заметка">✎</button>
+      <button data-tool="node" title="Новый узел · двойной клик по холсту">${icon('plus')}</button>
+      <button data-tool="frame" title="Область: рамка вокруг группы узлов">${icon('frame')}</button>
+      <button data-tool="note" title="Заметка">${icon('edit')}</button>
       <div class="rsep"></div>
-      <button data-tool="fit" title="Показать всё целиком">⤢</button>
+      <button data-tool="fit" title="Показать всё целиком">${icon('fit')}</button>
     </div>`;
   return `<div id="cvstack"${jam ? ' class="jam"' : ''}>
     ${cfg.intro && !cfg.introOff ? `<div id="cvintro">${cfg.intro}<span class="x" id="introX" title="скрыть">×</span></div>` : ''}
@@ -1218,23 +1219,23 @@ function canvasShell(pg, cfg, opts) {
     <div id="marq"></div>
     ${rail}
     ${jam ? `<div id="jambar" class="noview">
-      <button data-t="sel" title="Выбрать · V">&#9655;</button>
-      <button data-t="hand" title="Рука · H · или пробел">&#9995;</button>
+      <button data-t="sel" title="Выбрать · V">${icon('cursor')}</button>
+      <button data-t="hand" title="Рука · H · или пробел">${icon('hand')}</button>
       <span class="jsep"></span>
-      <button data-t="sticky" title="Стикер · N">&#128441;</button>
-      <button data-t="text" title="Текст · T">T</button>
-      <button data-t="shape" title="Фигура · R">&#9645;</button>
-      <button data-t="conn" title="Коннектор · X">&#8599;</button>
-      <button data-t="pen" title="Перо · P">&#9998;</button>
-      <button data-t="eraser" title="Ластик · E">&#9723;</button>
-      <button data-t="section" title="Секция · F">&#11036;</button>
+      <button data-t="sticky" title="Стикер · N">${icon('sticky')}</button>
+      <button data-t="text" title="Текст · T">${icon('text')}</button>
+      <button data-t="shape" title="Фигура · R">${icon('shape')}</button>
+      <button data-t="conn" title="Коннектор · X">${icon('share')}</button>
+      <button data-t="pen" title="Перо · P">${icon('pen')}</button>
+      <button data-t="eraser" title="Ластик · E">${icon('eraser')}</button>
+      <button data-t="section" title="Секция · F">${icon('frame')}</button>
       <span class="jsep"></span>
-      <button data-t="fit" title="Показать всё">&#10530;</button>
+      <button data-t="fit" title="Показать всё">${icon('fit')}</button>
     </div>
     <div id="jprops" class="noview"></div>` : ''}
     <div id="zoombar">
-      <button class="btn ico sm" id="zOut">−</button><span id="zval" class="hint" style="width:38px;text-align:center">100%</span>
-      <button class="btn ico sm" id="zIn">＋</button><span class="sep"></span>
+      <button class="btn ico sm" id="zOut">${icon('minus')}</button><span id="zval" class="hint" style="width:38px;text-align:center">100%</span>
+      <button class="btn ico sm" id="zIn">${icon('plus')}</button><span class="sep"></span>
       <button class="btn sm" id="zFit">По размеру</button>
       <button class="btn sm" id="z100">1:1</button>
     </div>
@@ -1574,7 +1575,7 @@ function paintEmptyHint(pg, nodes) {
   if (pg.kind === 'space') {
     title = 'Схема пока пустая';
     body = VIEWER ? 'Автор ещё ничего сюда не положил.'
-      : 'Положите на неё узлы проекта кнопкой <b>↧ Положить узел</b> в панели сверху ' +
+      : 'Положите на неё узлы проекта кнопкой <b>' + icon('arrow-down') + ' Положить узел</b> в панели сверху ' +
         'или создайте новый: <b>двойной клик</b> по пустому месту.';
   } else if (filtered) {
     title = 'Фильтр не пропустил ни одного узла';
@@ -3182,7 +3183,7 @@ function editForm(n) {
     else if (f.type === 'checkbox') fields += `<label class="cbx"><input type="checkbox" data-f="${esc(f.key)}" ${v ? 'checked' : ''}>да</label>`;
     else if (f.type === 'list') {
       fields += `<div data-list="${esc(f.key)}">${(v || []).map((x, i) => `<div class="lrw"><input type="text" data-li="${i}" value="${esc(x)}"><button class="ib dgr" data-ldel="${i}">×</button></div>`).join('')}</div>
-        <button class="btn sm" data-ladd="${esc(f.key)}">＋ пункт</button>`;
+        <button class="btn sm" data-ladd="${esc(f.key)}">${icon('plus','i-sm')} пункт</button>`;
     } else fields += `<input type="text" data-f="${esc(f.key)}" value="${esc(v || '')}">`;
     fields += `</div>`;
   });
@@ -3201,7 +3202,7 @@ function editForm(n) {
       <input type="text" data-c="z" value="${esc(c.z || '')}" placeholder="комментарий" style="margin-top:5px;font-size:12px">
     </div>`;
   });
-  checks += '</div><button class="btn sm" id="chkAdd">＋ веха</button>';
+  checks += '</div><button class="btn sm" id="chkAdd">' + icon('plus', 'i-sm') + ' веха</button>';
 
   // --- редкое и служебное ---
   const more = `<div class="frow" style="margin-top:2px">
@@ -3682,13 +3683,15 @@ $('bFind').onclick = openPalette;
 // Каталог видов страницы. Пояснение (d) лежит ЗДЕСЬ, а не в шаблоне диалога
 // «Новая страница»: иначе каждый новый вид требует правки в трёх разных местах,
 // и одно из них обязательно забывается.
+// Значок страницы уходит в разметку как есть, без экранирования — поэтому
+// здесь лежит готовая строка <svg>, а не имя значка.
 const KIND = {
-  canvas: {n: 'Холст', i: '◇', d: 'колонка = глубина зависимости'},
-  space: {n: 'Схема', i: '⬚', d: 'свободная схема: кладёшь что хочешь и куда хочешь'},
-  jam: {n: 'Доска', i: '▩', d: 'стикеры, фигуры, стрелки и рисунки на бесконечном холсте'},
-  table: {n: 'Таблица', i: '▤', d: 'строки, колонки, правка в ячейках'},
-  board: {n: 'Канбан', i: '▥', d: 'карточки по колонкам, drag&drop'},
-  dash: {n: 'Дашборд', i: '◎', d: 'плитки и сводка из данных'},
+  canvas: {n: 'Холст', i: icon('diagram', 'i-sm'), d: 'колонка = глубина зависимости'},
+  space: {n: 'Схема', i: icon('layout', 'i-sm'), d: 'свободная схема: кладёшь что хочешь и куда хочешь'},
+  jam: {n: 'Доска', i: icon('board', 'i-sm'), d: 'стикеры, фигуры, стрелки и рисунки на бесконечном холсте'},
+  table: {n: 'Таблица', i: icon('table', 'i-sm'), d: 'строки, колонки, правка в ячейках'},
+  board: {n: 'Канбан', i: icon('kanban', 'i-sm'), d: 'карточки по колонкам, drag&drop'},
+  dash: {n: 'Дашборд', i: icon('dashboard', 'i-sm'), d: 'плитки и сводка из данных'},
 };
 const kindName = k => (KIND[k] || {n: k}).n;
 
@@ -3696,7 +3699,7 @@ function renderPages() {
   patchList($('pageList'), P.pages, p => p.id, p =>
     `<div class="pgi${p.id === UI.page ? ' on' : ''}" data-p="${p.id}" title="${esc(p.name)} · ${esc(kindName(p.kind))}" draggable="${VIEWER ? 'false' : 'true'}">
       <span class="ic">${KIND[p.kind] ? KIND[p.kind].i : '•'}</span><span class="nm">${esc(p.name)}</span>
-      <span class="mo noview" data-mo="${p.id}">⋯</span></div>`);
+      <span class="mo noview" data-mo="${p.id}">${icon('more', 'i-sm')}</span></div>`);
   qsa('#pageList .pgi').forEach(el => {
     el.onclick = e => {if (e.target.dataset.mo) {pageMenu(e, e.target.dataset.mo); return;} gotoPage(el.dataset.p);};
     // Правая кнопка — второй вход в меню страницы. В узком режиме панели «⋯» скрыт,
@@ -3748,34 +3751,34 @@ function renderPageBar(pg) {
   const bar = $('pagebar');
   const flt = pg.filter = pg.filter || {q: '', cats: [], statuses: [], types: [], f: {}};
   let h = `<input type="text" id="fq" placeholder="Фильтр по тексту…" value="${esc(flt.q || '')}" style="width:190px">`;
-  h += `<div class="menu" id="mFilter"><button class="btn${activeFilterCount(flt) ? ' act' : ''}">Фильтр${activeFilterCount(flt) ? ' · ' + activeFilterCount(flt) : ''} ▾</button><div class="mlist left" style="min-width:270px;max-height:60vh;overflow:auto"></div></div>`;
+  h += `<div class="menu" id="mFilter"><button class="btn${activeFilterCount(flt) ? ' act' : ''}">Фильтр${activeFilterCount(flt) ? ' · ' + activeFilterCount(flt) : ''} ${icon('chevron-down', 'i-sm')}</button><div class="mlist left" style="min-width:270px;max-height:60vh;overflow:auto"></div></div>`;
   if (pg.kind === 'canvas') {
     h += `<span class="sep"></span>
-      <div class="menu" id="mLay"><button class="btn">${pg.canvas.layout === 'auto' ? '⚙ Авто-раскладка' : '✋ Свободно'} ▾</button>
+      <div class="menu" id="mLay"><button class="btn">${pg.canvas.layout === 'auto' ? icon('settings') + ' Авто-раскладка' : icon('hand') + ' Свободно'} ${icon('chevron-down', 'i-sm')}</button>
         <div class="mlist left"><div class="mi" data-l="auto">Авто по зависимостям<small>колонка = глубина зависимости</small></div>
         <div class="mi" data-l="free">Свободная<small>узлы стоят там, где поставил</small></div><hr>
         <div class="mi noview" data-l="reset">Пересчитать раскладку<small>снять закрепление позиций</small></div>
         <div class="mi noview" data-l="lanes">Подписи колонок…</div></div></div>`;
-    h += `<div class="menu noview" id="mAddObj"><button class="btn">＋ Объект ▾</button><div class="mlist left">
+    h += `<div class="menu noview" id="mAddObj"><button class="btn">${icon('plus')} Объект ${icon('chevron-down', 'i-sm')}</button><div class="mlist left">
       <div class="mi" data-o="node">Узел<span class="k">N</span></div><div class="mi" data-o="note">Заметка</div>
       <div class="mi" data-o="frame">Область<span class="k">Ctrl+G</span></div><div class="mi" data-o="lane">Дорожка</div></div></div>`;
-    h += `<div class="menu noview" id="mLType"><button class="btn">Связь: <b id="ltName"></b> ▾</button><div class="mlist left"></div></div>`;
-    h += `<div class="menu" id="mImg"><button class="btn">⤓ Картинка ▾</button><div class="mlist left">
+    h += `<div class="menu noview" id="mLType"><button class="btn">Связь: <b id="ltName"></b> ${icon('chevron-down', 'i-sm')}</button><div class="mlist left"></div></div>`;
+    h += `<div class="menu" id="mImg"><button class="btn">${icon('image')} Картинка ${icon('chevron-down', 'i-sm')}</button><div class="mlist left">
       <div class="mi" data-img="png">Экспорт в PNG<small>2× — для презентации</small></div>
       <div class="mi" data-img="svg">Экспорт в SVG<small>вектор — для правки</small></div></div></div>`;
     h += `<span class="spacer"></span><button class="chip" id="cCrit">Критический путь</button><button class="chip" id="cReady">Доступное сейчас</button>`;
   }
   if (pg.kind === 'space') {
     h += `<span class="sep"></span>
-      <div class="menu noview" id="mAddObj"><button class="btn">＋ Объект ▾</button><div class="mlist left">
+      <div class="menu noview" id="mAddObj"><button class="btn">${icon('plus')} Объект ${icon('chevron-down', 'i-sm')}</button><div class="mlist left">
         <div class="mi" data-o="node">Новый узел<span class="k">N</span></div><div class="mi" data-o="note">Заметка</div>
         <div class="mi" data-o="frame">Область<span class="k">Ctrl+G</span></div></div></div>`;
-    h += `<div class="menu noview" id="mPut"><button class="btn">↧ Положить узел ▾</button>
+    h += `<div class="menu noview" id="mPut"><button class="btn">${icon('arrow-down')} Положить узел ${icon('chevron-down', 'i-sm')}</button>
       <div class="mlist left" style="min-width:300px;padding:6px">
         <input type="text" id="putq" placeholder="найти узел проекта…" style="width:100%">
         <div id="putlist" style="max-height:240px;overflow:auto;margin-top:5px"></div></div></div>`;
-    h += `<div class="menu noview" id="mLType"><button class="btn">Связь: <b id="ltName"></b> ▾</button><div class="mlist left"></div></div>`;
-    h += `<div class="menu" id="mImg"><button class="btn">⤓ Картинка ▾</button><div class="mlist left">
+    h += `<div class="menu noview" id="mLType"><button class="btn">Связь: <b id="ltName"></b> ${icon('chevron-down', 'i-sm')}</button><div class="mlist left"></div></div>`;
+    h += `<div class="menu" id="mImg"><button class="btn">${icon('image')} Картинка ${icon('chevron-down', 'i-sm')}</button><div class="mlist left">
       <div class="mi" data-img="png">Экспорт в PNG<small>2× — для презентации</small></div>
       <div class="mi" data-img="svg">Экспорт в SVG<small>вектор — для правки</small></div></div></div>`;
     h += `<span class="spacer"></span><span class="hint">Свободная схема: узлы лежат там, где положил</span>`;
@@ -3784,22 +3787,22 @@ function renderPageBar(pg) {
     // Тот же поиск, что на схеме: доска показывает только положенное, и должен
     // быть способ вынести на неё существующий узел проекта — ради этого гибрид.
     h += `<span class="sep"></span>
-      <div class="menu noview" id="mPut"><button class="btn">↧ Положить узел ▾</button>
+      <div class="menu noview" id="mPut"><button class="btn">${icon('arrow-down')} Положить узел ${icon('chevron-down', 'i-sm')}</button>
       <div class="mlist left" style="min-width:300px;padding:6px">
         <input type="text" id="putq" placeholder="найти узел проекта…" style="width:100%">
         <div id="putlist" style="max-height:240px;overflow:auto;margin-top:5px"></div></div></div>`;
-    h += `<div class="menu noview" id="mBg"><button class="btn">Фон ▾</button><div class="mlist left">
+    h += `<div class="menu noview" id="mBg"><button class="btn">Фон ${icon('chevron-down', 'i-sm')}</button><div class="mlist left">
       <div class="mi" data-bg="dots">Точки</div><div class="mi" data-bg="grid">Клетка</div>
       <div class="mi" data-bg="none">Без сетки</div></div></div>`;
     h += `<span class="spacer"></span><span class="hint">Инструменты внизу · V стрелка, N стикер, T текст, R фигура, P перо</span>`;
   }
   if (pg.kind === 'table') {
-    h += `<div class="menu" id="mCols"><button class="btn">Колонки ▾</button><div class="mlist left" style="max-height:60vh;overflow:auto"></div></div>`;
-    h += `<div class="menu" id="mGrp"><button class="btn">Группировка ▾</button><div class="mlist left"></div></div>`;
+    h += `<div class="menu" id="mCols"><button class="btn">Колонки ${icon('chevron-down', 'i-sm')}</button><div class="mlist left" style="max-height:60vh;overflow:auto"></div></div>`;
+    h += `<div class="menu" id="mGrp"><button class="btn">Группировка ${icon('chevron-down', 'i-sm')}</button><div class="mlist left"></div></div>`;
     h += `<span class="spacer"></span><span class="hint" id="tblCount"></span>`;
   }
   if (pg.kind === 'board') {
-    h += `<div class="menu" id="mGby"><button class="btn">Колонки по: <b id="gbyName"></b> ▾</button><div class="mlist left"></div></div>`;
+    h += `<div class="menu" id="mGby"><button class="btn">Колонки по: <b id="gbyName"></b> ${icon('chevron-down', 'i-sm')}</button><div class="mlist left"></div></div>`;
     h += `<span class="spacer"></span><span class="hint">Перетаскивай карточки между колонками</span>`;
   }
   bar.innerHTML = h;
@@ -3980,7 +3983,7 @@ function buildFilterMenu(pg) {
     body += grp(fl.label, (fl.options || []).map(o => [o, o]), ((f.f || {})[fl.key] || []), 'f.' + fl.key, FC.f[fl.key]);
   });
   let h = '';
-  if (showAll || hiddenN) h = `<div class="mi" data-ft="toggleAll|1" style="color:var(--ink);font-weight:650">${showAll ? '▾ Скрыть пустые' : '▸ Показать все значения' + (hiddenN ? ' (+' + hiddenN + ')' : '')}</div><hr>`;
+  if (showAll || hiddenN) h = `<div class="mi" data-ft="toggleAll|1" style="color:var(--ink);font-weight:650">${showAll ? icon('chevron-down', 'i-sm') + ' Скрыть пустые' : icon('chevron-right', 'i-sm') + ' Показать все значения' + (hiddenN ? ' (+' + hiddenN + ')' : '')}</div><hr>`;
   h += body;
   h += `<hr><div class="mi" data-ft="blockersOnly|1"><input type="checkbox" ${f.blockersOnly ? 'checked' : ''} style="pointer-events:none">Только с блокерами</div>`;
   h += `<div class="mi" data-ft="clear|1">Сбросить фильтр</div>`;
@@ -4073,7 +4076,7 @@ function renderTable(pg) {
     $('view').innerHTML = ns.length
       ? `<div class="scroller"><div class="tblwrap"><table class="grid${sized ? ' fixed' : ''}">${colgroup}
       <thead><tr></tr></thead><tbody></tbody></table></div>
-      ${VIEWER ? '' : `<div style="margin-top:10px"><button class="btn" id="tAdd">＋ Узел</button></div>`}
+      ${VIEWER ? '' : `<div style="margin-top:10px"><button class="btn" id="tAdd">${icon('plus')} Узел</button></div>`}
       </div>`
       : `<div class="scroller">${emptyBlock(pg, P.nodes.length)}</div>`;
     sc = qs('#view > .scroller');
@@ -4431,7 +4434,7 @@ function renderBoard(pg) {
     return {k: String(c.k), h: `<div class="kbcol" data-k="${esc(c.k)}"${cw}>
       <div class="kbh">${c.c ? `<span class="dt" style="background:${c.c};width:9px;height:9px;border-radius:50%"></span>` : ''}${esc(c.n)}<span class="n"></span></div>
       <div class="kbl"></div>
-      ${VIEWER ? '' : `<button class="btn sm" data-add="${esc(c.k)}" style="margin-top:6px;width:100%;justify-content:center">＋</button>`}
+      ${VIEWER ? '' : `<button class="btn sm" data-add="${esc(c.k)}" style="margin-top:6px;width:100%;justify-content:center">${icon('plus','i-sm')}</button>`}
       ${VIEWER ? '' : '<div class="kbrs" title="потянуть — ширина колонки; двойной клик — вернуть обычную"></div>'}
     </div>`};
   });
@@ -4732,7 +4735,7 @@ function showSchema(tab) {
   const body = () => `<div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap">
       ${Object.keys(secs).map(k => `<button class="btn${k === (window._schTab || cur) ? ' act' : ''}" data-tab="${k}">${secs[k][0]}</button>`).join('')}</div>
     <div id="schBody">${secs[window._schTab || cur][1]()}</div>
-    <button class="btn" id="schAdd">＋ Добавить</button>`;
+    <button class="btn" id="schAdd">${icon('plus')} Добавить</button>`;
   window._schTab = tab || window._schTab || cur;
   modal(`<h3>Схема проекта</h3><div class="kv" style="margin-bottom:10px">Что можно описывать в этом проекте: типы узлов, статусы, категории, типы связей и свои поля.</div>
     <div id="schWrap">${body()}</div>
@@ -5719,7 +5722,7 @@ async function showAdmin() {
           `<div class="t${k === tab ? ' on' : ''}" data-tab="${k}">${n}</div>`).join('')}</div>
         <span class="spacer"></span>
         ${tab === 'users' ? `<button class="btn sm" data-a="invite">Выписать приглашение</button>
-          <button class="btn sm pri" data-a="newuser">＋ Пользователь</button>` : ''}
+          <button class="btn sm pri" data-a="newuser">${icon('plus','i-sm')} Пользователь</button>` : ''}
       </div>
       ${body}
       <div class="mfoot">
@@ -6079,7 +6082,7 @@ function showHelp() {
     <b>Клавиши.</b> <span class="kbd">Ctrl+K</span> поиск и команды · <span class="kbd">Ctrl+Z</span> отмена · <span class="kbd">Ctrl+C</span>/<span class="kbd">Ctrl+V</span> копировать/вставить узлы (в т.ч. между проектами) · <span class="kbd">Ctrl+D</span> дублировать ·
     <span class="kbd">Ctrl+A</span> выделить всё · <span class="kbd">N</span> новый узел · <span class="kbd">Del</span> удалить · стрелки — сдвиг ·
     <span class="kbd">Ctrl+S</span> выгрузить JSON.<br><br>
-    <b>Картинка холста.</b> На холсте — меню «⤓ Картинка»: экспорт карты в <b>PNG</b> (2×) или <b>SVG</b> для презентаций и слайдов.<br><br>
+    <b>Картинка холста.</b> На холсте — меню «${icon('image')} Картинка»: экспорт карты в <b>PNG</b> (2×) или <b>SVG</b> для презентаций и слайдов.<br><br>
     <b>Тёмная тема.</b> Переключатель в левом нижнем углу; выбор запоминается.<br><br>
     <b>Хранение и безопасность.</b> Проекты лежат в этом браузере (IndexedDB) и сохраняются сами; позиция камеры на холсте тоже запоминается. В «Экспорт и импорт» — JSON, бэкап всех проектов, CSV, Markdown, PNG/SVG и <b>viewer.html</b> (самодостаточный файл только для просмотра). Там же — <b>снимки версий</b> (точки отката) и <b>проверка проекта</b> (битые связи, циклы, дубли). Удалённые проекты попадают в «Удалённые» и восстанавливаются.
   </div>
@@ -6157,7 +6160,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, COL_MIN, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KBCOL_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, elFromHTML, emptyBlock, endPtr, ensureCanvasShell, ensureColgroup, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamBase, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamRest, jamSnapshot, jamToolDown, jumpToNode, kbDropTo, kbIndexAt, kbInsMark, kbScroll, kbSort, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeJamDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, moveTableCol, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, patchList, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireColOrder, wireColResize, wireEdit, wireJam, wireKbResize, wrapLines, zoomAt});
+Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, COL_MIN, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KBCOL_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, elFromHTML, emptyBlock, endPtr, ensureCanvasShell, ensureColgroup, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, icon, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamBase, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamRest, jamSnapshot, jamToolDown, jumpToNode, kbDropTo, kbIndexAt, kbInsMark, kbScroll, kbSort, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeJamDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, moveTableCol, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, patchList, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireColOrder, wireColResize, wireEdit, wireJam, wireKbResize, wrapLines, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, 'RO', {get: () => RO, set: v => {RO = v;}, configurable: true});

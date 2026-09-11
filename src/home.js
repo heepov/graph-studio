@@ -1,3 +1,4 @@
+import { icon as I } from './icons.js';
 // Главная: витрина, список досок, вход.
 //
 // Раньше главной не было вообще. Приложение открывалось оверлеем со списком
@@ -277,13 +278,13 @@ export function showLanding() {
     </div>
     <div class="lshot">${heroArt()}</div>
     <div class="lfeat">
-      <div class="c"><span class="ic">🔗</span><h3>Зависимости, а не даты</h3>
+      <div class="c"><span class="ic">${I('diagram','i-lg')}</span><h3>Зависимости, а не даты</h3>
         <p>Колонка на карте — глубина зависимости. Наведите на узел: красным подсветится
            то, что его держит, зелёным — что он разблокирует.</p></div>
-      <div class="c"><span class="ic">🗂</span><h3>Одни узлы, разные виды</h3>
+      <div class="c"><span class="ic">${I('layout','i-lg')}</span><h3>Одни узлы, разные виды</h3>
         <p>Карта, свободная схема, таблица, канбан и дашборд — это страницы одного проекта.
            Меняется вид и фильтр, данные остаются одни.</p></div>
-      <div class="c"><span class="ic">👥</span><h3>Доски на сервере</h3>
+      <div class="c"><span class="ic">${I('users','i-lg')}</span><h3>Доски на сервере</h3>
         <p>Доска открывается с любого устройства и делится ссылкой: на просмотр — без входа,
            на правку — с входом, чтобы у изменений был автор.</p></div>
     </div>
@@ -360,11 +361,11 @@ export async function refreshBoards() {
 }
 
 const NAV = [
-  ['all', '▦', 'Все доски'],
-  ['shared', '👥', 'Со мной поделились'],
-  ['tpl', '✦', 'Шаблоны'],
-  ['local', '💾', 'На этом компьютере'],
-  ['trash', '🗑', 'Корзина'],
+  ['all', I('grid'), 'Все доски'],
+  ['shared', I('users'), 'Со мной поделились'],
+  ['tpl', I('sparkle'), 'Шаблоны'],
+  ['local', I('save'), 'На этом компьютере'],
+  ['trash', I('trash'), 'Корзина'],
 ];
 
 function counts() {
@@ -388,8 +389,8 @@ function renderNav() {
     .map(([k, ic, nm]) => `<div class="hn${HOME.view === k ? ' on' : ''}" data-v="${k}">
       <span class="ic">${ic}</span><span class="nm">${nm}</span>${c[k] ? `<span class="cnt">${c[k]}</span>` : ''}</div>`).join('')
     + `<div class="hnsep"></div>
-       <div class="hn" data-a="help"><span class="ic">?</span><span class="nm">Справка</span></div>
-       ${acc && acc.admin ? '<div class="hn" data-a="admin"><span class="ic">★</span><span class="nm">Админка</span></div>' : ''}`;
+       <div class="hn" data-a="help"><span class="ic">${I('help','i-sm')}</span><span class="nm">Справка</span></div>
+       ${acc && acc.admin ? `<div class="hn" data-a="admin"><span class="ic">${I('star','i-sm')}</span><span class="nm">Админка</span></div>` : ''}`;
   $('hnav').querySelectorAll('[data-v]').forEach(el => el.onclick = () => { HOME.view = el.dataset.v; renderNav(); renderMain(); });
   $('hnav').querySelectorAll('[data-a=help]').forEach(el => el.onclick = () => H.showHelp());
   $('hnav').querySelectorAll('[data-a=admin]').forEach(el => el.onclick = () => H.showAdmin());
@@ -405,7 +406,7 @@ function boardCard(b, kind) {
   return `<div class="bcard" data-b="${esc(b.id)}" data-kind="${kind}" tabindex="0">
     <div class="bprev">${previewSVG(b.preview, b.id, b.name)}</div>
     ${shared ? `<span class="tag">${b.role === 'editor' ? 'можно править' : 'только просмотр'}</span>` : ''}
-    <button class="mo" data-menu="${esc(b.id)}" title="Действия">⋯</button>
+    <button class="mo" data-menu="${esc(b.id)}" title="Действия">${I('more','i-sm')}</button>
     <div class="bbody">
       <div class="t">${esc(b.name || 'Без названия')}</div>
       <div class="m"><span>${H.nOf(b.nodes_count || 0, H.NODES)}</span><span class="dot">·</span>

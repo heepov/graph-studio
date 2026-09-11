@@ -164,6 +164,15 @@ button,input,select,textarea{font-family:inherit}
 .btn.dgr{color:var(--red);border-color:var(--red-br)}
 .btn.dgr:hover{background:var(--red-bg)}
 .btn[disabled]{opacity:.38;cursor:default;pointer-events:none}
+
+/* Сетка значка 20×20, обводка 1.5. Размер задаётся ЗДЕСЬ, а не в разметке:
+   иначе каждый вызов icon() нёс бы свои width/height и они бы разъехались.
+   currentColor — значит значок сам следует за цветом текста и темой. */
+.i{width:16px;height:16px;flex:0 0 auto;display:block;fill:none;stroke:currentColor;
+   stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.i.i-sm{width:14px;height:14px;stroke-width:1.6}
+.i.i-lg{width:20px;height:20px;stroke-width:1.4}
+.pgi .ic,.hn .ic{display:flex;align-items:center;justify-content:center}
 .btn.sm{font-size:12px;padding:4px 9px}
 .btn.ico{padding:7px 9px}
 .chip{font-size:12.4px;font-weight:600;padding:4px 11px;border-radius:var(--r-pill);border:1px solid var(--line);background:var(--card);cursor:pointer;color:var(--ink2);user-select:none;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
@@ -635,8 +644,7 @@ body.dark .pill,body.dark .dchip{filter:brightness(1.5) saturate(.85)}
   /* «Поиск» на телефоне остаётся значком: подпись занимает место, которого нет,
      а сам значок узнаётся без слов. font-size:0 гасит текст кнопки, ::before
      возвращает значок — иначе кнопка превращалась в пустую пилюлю. */
-  #bFind{font-size:0;padding:7px 11px}
-  #bFind::before{content:'🔍';font-size:15px}
+  #bFind .lb{display:none}
   .btn{padding:7px 10px}
 
   /* Мини-карта — роскошь настольного экрана: на телефоне она перекрывала холст,
