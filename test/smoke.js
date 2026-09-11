@@ -376,30 +376,65 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       }
 
       // --- VIEWER: ссылка коллеге ------------------------------------------
-      // viewer весит сотни КБ — разбираем его внутри страницы и наружу отдаём только выжимку.
-      // exportViewer() стал асинхронным: шаблон тянется через fetch('viewer-template.html'),
-      // потому что после перехода на сборку снимок собственного DOM больше не самодостаточен.
+      // Выгружаем ОДИН раз и делаем с файлом две разные вещи: разбираем блок данных
+      // и по-настоящему запускаем его в iframe. Разбора мало: пока тест доставал seed
+      // той же логикой первого вхождения, что и exportViewer, обе стороны ошибались
+      // одинаково, проверка была зелёной, а у человека файл не открывался вообще.
       const viewer = await c.eval(`(async () => {
         let blob = null; const orig = URL.createObjectURL;
         URL.createObjectURL = b => { blob = b; return orig.call(URL, b); };
         try { await exportViewer(); } finally { URL.createObjectURL = orig; }
         if (!blob) return null;
         const content = await blob.text();
+        // lastIndexOf: этот же литерал лежит и в собранном бандле, вложенном в файл.
         const marker = '<script id="seed" type="application/json">';
-        const i = content.indexOf(marker), j = content.indexOf('<' + '/script>', i);
-        return {name: 'viewer.html', len: content.length,
-                seed: content.slice(i + marker.length, j),
-                viewerFlag: content.includes('window.VIEWER=true;')};
+        const i = content.lastIndexOf(marker), j = content.indexOf('<' + '/script>', i);
+        const out = {name: 'viewer.html', len: content.length,
+                     seed: content.slice(i + marker.length, j),
+                     viewerFlag: content.includes('<' + 'script id="cfg">window.VIEWER=true;<' + '/script>')};
+
+        // Запуск. blob: наследует происхождение создателя, поэтому UI и DOM видны.
+        const url = orig.call(URL, blob);
+        const fr = document.createElement('iframe');
+        fr.style.cssText = 'position:fixed;left:-9999px;top:0;width:1200px;height:800px';
+        document.body.appendChild(fr);
+        fr.src = url;
+        let booted = false;
+        for (let k = 0; k < 80 && !booted; k++) {
+          try { booted = !!(fr.contentWindow && fr.contentWindow.UI && fr.contentWindow.UI.booted); } catch (e) {}
+          if (!booted) await new Promise(r => setTimeout(r, 100));
+        }
+        try {
+          const w = fr.contentWindow, d = fr.contentDocument;
+          out.booted = booted;
+          out.pages = d ? d.querySelectorAll('#pageList .pgi').length : -1;
+          out.drawn = d ? d.querySelectorAll('.nd,.kc,tr[data-r],.jitem').length : -1;
+          out.viewerMode = !!(d && d.body.classList.contains('viewer'));
+          out.projName = w && w.P ? w.P.name : null;
+        } catch (e) { out.booted = booted; out.bootErr = String(e.message); }
+        fr.remove(); URL.revokeObjectURL(url);
+        return out;
       })()`);
       if (!viewer) bad('exportViewer() ничего не выгрузил');
       else {
-        const vs = JSON.parse(viewer.seed);
-        const vn = vs.nodes.find(n => n.id === box.id);
-        const vpos = vn && vn.p && vn.p[key];
-        JSON.stringify(vpos) === JSON.stringify(after[key])
-          ? ok('VIEWER.HTML содержит позицию узла', `${viewer.name}, ${(viewer.len/1024).toFixed(0)} КБ`)
-          : bad('VIEWER.HTML потерял позицию узла', JSON.stringify(vn && vn.p));
+        let vs = null;
+        try { vs = JSON.parse(viewer.seed); }
+        catch (e) { bad('VIEWER.HTML: блок данных не разобрался', String(e.message).slice(0, 120)); }
+        if (vs) {
+          const vn = vs.nodes.find(n => n.id === box.id);
+          const vpos = vn && vn.p && vn.p[key];
+          JSON.stringify(vpos) === JSON.stringify(after[key])
+            ? ok('VIEWER.HTML содержит позицию узла', `${viewer.name}, ${(viewer.len/1024).toFixed(0)} КБ`)
+            : bad('VIEWER.HTML потерял позицию узла', JSON.stringify(vn && vn.p));
+        }
         viewer.viewerFlag ? ok('VIEWER.HTML в режиме только-просмотр') : bad('VIEWER.HTML без флага VIEWER=true');
+        // Главное: файл обязан ЗАПУСКАТЬСЯ. Битый скрипт не выполнится, UI не появится.
+        viewer.booted
+          ? ok('VIEWER.HTML реально запускается', `проект «${viewer.projName}», страниц ${viewer.pages}`)
+          : bad('VIEWER.HTML не запустился — скрипт не отработал', JSON.stringify({e: viewer.bootErr, len: viewer.len}));
+        viewer.pages > 0 ? ok('VIEWER.HTML отрисовал список страниц', String(viewer.pages))
+                         : bad('VIEWER.HTML не отрисовал страницы', JSON.stringify({pages: viewer.pages, drawn: viewer.drawn}));
+        viewer.viewerMode ? ok('VIEWER.HTML открылся в режиме просмотра') : bad('VIEWER.HTML без класса viewer');
       }
 
       // --- ПЕРЕЗАГРУЗКА: позиция переживает reload (IndexedDB) --------------

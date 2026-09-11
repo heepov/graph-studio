@@ -129,7 +129,15 @@ function pickFile(accept, cb) {
   i.onchange = () => {const f = i.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => cb(r.result, f.name); r.readAsText(f, 'utf-8');};
   i.click();
 }
-function modal(html, wire) { $('mbox').innerHTML = html; $('modal').classList.add('open'); if (wire) wire($('mbox')); }
+function modal(html, wire, opts) {
+  const b = $('mbox');
+  // Класс СБРАСЫВАЕМ каждый раз: иначе широкая админка оставляла .wide
+  // следующей модалке, и «Подтверждение» разъезжалось на всю ширину.
+  b.className = (opts && opts.wide) ? 'wide' : '';
+  b.innerHTML = html;
+  $('modal').classList.add('open');
+  if (wire) wire(b);
+}
 function closeModal() { $('modal').classList.remove('open'); }
 $('modal').addEventListener('click', e => {if (e.target.id === 'modal') closeModal();});
 function confirmBox(text, ok, okLabel) {
@@ -1233,6 +1241,23 @@ function canvasShell(pg, cfg, opts) {
     <canvas id="mini" width="264" height="176"></canvas>
   </div></div></div>`;
 }
+// Пересобирать каркас холста и доски только когда изменилось то, чего слои поправить
+// не могут: другая страница, другой фон доски, другое пояснение. Раньше он пересобирался
+// БЕЗУСЛОВНО на каждый renderPage(), и это стоило данных: текст стикера коммитится
+// на blur (jamInlineText), а innerHTML сносит .jtxt вместе с фокусом — Chrome при
+// удалении сфокусированного элемента blur НЕ вызывает, и набранное исчезало молча,
+// стоило коллеге в эту секунду тронуть доску по живому каналу.
+// Ключ держим на самом элементе, а не в data-атрибуте: разметка обязана остаться прежней.
+function ensureCanvasShell(pg, cfg, jam) {
+  const key = [jam ? 'jam' : 'cv', pg.id, pg.kind, jam ? (cfg.bg || 'dots') : '',
+               cfg.introOff ? '' : (cfg.intro || '')].join('|');
+  let st = $('cvstack');
+  if (st && st.__shell === key) return false;
+  $('view').innerHTML = canvasShell(pg, cfg, {jam});
+  st = $('cvstack');
+  if (st) st.__shell = key;
+  return true;
+}
 // Пояснение над холстом и первичный подгон камеры — тоже общие.
 function wireCanvasShell(pg, cfg) {
   const ix = $('introX');
@@ -1263,7 +1288,7 @@ function renderCanvas(pg) {
   const cfg = space ? pg.space : pg.canvas;   // общая часть: пояснение над холстом
   const nodes = pageNodes(pg);
   cvNodes = nodes;
-  $('view').innerHTML = canvasShell(pg, cfg, {jam: false});
+  ensureCanvasShell(pg, cfg, false);
   cvPos = layoutPage(pg, nodes);
   paintFrames(); paintNodes(); paintEdges(); paintNotes();
   applyView();
@@ -1282,7 +1307,7 @@ function renderJam(pg) {
   const cfg = pg.jam;
   const nodes = pageNodes(pg);
   cvNodes = nodes;
-  $('view').innerHTML = canvasShell(pg, cfg, {jam: true});
+  ensureCanvasShell(pg, cfg, true);
   cvPos = layoutPage(pg, nodes);
   paintItems(); paintNodes(); paintEdges();
   applyView();
@@ -1885,6 +1910,15 @@ function flyTo(id) {
 /* ---------- события холста ---------- */
 function wireCanvas() {
   const cv = $('cv');
+  ptrs.clear(); pinch = null;      // новая отрисовка холста — новый жест
+  // Каркас холста теперь переживает перерисовку (ключ __shell, см. ensureCanvasShell),
+  // а значит #cv — ТОТ ЖЕ элемент, и addEventListener ниже копил бы по обработчику
+  // на каждую отрисовку: колесо зумило бы вдвое, втрое, и так далее.
+  // Вешать один раз безопасно: ни один обработчик здесь не держит состояние
+  // конкретной отрисовки — страница, камера и документ читаются из
+  // curPage()/view()/P в момент события. Сброс жеста выше остаётся на каждый раз.
+  if (cv.__wired) return;
+  cv.__wired = 1;
   $('zIn').onclick = () => {const r = cvRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1.25);};
   // Панель инструментов слева. Раньше область и заметку можно было создать только
   // из контекстного меню — то есть их не существовало для того, кто его не открывал.
@@ -1913,7 +1947,6 @@ function wireCanvas() {
      собственные жесты, иначе прокрутка страницы съедала бы панораму. */
   let longT = null, lastTap = 0, lastTapXY = null;
   const clearLong = () => { clearTimeout(longT); longT = null; };
-  ptrs.clear(); pinch = null;      // новая отрисовка холста — новый жест
 
   cv.addEventListener('pointerdown', e => {
     if (e.pointerType === 'touch') {
@@ -3871,7 +3904,7 @@ function renderPageBar(pg) {
             <span style="font-size:9.6px;color:var(--muted);font-family:ui-monospace,Menlo,monospace">${esc(n.id)}</span></div>`).join('')
         : `<div class="kv" style="padding:4px 6px">${q ? 'ничего не нашлось' : 'все узлы проекта уже здесь'}</div>`;
       qsa('[data-put]', putlist).forEach(el => {
-        el.onmouseenter = () => el.style.background = 'var(--accent-bg)';
+        el.onmouseenter = () => el.style.background = 'var(--hov)';
         el.onmouseleave = () => el.style.background = '';
         el.onclick = () => {
           const n = nodeById(el.dataset.put); if (!n) return;
@@ -3947,7 +3980,7 @@ function buildFilterMenu(pg) {
     body += grp(fl.label, (fl.options || []).map(o => [o, o]), ((f.f || {})[fl.key] || []), 'f.' + fl.key, FC.f[fl.key]);
   });
   let h = '';
-  if (showAll || hiddenN) h = `<div class="mi" data-ft="toggleAll|1" style="color:var(--accent);font-weight:650">${showAll ? '▾ Скрыть пустые' : '▸ Показать все значения' + (hiddenN ? ' (+' + hiddenN + ')' : '')}</div><hr>`;
+  if (showAll || hiddenN) h = `<div class="mi" data-ft="toggleAll|1" style="color:var(--ink);font-weight:650">${showAll ? '▾ Скрыть пустые' : '▸ Показать все значения' + (hiddenN ? ' (+' + hiddenN + ')' : '')}</div><hr>`;
   h += body;
   h += `<hr><div class="mi" data-ft="blockersOnly|1"><input type="checkbox" ${f.blockersOnly ? 'checked' : ''} style="pointer-events:none">Только с блокерами</div>`;
   h += `<div class="mi" data-ft="clear|1">Сбросить фильтр</div>`;
@@ -4389,7 +4422,7 @@ function renderBoard(pg) {
         <div class="t">${esc(n.name)}</div>${n.sub ? `<div class="s">${esc(n.sub)}</div>` : ''}
         <div class="m">${by !== 'status' ? pillOf(n.status) : ''}
           ${nBlockers(n) ? `<span class="pill" style="color:var(--red);background:var(--red-bg)">⚠${nBlockers(n)}</span>` : ''}
-          ${g.W(n.id) >= 3 ? `<span class="pill" style="color:var(--accent);background:var(--accent-bg)">${g.W(n.id)}</span>` : ''}</div>
+          ${g.W(n.id) >= 3 ? `<span class="pill" style="color:var(--ink2);background:var(--line2)">${g.W(n.id)}</span>` : ''}</div>
       </div>`;
   const colItems = cols.map(c => {
     // Ширина своя у каждой колонки: у «Готово» и «В работе» разное число карточек,
@@ -4550,7 +4583,7 @@ function renderDash(pg) {
   if (blkList.length) h += `<div class="card"><h3>Блокеры (${blkList.length})</h3>
     <table class="grid"><thead><tr><th>Блокер</th><th>Держит</th><th>Статус</th><th>Последствие</th></tr></thead><tbody>
     ${blkList.map(x => `<tr><td class="nm">${esc(x.c.t)}${x.c.z ? `<div style="font-weight:400;font-size:11.4px;color:var(--muted)">${esc(x.c.z)}</div>` : ''}</td>
-      <td><span class="t" data-jump="${esc(x.n.id)}" style="cursor:pointer;color:var(--accent);font-weight:650">${esc(x.n.name)}</span></td>
+      <td><span class="t" data-jump="${esc(x.n.id)}" style="cursor:pointer;color:var(--ink);text-decoration:underline">${esc(x.n.name)}</span></td>
       <td>${pillOf(x.c.s)}</td>
       <td style="font-size:11.8px;color:var(--ink2)">→ ${g.W(x.n.id)} узлов ниже</td></tr>`).join('')}
     </tbody></table></div>`;
@@ -4847,7 +4880,15 @@ async function exportViewer() {
   try { JSON.parse(tpl.slice(i + marker.length, j)); }
   catch { toast('Блок данных в шаблоне не разобрался — просмотрщик не собран'); return; }
   let out = tpl.slice(0, i + marker.length) + JSON.stringify(P) + tpl.slice(j);
-  out = out.replace('window.VIEWER=false;', 'window.VIEWER=true;');
+  // Тот же капкан, что и с маркером выше: этот литерал тоже попадает в бандл, а
+  // String.replace меняет ПЕРВОЕ вхождение — то есть строку внутри чужого кода,
+  // оставляя настоящий <script id="cfg"> нетронутым. Выгруженный файл открывался
+  // обычным приложением: главная вместо доски, и правки в нём считались настоящими.
+  // Настоящий флаг стоит в самом конце документа, поэтому берём последнее вхождение.
+  const flag = 'window.VIEWER=false;';
+  const fi = out.lastIndexOf(flag);
+  if (fi < 0) {toast('В шаблоне не найден флаг просмотра'); return;}
+  out = out.slice(0, fi) + 'window.VIEWER=true;' + out.slice(fi + flag.length);
   dl(fname('viewer.html'), out, 'text/html');
   toast('viewer.html собран — только просмотр');
 }
@@ -5289,7 +5330,7 @@ function showValidator() {
   const rows = issues.length ? issues.map((i, ix) => `<div class="lrow" style="align-items:flex-start;gap:9px">
       <span style="flex:0 0 auto;font-size:13px">${ic(i.level)}</span>
       <div class="t" style="white-space:normal;cursor:${i.node ? 'pointer' : 'default'}" ${i.node ? `data-go="${esc(i.node)}"` : ''}>
-        <b>${esc(i.cat)}</b><br><span class="hint">${esc(i.msg)}${i.node ? ' · <span style="color:var(--accent)">перейти →</span>' : ''}</span></div>
+        <b>${esc(i.cat)}</b><br><span class="hint">${esc(i.msg)}${i.node ? ' · <span style="color:var(--ink2)">перейти →</span>' : ''}</span></div>
       ${i.fix ? `<button class="btn sm" data-fix="${ix}">${esc(i.fix.label)}</button>` : ''}
     </div>`).join('') : '<div class="kv" style="color:var(--green);margin-top:14px;font-size:13px">✓ Проблем не найдено — проект целостный.</div>';
   modal(`<h3>Проверка проекта</h3>
@@ -5625,7 +5666,9 @@ async function showAdmin() {
   }
   if (!cloud.CLOUD.account.admin) { toast('Раздел только для администратора'); return; }
 
-  const fmt = t => t ? new Date(t).toLocaleString('ru-RU').slice(0, 16) : '—';
+  // Обрезкой строки время резалось по живому: toLocaleString даёт секунды,
+  // и slice(0,16) оставлял «20:1» вместо «20:15». Просим формат явно.
+  const fmt = t => t ? new Date(t).toLocaleString('ru-RU', {dateStyle: 'short', timeStyle: 'short'}) : '—';
   const draw = async (tab, msg) => {
     let stats = {}, users = [], boards = [], log = [];
     try {
@@ -5638,46 +5681,50 @@ async function showAdmin() {
     const tabs = [['users', 'Пользователи'], ['boards', 'Доски'], ['log', 'Журнал доступа']];
     let body = '';
     if (tab === 'users') {
-      body = users.length ? `<table class="grid"><thead><tr>
+      body = users.length ? `<div class="tblwrap" style="max-height:min(52vh,460px)"><table class="grid"><thead><tr>
         <th>Почта</th><th>Имя</th><th>Досок</th><th>Заходил</th><th></th></tr></thead><tbody>
         ${users.map(u => `<tr>
-          <td>${u.is_admin ? '★ ' : ''}${esc(u.email)}${u.blocked ? ' <span style="color:var(--red)">заблокирован</span>' : ''}</td>
-          <td>${esc(u.name || '')}</td><td>${u.boards}</td><td>${esc(fmt(u.last_seen))}</td>
-          <td style="white-space:nowrap">
+          <td>${esc(u.email)}${u.is_admin ? '<span class="atag adm">админ</span>' : ''}${u.blocked ? '<span class="atag dgr">заблокирован</span>' : ''}</td>
+          <td>${esc(u.name || '—')}</td><td>${u.boards}</td><td>${esc(fmt(u.last_seen))}</td>
+          <td><div class="aact">
             <button class="btn sm" data-pw="${esc(u.id)}">Сбросить пароль</button>
             <button class="btn sm ${u.blocked ? '' : 'dgr'}" data-blk="${esc(u.id)}" data-on="${u.blocked ? 0 : 1}">${u.blocked ? 'Разблокировать' : 'Заблокировать'}</button>
-          </td></tr>`).join('')}</tbody></table>
-        <div style="margin-top:10px"><button class="btn" data-a="newuser">＋ Создать пользователя</button>
-        <button class="btn" data-a="invite">＋ Выписать приглашение</button></div>`
+          </div></td></tr>`).join('')}</tbody></table></div>`
         : '<div class="hint">Пользователей нет.</div>';
     } else if (tab === 'boards') {
-      body = boards.length ? `<table class="grid"><thead><tr>
+      body = boards.length ? `<div class="tblwrap" style="max-height:min(52vh,460px)"><table class="grid"><thead><tr>
         <th>Доска</th><th>Владелец</th><th>Узлов</th><th>Изменена</th><th></th></tr></thead><tbody>
         ${boards.map(b => `<tr>
-          <td>${b.deleted ? '🗑 ' : ''}${esc(b.name || b.id)}</td><td>${esc(b.owner_email || '—')}</td>
+          <td>${esc(b.name || b.id)}${b.deleted ? '<span class="atag">в корзине</span>' : ''}</td><td>${esc(b.owner_email || '—')}</td>
           <td>${b.nodes_count}</td><td>${esc(fmt(b.updated_at))}</td>
-          <td><button class="btn sm" data-open="${esc(b.id)}">Открыть</button></td></tr>`).join('')}</tbody></table>
+          <td><div class="aact"><button class="btn sm" data-open="${esc(b.id)}">Открыть</button></div></td></tr>`).join('')}</tbody></table></div>
         <div class="hint" style="margin-top:8px">Открытие чужой доски записывается в журнал доступа.</div>`
         : '<div class="hint">Досок нет.</div>';
     } else {
-      body = log.length ? `<table class="grid"><thead><tr>
+      body = log.length ? `<div class="tblwrap" style="max-height:min(52vh,460px)"><table class="grid"><thead><tr>
         <th>Когда</th><th>Кто</th><th>Доска</th><th>Действие</th></tr></thead><tbody>
         ${log.map(l => `<tr><td>${esc(fmt(l.at))}</td><td>${esc(l.admin_email || '')}</td>
-          <td>${esc(l.board_name || l.board_id)}</td><td>${esc(l.action)}</td></tr>`).join('')}</tbody></table>`
+          <td>${esc(l.board_name || l.board_id)}</td><td>${esc(l.action)}</td></tr>`).join('')}</tbody></table></div>`
         : '<div class="hint">Записей нет — чужие доски пока не открывались.</div>';
     }
 
+    const stat = (v, n) => `<div class="astat"><b>${v ?? '—'}</b><span>${n}</span></div>`;
     modal(`<h3>Админка</h3>
-      ${msg ? `<div class="kv" style="color:var(--red);font-size:12.5px">${esc(msg)}</div>` : ''}
-      <div class="kv" style="font-size:12.5px">
-        Пользователей: <b>${stats.users ?? '?'}</b> · Досок: <b>${stats.boards ?? '?'}</b>
-        · В корзине: <b>${stats.trashed ?? '?'}</b> · Живых ссылок: <b>${stats.shares ?? '?'}</b>
-        · Приглашений ждут: <b>${stats.invites ?? '?'}</b></div>
-      <div id="itabs" style="margin:10px 0 8px">${tabs.map(([k, n]) =>
-        `<div class="t${k === tab ? ' on' : ''}" data-tab="${k}">${n}</div>`).join('')}</div>
-      <div style="max-height:52vh;overflow:auto">${body}</div>
+      ${msg ? `<div class="aerr">${esc(msg)}</div>` : ''}
+      <div class="astats">${stat(stats.users, 'пользователей')}${stat(stats.boards, 'досок')}
+        ${stat(stats.trashed, 'в корзине')}${stat(stats.shares, 'живых ссылок')}
+        ${stat(stats.invites, 'приглашений ждут')}</div>
+      <div class="abar">
+        <div class="tabs">${tabs.map(([k, n]) =>
+          `<div class="t${k === tab ? ' on' : ''}" data-tab="${k}">${n}</div>`).join('')}</div>
+        <span class="spacer"></span>
+        ${tab === 'users' ? `<button class="btn sm" data-a="invite">Выписать приглашение</button>
+          <button class="btn sm pri" data-a="newuser">＋ Пользователь</button>` : ''}
+      </div>
+      ${body}
       <div class="mfoot">
         <button class="btn" data-a="backup">Сделать копию базы</button>
+        <span class="spacer"></span>
         <button class="btn" data-a="c">Закрыть</button></div>`, b => {
       b.querySelector('[data-a=c]').onclick = closeModal;
       qsa('[data-tab]', b).forEach(el => el.onclick = () => draw(el.dataset.tab));
@@ -5725,7 +5772,7 @@ async function showAdmin() {
           } catch (e) { draw(tab, e.message || String(e)); }
         });
       };
-    });
+    }, {wide: true});
   };
   draw('users');
 }
@@ -6110,7 +6157,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, COL_MIN, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KBCOL_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, elFromHTML, emptyBlock, endPtr, ensureColgroup, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamBase, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamRest, jamSnapshot, jamToolDown, jumpToNode, kbDropTo, kbIndexAt, kbInsMark, kbScroll, kbSort, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeJamDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, moveTableCol, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, patchList, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireColOrder, wireColResize, wireEdit, wireJam, wireKbResize, wrapLines, zoomAt});
+Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, COL_MIN, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KBCOL_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, elFromHTML, emptyBlock, endPtr, ensureCanvasShell, ensureColgroup, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamBase, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamRest, jamSnapshot, jamToolDown, jumpToNode, kbDropTo, kbIndexAt, kbInsMark, kbScroll, kbSort, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeJamDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, moveTableCol, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, patchList, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireColOrder, wireColResize, wireEdit, wireJam, wireKbResize, wrapLines, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, 'RO', {get: () => RO, set: v => {RO = v;}, configurable: true});

@@ -144,7 +144,7 @@ button,input,select,textarea{font-family:inherit}
 #pageList{flex:1;overflow:auto;padding:0 8px 10px}
 .pgi{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--r-s);cursor:pointer;font-size:13.4px;color:var(--ink2);user-select:none}
 .pgi:hover{background:var(--hov)}
-.pgi.on{background:var(--accent-bg);color:var(--accent);font-weight:650}
+.pgi.on{background:var(--accent-bg);color:var(--accent-ink);font-weight:650}
 .pgi .ic{width:15px;text-align:center;font-size:12px;opacity:.85}
 .pgi .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pgi .mo{opacity:0;font-size:13px;color:var(--muted);padding:0 2px;border-radius:var(--r-xs)}
@@ -158,9 +158,9 @@ button,input,select,textarea{font-family:inherit}
 /* ============ кнопки и чипы ============ */
 .btn{font-size:13px;font-weight:600;padding:7px 13px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--card);cursor:pointer;color:var(--ink2);white-space:nowrap;display:inline-flex;align-items:center;gap:6px;transition:background .12s,border-color .12s,color .12s}
 .btn:hover{background:var(--hov);color:var(--ink);border-color:var(--line-str)}
-.btn.pri{background:var(--accent);border-color:transparent;color:var(--on-accent);box-shadow:0 1px 2px rgba(66,98,255,.35)}
+.btn.pri{background:var(--accent);border-color:transparent;color:var(--on-accent);box-shadow:0 1px 2px rgba(var(--accent-rgb),.3)}
 .btn.pri:hover{background:var(--accent-h);color:var(--on-accent)}
-.btn.act{background:var(--accent-bg);border-color:var(--accent-br);color:var(--accent)}
+.btn.act{background:var(--hov2);border-color:var(--line-str);color:var(--ink)}
 .btn.dgr{color:var(--red);border-color:var(--red-br)}
 .btn.dgr:hover{background:var(--red-bg)}
 .btn[disabled]{opacity:.38;cursor:default;pointer-events:none}
@@ -209,7 +209,7 @@ button,input,select,textarea{font-family:inherit}
 .nd .bdg{position:absolute;right:7px;top:7px;display:flex;gap:3px}
 .nd .b{font-size:9.4px;font-weight:800;border-radius:var(--r-m);padding:1px 6px;line-height:1.5}
 .b.blk{background:var(--red-bg);color:var(--red);border:1px solid var(--red-br)}
-.b.wt{background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-br)}
+.b.wt{background:var(--line2);color:var(--ink2);border:1px solid var(--line)}
 .b.pin{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-br)}
 .nd.shp-pill{border-radius:22px;background:#fffdf6;border-color:var(--amber-br)}
 .nd.shp-di{border-radius:var(--r-m);background:#f7f4ff;border-color:#ded3f6}
@@ -217,7 +217,9 @@ button,input,select,textarea{font-family:inherit}
 .nd.dim{opacity:.2}
 /* акцент режимов «критический путь» и «доступное сейчас»: узел не исчезает,
    а выделяется — остальные гаснут через .dim */
-.nd.acc{box-shadow:0 0 0 2px var(--accent),var(--sh2);opacity:1}
+/* Критический путь — не выделение. Раньше кольцо было тем же самым, и режим
+   «показать критический путь» невозможно было отличить от выбранных узлов. */
+.nd.acc{box-shadow:0 0 0 2px var(--ink2),var(--sh2);opacity:1}
 .nd.anc{box-shadow:0 0 0 2px var(--red-br),var(--sh1)}
 .nd.dsc{box-shadow:0 0 0 2px var(--green-br),var(--sh1)}
 .nd.drag{cursor:grabbing;z-index:20;box-shadow:var(--sh3)}
@@ -281,7 +283,7 @@ button,input,select,textarea{font-family:inherit}
 body.dark #cvempty{background:rgba(30,35,46,.86)}
 #tmpLink{stroke:var(--accent)}
 #marq{position:absolute;border:1px solid var(--accent);background:rgba(var(--accent-rgb),.08);pointer-events:none;display:none;z-index:60}
-#cvintro{background:var(--card);border-bottom:1px solid var(--line);border-left:3px solid var(--accent);padding:7px 14px;font-size:12.2px;color:var(--ink2);line-height:1.45;position:relative}
+#cvintro{background:var(--card);border-bottom:1px solid var(--line);border-left:2px solid var(--line-str);padding:7px 14px;font-size:12.2px;color:var(--ink2);line-height:1.45;position:relative}
 #cvintro b{color:var(--ink)}
 #cvintro .x{position:absolute;right:8px;top:5px;cursor:pointer;color:var(--muted);font-size:14px;padding:0 5px;border-radius:var(--r-xs)}
 #cvintro .x:hover{background:var(--line2)}
@@ -324,7 +326,7 @@ select.cellsel:hover{border-color:var(--line);background:var(--card)}
 /* ============ канбан ============ */
 .kb{display:flex;gap:12px;align-items:flex-start;height:100%;overflow-x:auto;padding:4px 2px 20px}
 .kbcol{min-width:262px;width:262px;background:var(--surf2);border-radius:var(--r-l);padding:8px;display:flex;flex-direction:column;max-height:100%}
-.kbcol.over{background:var(--accent-bg);outline:2px dashed var(--accent-br)}
+.kbcol.over{background:var(--hov);outline:2px dashed var(--line-str)}
 .kbh{display:flex;align-items:center;gap:7px;font-size:12.2px;font-weight:750;padding:2px 4px 8px;color:var(--ink2)}
 .kbh .n{margin-left:auto;font-size:11px;color:var(--muted);font-weight:600}
 .kbl{overflow-y:auto;display:flex;flex-direction:column;gap:6px;min-height:34px;padding-bottom:2px}
@@ -346,15 +348,15 @@ select.cellsel:hover{border-color:var(--line);background:var(--card)}
 .cards2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;align-items:start}
 .barrow{display:flex;align-items:center;gap:9px;padding:4px 0;font-size:12.4px}
 .barrow .lb{flex:0 0 44%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
-.barrow .lb:hover{color:var(--accent)}
+.barrow .lb:hover{color:var(--ink);text-decoration:underline}
 .barrow .bw{flex:1;height:8px;background:var(--line2);border-radius:var(--r-xs);overflow:hidden}
 .barrow .bw i{display:block;height:100%;border-radius:var(--r-xs)}
 .barrow .vv{width:34px;text-align:right;font-weight:700;font-size:11.6px}
 .lrow{display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px solid var(--line2);font-size:12.5px}
 .lrow:last-child{border:none}
 .lrow .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
-.lrow .t:hover{color:var(--accent)}
-.intro{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:var(--r-m);padding:10px 14px;
+.lrow .t:hover{color:var(--ink);text-decoration:underline}
+.intro{background:var(--card);border:1px solid var(--line);border-left:2px solid var(--line-str);border-radius:var(--r-m);padding:10px 14px;
   font-size:12.6px;color:var(--ink2);margin-bottom:14px;box-shadow:var(--sh1)}
 .intro b{color:var(--ink)}
 
@@ -377,7 +379,8 @@ body.inspopen #bulk{transform:translateX(calc(-50% - var(--insp-w) / 2)) transla
 body.inspopen #bulk.on{transform:translateX(calc(-50% - var(--insp-w) / 2))}
 /* ручка ширины: тянется влево, ширина запоминается в meta вместе с темой */
 #inspGrip{position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:2}
-#inspGrip:hover,body.inspdrag #inspGrip{background:var(--accent-br)}
+#inspGrip:hover{background:var(--line-str)}
+body.inspdrag #inspGrip{background:var(--accent-br)}
 body.inspdrag{cursor:col-resize;user-select:none}
 #ih{padding:11px 16px 0;border-bottom:1px solid var(--line);position:relative}
 #ih h3{margin:0;font-size:15px;font-weight:750;padding-right:30px;line-height:1.3}
@@ -389,7 +392,7 @@ body.inspdrag{cursor:col-resize;user-select:none}
 .imetrics b{color:var(--ink2)}
 #itabs{display:flex;gap:2px;margin-top:9px}
 #itabs .t{font-size:12px;font-weight:650;padding:5px 10px;border-radius:var(--r-s) 7px 0 0;cursor:pointer;color:var(--ink2);border:1px solid transparent;border-bottom:none;margin-bottom:-1px}
-#itabs .t.on{background:var(--card);border-color:var(--line);color:var(--accent)}
+#itabs .t.on{background:var(--card);border-color:var(--line);color:var(--ink)}
 #ib{padding:10px 16px 20px;overflow:auto;flex:1}
 /* Постоянный футер панели: «Дублировать» и «Удалить узел» лежали внутри свёрнутого
    раздела «Тип, колонка, служебное» — красная необратимая кнопка пряталась там,
@@ -399,8 +402,8 @@ body.inspdrag{cursor:col-resize;user-select:none}
 .sect{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:18px 0 7px}
 .kv{font-size:12.2px;color:var(--ink2);margin-top:5px}
 .kv b{color:var(--ink)}
-.body{font-size:12.9px;line-height:1.55;background:#f7f9fd;border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:10px 13px;white-space:pre-wrap}
-.tag{display:inline-block;font-size:11px;font-weight:650;color:var(--accent);background:var(--accent-bg);border:1px solid var(--accent-br);
+.body{font-size:12.9px;line-height:1.55;background:var(--surf);border-left:2px solid var(--line-str);border-radius:0 8px 8px 0;padding:10px 13px;white-space:pre-wrap}
+.tag{display:inline-block;font-size:11px;font-weight:650;color:var(--ink2);background:var(--line2);border:1px solid var(--accent-br);
   border-radius:var(--r-l);padding:2px 9px;margin:3px 4px 0 0;cursor:pointer}
 .tag:hover{background:#e2e8fa}
 .chk{border-bottom:1px solid var(--line2);padding:7px 0}
@@ -423,7 +426,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
 .cbx input{width:15px;height:15px;accent-color:var(--accent)}
 .picker{border:1px solid var(--line);border-radius:var(--r-m);padding:5px;max-height:180px;overflow:auto;background:var(--surf)}
 .pk{display:flex;align-items:center;gap:7px;padding:3px 5px;border-radius:var(--r-xs);font-size:12.2px;cursor:pointer}
-.pk:hover{background:var(--accent-bg)}
+.pk:hover{background:var(--hov)}
 .pk input{accent-color:var(--accent)}
 .pk .id{font-size:9.6px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;margin-left:auto}
 /* Зависимости: чипы выбранного + поиск.
@@ -445,7 +448,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
 .ihint{font-size:11px;color:var(--muted);line-height:1.4;margin:2px 0 6px}
 .deps{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
 .dchip{font-size:11.4px;font-weight:600;padding:3px 5px 3px 9px;border-radius:var(--r-l);
-  border:1px solid var(--accent-br);background:var(--accent-bg);color:var(--accent);
+  border:1px solid var(--line);background:var(--line2);color:var(--ink2);
   display:inline-flex;align-items:center;gap:4px;max-width:100%}
 .dchip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px}
 .dchip i{font-style:normal;cursor:pointer;opacity:.55;padding:0 3px;border-radius:var(--r-s);font-size:13px;line-height:1}
@@ -456,7 +459,8 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
 .deplist{position:absolute;left:0;right:0;top:100%;z-index:5;margin-top:3px;background:var(--card);
   border:1px solid var(--line);border-radius:var(--r-m);box-shadow:var(--sh2);max-height:210px;overflow:auto;padding:4px}
 .deplist .di{display:flex;align-items:center;gap:7px;padding:5px 7px;border-radius:var(--r-s);font-size:12.2px;cursor:pointer}
-.deplist .di:hover,.deplist .di.on{background:var(--accent-bg)}
+.deplist .di:hover{background:var(--hov)}
+.deplist .di.on{background:var(--accent-bg)}
 .deplist .di .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .deplist .di .id{font-size:9.6px;color:var(--muted);font-family:ui-monospace,Menlo,monospace}
 .lrw{display:flex;gap:6px;align-items:center;margin-bottom:5px}
@@ -473,6 +477,32 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
 #mbox{background:var(--card);border-radius:var(--r-l);max-width:680px;width:100%;max-height:88vh;overflow:auto;padding:24px 26px;box-shadow:var(--sh3)}
 #mbox h3{margin:0 0 12px;font-size:19px;font-weight:750;letter-spacing:-.2px}
 .mfoot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+
+/* ============ админка ============
+   Раньше она жила в обычной модалке 680px и переиспользовала id="itabs" —
+   ТОТ ЖЕ id, что у вкладок инспектора. В документе оказывалось два элемента
+   с одинаковым id, а те стили рассчитаны сидеть НА границе панели
+   (border-bottom:none, margin-bottom:-1px). Под ними в модалке границы нет,
+   и вкладки выглядели обрубленными, а таблица из пяти колонок с двумя
+   кнопками в строке в 680px просто не помещалась. */
+#mbox.wide{max-width:1000px}
+.tabs{display:inline-flex;gap:2px;padding:3px;background:var(--surf2);border-radius:var(--r-m)}
+.tabs .t{font-size:var(--t-meta);font-weight:650;padding:5px 12px;border-radius:var(--r-s);
+  cursor:pointer;color:var(--ink2);user-select:none;white-space:nowrap}
+.tabs .t:hover{color:var(--ink)}
+.tabs .t.on{background:var(--card);color:var(--ink);box-shadow:var(--sh1)}
+/* Сводка числами, а не строкой через точки-разделители: пять показателей
+   в одну строку текста не читаются, их приходилось вычитывать. */
+.astats{display:grid;grid-template-columns:repeat(auto-fit,minmax(116px,1fr));gap:var(--s3);margin:var(--s6) 0}
+.astat{background:var(--surf);border:1px solid var(--line);border-radius:var(--r-m);padding:var(--s4) var(--s5)}
+.astat b{display:block;font-size:20px;font-weight:750;letter-spacing:-.4px;line-height:1.2}
+.astat span{font-size:var(--t-cap);color:var(--muted)}
+.abar{display:flex;align-items:center;gap:var(--s3);margin:var(--s6) 0 var(--s4);flex-wrap:wrap}
+.aact{display:flex;gap:var(--s2);justify-content:flex-end;white-space:nowrap}
+.atag{font-size:var(--t-cap);font-weight:700;padding:1px 6px;border-radius:var(--r-xs);
+  background:var(--line2);color:var(--ink2);margin-left:var(--s2)}
+.atag.dgr{background:var(--red-bg);color:var(--red)}
+.atag.adm{background:var(--amber-bg);color:var(--amber)}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(18px);background:var(--dark-surf);color:var(--ink-inv);font-size:12.6px;
   padding:9px 16px;border-radius:var(--r-m);z-index:400;opacity:0;transition:.2s;pointer-events:none;max-width:70vw;box-shadow:var(--sh3)}
 #toast.on{opacity:1;transform:translateX(-50%)}
@@ -491,7 +521,7 @@ body.bulkon #toast{bottom:82px}
 #palin:focus{box-shadow:none;border-color:var(--line)}
 #pallist{overflow:auto;padding:6px}
 .pr{padding:7px 11px;border-radius:var(--r-m);cursor:pointer;display:flex;align-items:center;gap:9px;font-size:12.8px}
-.pr.on{background:var(--accent-bg)}
+.pr.on{background:var(--hov2);box-shadow:inset 2px 0 0 var(--accent)}
 .pr .s{color:var(--muted);font-size:11px;margin-left:auto}
 /* Стили прежнего стартового экрана (#projects, .pcard) удалены вместе с ним в 2.0. */
 body.viewer .noview{display:none!important}
@@ -526,7 +556,7 @@ body.dark{
   --shf:0 1px 3px rgba(0,0,0,.5),0 8px 24px rgba(0,0,0,.5);
   color-scheme:dark;
 }
-body.dark .btn:hover{border-color:var(--accent-br)}
+body.dark .btn:hover{border-color:var(--line-str)}
 body.dark #cv{background:radial-gradient(circle at 1px 1px,#2a3140 1px,transparent 0) 0 0/22px 22px,#0d1017}
 body.dark .lanebg{border-left-color:#2a3140}
 body.dark .lanecap{color:#5c6478}
@@ -550,7 +580,6 @@ body.dark input:focus,body.dark select:focus,body.dark textarea:focus{box-shadow
    под белый фон (#136c33, #b3261e, #8a5d00). На тёмном они дают контраст около 1.5:1.
    Инлайн-стиль из CSS не переопределить — осветляем фильтром. */
 body.dark .pill,body.dark .dchip{filter:brightness(1.5) saturate(.85)}
-body.dark .tag:hover{background:var(--accent-bg)}
 /* ховер главной кнопки был темнее её же базы: в тёмной теме --accent светлый,
    и кнопка при наведении выглядела нажатой */
 /* «включённый» чип почти не отличался от выключенного */
@@ -702,8 +731,8 @@ body.dark .tag:hover{background:var(--accent-bg)}
 .bcard .tag{position:absolute;left:9px;top:9px;font-size:10.8px;font-weight:700;padding:3px 8px;border-radius:var(--r-pill);
   background:rgba(255,255,255,.94);color:var(--ink2);box-shadow:var(--sh1)}
 .bcard.new{border-style:dashed;background:transparent;display:flex;align-items:center;justify-content:center;
-  flex-direction:column;gap:7px;min-height:206px;color:var(--accent);font-weight:650;font-size:14px}
-.bcard.new:hover{background:var(--accent-bg);border-color:var(--accent-br)}
+  flex-direction:column;gap:7px;min-height:206px;color:var(--ink2);font-weight:650;font-size:14px}
+.bcard.new:hover{background:var(--hov);border-color:var(--line-str)}
 .bcard.new .plus{font-size:26px;line-height:1;font-weight:400}
 .bempty{background:var(--card);border:1px dashed var(--line);border-radius:var(--r-m);
   padding:44px 30px;text-align:center;color:var(--muted)}
@@ -831,7 +860,7 @@ body.dark #zoombar,body.dark #mini,body.dark #toolrail{background:var(--card)}
 /* Номер версии в подвале панели — вход в историю. Подчёркиваем пунктиром:
    без этого он читается как справочная надпись, а не как то, на что можно нажать. */
 .verlink{cursor:pointer;border-bottom:1px dotted var(--muted)}
-.verlink:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.verlink:hover{color:var(--ink);border-bottom-color:var(--ink2)}
 
 /* ==========================================================================
    ДОСКА (страница kind:'jam') — стикеры, фигуры, текст, секции, рисунки
@@ -909,7 +938,7 @@ body.inspopen #jambar{left:calc(50% - var(--insp-w) / 2)}
 #jprops .jrow{display:flex;align-items:center;gap:3px}
 #jprops .jrow+.jrow{margin-top:4px;padding-top:4px;border-top:1px solid var(--line2)}
 #jprops .jsw{width:20px;height:20px;border:1px solid rgba(16,20,32,.18);border-radius:var(--r-xs);cursor:pointer;padding:0}
-#jprops .jsw:hover{outline:2px solid var(--accent-br)}
+#jprops .jsw:hover{outline:2px solid var(--line-str)}
 #jprops .jw{width:26px;height:22px;border:none;background:transparent;border-radius:var(--r-xs);cursor:pointer;
   display:flex;align-items:center;justify-content:center}
 #jprops .jw:hover{background:var(--hov)}
@@ -956,13 +985,13 @@ table.grid.fixed td .cellin,table.grid.fixed td .cellsel{max-width:100%}
 .colrs{position:absolute;top:0;right:0;bottom:0;width:9px;cursor:col-resize;z-index:6;
   touch-action:none;background:transparent}
 .colrs::after{content:'';position:absolute;top:5px;bottom:5px;right:4px;width:2px;border-radius:1px;background:transparent}
-table.grid th:hover .colrs::after,.colrs.on::after{background:var(--accent-br)}
+table.grid th:hover .colrs::after{background:var(--line-str)}
 .colrs.on::after{background:var(--accent)}
 
 .kbcol{position:relative}
 .kbrs{position:absolute;top:0;right:-6px;bottom:0;width:12px;cursor:col-resize;z-index:4;touch-action:none}
 .kbrs::after{content:'';position:absolute;top:10px;bottom:10px;left:5px;width:2px;border-radius:1px;background:transparent}
-.kbcol:hover .kbrs::after,.kbrs.on::after{background:var(--accent-br)}
+.kbcol:hover .kbrs::after{background:var(--line-str)}
 .kbrs.on::after{background:var(--accent)}
 
 /* Полоска на месте будущей вставки карточки в канбане. */
