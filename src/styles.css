@@ -94,13 +94,13 @@ button,input,select,textarea{font-family:inherit}
 #app{display:flex;height:100vh;position:relative}
 #side{width:var(--side);min-width:var(--side);background:var(--surf);border-right:1px solid var(--line);display:flex;flex-direction:column}
 #main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
-#topbar{height:54px;min-height:54px;border-bottom:1px solid var(--line);background:var(--card);display:flex;align-items:center;gap:10px;padding:0 12px}
-#pagebar{min-height:44px;border-bottom:1px solid var(--line);background:var(--card);display:flex;align-items:center;gap:7px;padding:5px 12px;flex-wrap:wrap}
+#topbar{height:var(--h-topbar);min-height:var(--h-topbar);border-bottom:1px solid var(--line);background:var(--card);display:flex;align-items:center;gap:var(--s3);padding:0 var(--s5)}
+#pagebar{min-height:var(--h-pagebar);border-bottom:1px solid var(--line);background:var(--card);display:flex;align-items:center;gap:var(--s2);padding:var(--s1) var(--s5);flex-wrap:wrap}
 #view{flex:1;min-height:0;position:relative;overflow:hidden}
-.scroller{position:absolute;inset:0;overflow:auto;padding:18px 22px 60px}
+.scroller{position:absolute;inset:0;overflow:auto;padding:var(--s6) var(--s7) 48px}
 
 /* ============ сайдбар ============ */
-.brand{padding:12px 12px 8px;display:flex;align-items:center;gap:8px}
+.brand{padding:var(--s5) var(--s5) var(--s3);display:flex;align-items:center;gap:8px}
 #sideToggle{margin-left:auto;border:none;background:transparent;color:var(--muted);cursor:pointer;
   font-size:15px;line-height:1;padding:3px 5px;border-radius:var(--r-s)}
 #sideToggle:hover{background:var(--hov);color:var(--ink)}
@@ -138,11 +138,11 @@ button,input,select,textarea{font-family:inherit}
 #projBtn:hover{border-color:var(--line-str);box-shadow:var(--sh1)}
 #projBtn .pn{font-weight:700;font-size:12.8px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #projBtn .cnt{font-size:10.5px;color:var(--muted)}
-.sidecap{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);padding:10px 14px 4px;display:flex;align-items:center}
+.sidecap{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);padding:var(--s4) var(--s5) var(--s1);display:flex;align-items:center}
 .sidecap .add{margin-left:auto;cursor:pointer;font-size:14px;color:var(--muted);line-height:1;padding:0 3px;border-radius:var(--r-xs)}
 .sidecap .add:hover{background:var(--hov);color:var(--ink)}
-#pageList{flex:1;overflow:auto;padding:0 8px 10px}
-.pgi{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--r-s);cursor:pointer;font-size:13.4px;color:var(--ink2);user-select:none}
+#pageList{flex:1;overflow:auto;padding:0 var(--s3) var(--s4)}
+.pgi{display:flex;align-items:center;gap:var(--s4);padding:var(--s2) var(--s4);border-radius:var(--r-s);cursor:pointer;font-size:13.4px;color:var(--ink2);user-select:none}
 .pgi:hover{background:var(--hov)}
 .pgi.on{background:var(--accent-bg);color:var(--accent-ink);font-weight:650}
 .pgi .ic{width:15px;text-align:center;font-size:12px;opacity:.85}
@@ -156,7 +156,7 @@ button,input,select,textarea{font-family:inherit}
 #saveState{font-size:11.4px;color:var(--muted);padding:4px 8px 0;line-height:1.35}
 
 /* ============ кнопки и чипы ============ */
-.btn{font-size:13px;font-weight:600;padding:7px 13px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--card);cursor:pointer;color:var(--ink2);white-space:nowrap;display:inline-flex;align-items:center;gap:6px;transition:background .12s,border-color .12s,color .12s}
+.btn{font-size:13px;font-weight:600;min-height:var(--h-ctl);padding:0 var(--s5);border-radius:var(--r-s);border:1px solid var(--line);background:var(--card);cursor:pointer;color:var(--ink2);white-space:nowrap;display:inline-flex;align-items:center;gap:6px;transition:background .12s,border-color .12s,color .12s}
 .btn:hover{background:var(--hov);color:var(--ink);border-color:var(--line-str)}
 .btn.pri{background:var(--accent);border-color:transparent;color:var(--on-accent);box-shadow:0 1px 2px rgba(var(--accent-rgb),.3)}
 .btn.pri:hover{background:var(--accent-h);color:var(--on-accent)}
@@ -173,9 +173,9 @@ button,input,select,textarea{font-family:inherit}
 .i.i-sm{width:14px;height:14px;stroke-width:1.6}
 .i.i-lg{width:20px;height:20px;stroke-width:1.4}
 .pgi .ic,.hn .ic{display:flex;align-items:center;justify-content:center}
-.btn.sm{font-size:12px;padding:4px 9px}
-.btn.ico{padding:7px 9px}
-.chip{font-size:12.4px;font-weight:600;padding:4px 11px;border-radius:var(--r-pill);border:1px solid var(--line);background:var(--card);cursor:pointer;color:var(--ink2);user-select:none;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.btn.sm{font-size:12px;min-height:var(--h-ctl-sm);padding:0 var(--s4)}
+.btn.ico{padding:0;min-width:var(--h-ctl);justify-content:center}
+.chip{font-size:12.4px;font-weight:600;min-height:var(--h-ctl-sm);padding:0 var(--s5);border-radius:var(--r-pill);border:1px solid var(--line);background:var(--card);cursor:pointer;color:var(--ink2);user-select:none;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
 .chip:hover{background:var(--hov)}
 .chip.on{color:var(--ink-inv);border-color:transparent;background:#3d4657}
 .chip .dt{width:7px;height:7px;border-radius:50%;display:inline-block}
@@ -186,10 +186,10 @@ button,input,select,textarea{font-family:inherit}
 
 /* ============ меню ============ */
 .menu{position:relative;display:inline-block}
-.mlist{display:none;position:absolute;background:var(--card);border:1px solid var(--line);border-radius:var(--r-m);box-shadow:var(--shf);padding:6px;min-width:236px;z-index:120}
+.mlist{display:none;position:absolute;background:var(--card);border:1px solid var(--line);border-radius:var(--r-m);box-shadow:var(--shf);padding:var(--s2);min-width:212px;z-index:120}
 .menu.open>.mlist{display:block}
 .mlist.right{right:0;top:calc(100% + 5px)} .mlist.left{left:0;top:calc(100% + 5px)}
-.mi{padding:7px 10px;font-size:13px;border-radius:var(--r-s);cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:8px;color:var(--ink2)}
+.mi{padding:var(--s2) var(--s4);font-size:13px;border-radius:var(--r-s);cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:8px;color:var(--ink2)}
 .mi:hover{background:var(--hov);color:var(--ink)}
 .mi small{display:block;color:var(--muted);font-size:11.4px;font-weight:400}
 .mi .k{margin-left:auto;font-size:10px;color:var(--muted)}
@@ -309,14 +309,16 @@ body.dark #cvempty{background:rgba(30,35,46,.86)}
 .tblwrap{background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);overflow:auto;box-shadow:var(--sh1)}
 table.grid{border-collapse:separate;border-spacing:0;width:100%;font-size:12.6px}
 table.grid th{position:sticky;top:0;z-index:5;background:var(--surf);text-align:left;font-size:10.2px;text-transform:uppercase;
-  letter-spacing:.4px;color:var(--muted);font-weight:750;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;cursor:pointer;user-select:none}
+  letter-spacing:.4px;color:var(--muted);font-weight:750;padding:var(--s3) var(--s4);border-bottom:1px solid var(--line);white-space:nowrap;cursor:pointer;user-select:none}
 table.grid th:hover{color:var(--ink)}
 table.grid th .ar{opacity:.5;font-size:9px}
-table.grid td{padding:5px 10px;border-bottom:1px solid var(--line2);vertical-align:middle}
+table.grid td{padding:var(--s2) var(--s4);border-bottom:1px solid var(--line2);vertical-align:middle}
 table.grid tr:hover td{background:var(--surf)}
 table.grid tr.selrow td{background:var(--accent-bg)}
 table.grid td.nm{font-weight:650}
-table.grid .grouphd td{background:var(--hov);font-weight:750;font-size:11.4px;color:var(--ink2);padding:6px 10px;position:sticky;top:29px}
+table.grid .grouphd td{background:var(--hov);font-weight:750;font-size:11.4px;color:var(--ink2);padding:var(--s2) var(--s4);position:sticky;top:28px}   /* ⚠ top ЗАВЯЗАН на фактическую высоту th (28.3px при кегле 10.2
+      и паддинге --s3/--s4). Меняешь паддинг шапки — перемеряй здесь,
+      иначе группировочная строка наедет на залипшую шапку. */
 .cellin{border:1px solid transparent;background:transparent;border-radius:var(--r-xs);padding:2px 5px;font-size:12.5px;width:100%;color:inherit;font-weight:inherit}
 .cellin:hover{border-color:var(--line);background:var(--card)}
 .cellin:focus{border-color:var(--accent);background:var(--card);outline:none;box-shadow:0 0 0 2px var(--accent-bg)}
@@ -333,13 +335,13 @@ select.cellsel:hover{border-color:var(--line);background:var(--card)}
 #bulk select{background:var(--dark-surf2);border:1px solid var(--dark-line);color:var(--dark-ink);border-radius:var(--r-s);padding:4px 7px;font-size:12px}
 
 /* ============ канбан ============ */
-.kb{display:flex;gap:12px;align-items:flex-start;height:100%;overflow-x:auto;padding:4px 2px 20px}
-.kbcol{min-width:262px;width:262px;background:var(--surf2);border-radius:var(--r-l);padding:8px;display:flex;flex-direction:column;max-height:100%}
+.kb{display:flex;gap:var(--s4);align-items:flex-start;height:100%;overflow-x:auto;padding:var(--s1) var(--s1) var(--s7)}
+.kbcol{min-width:240px;width:240px;background:var(--surf2);border-radius:var(--r-m);padding:var(--s3);display:flex;flex-direction:column;max-height:100%}
 .kbcol.over{background:var(--hov);outline:2px dashed var(--line-str)}
 .kbh{display:flex;align-items:center;gap:7px;font-size:12.2px;font-weight:750;padding:2px 4px 8px;color:var(--ink2)}
 .kbh .n{margin-left:auto;font-size:11px;color:var(--muted);font-weight:600}
 .kbl{overflow-y:auto;display:flex;flex-direction:column;gap:6px;min-height:34px;padding-bottom:2px}
-.kc{background:var(--card);border:1px solid var(--line);border-radius:var(--r-m);padding:8px 10px 8px 12px;position:relative;cursor:grab;box-shadow:var(--sh1)}
+.kc{background:var(--card);border:1px solid var(--line);border-radius:var(--r-m);padding:var(--s3) var(--s4) var(--s3) var(--s5);position:relative;cursor:grab;box-shadow:var(--sh1)}
 .kc:hover{box-shadow:var(--sh2)}
 .kc.drag{opacity:.45}
 .kc .bar{position:absolute;left:0;top:0;bottom:0;width:3.5px;border-radius:var(--r-m) 0 0 9px}
@@ -349,10 +351,10 @@ select.cellsel:hover{border-color:var(--line);background:var(--card)}
 
 /* ============ дашборд ============ */
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin-bottom:16px}
-.tile{background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);padding:11px 14px;box-shadow:var(--sh1)}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:var(--r-m);padding:var(--s4) var(--s5);box-shadow:var(--sh1)}
 .tile .n{font-size:22px;font-weight:760;line-height:1.15;letter-spacing:-.5px}
 .tile .l{font-size:10.6px;color:var(--muted);margin-top:2px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);padding:14px 16px;margin-bottom:14px;box-shadow:var(--sh1)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-m);padding:var(--s6) var(--s6);margin-bottom:var(--s5);box-shadow:var(--sh1)}
 .card h3{margin:0 0 10px;font-size:13.5px;font-weight:750}
 .cards2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;align-items:start}
 .barrow{display:flex;align-items:center;gap:9px;padding:4px 0;font-size:12.4px}
@@ -391,7 +393,7 @@ body.inspopen #bulk.on{transform:translateX(calc(-50% - var(--insp-w) / 2))}
 #inspGrip:hover{background:var(--line-str)}
 body.inspdrag #inspGrip{background:var(--accent-br)}
 body.inspdrag{cursor:col-resize;user-select:none}
-#ih{padding:11px 16px 0;border-bottom:1px solid var(--line);position:relative}
+#ih{padding:var(--s4) var(--s6) 0;border-bottom:1px solid var(--line);position:relative}
 #ih h3{margin:0;font-size:15px;font-weight:750;padding-right:30px;line-height:1.3}
 #iclose{position:absolute;right:11px;top:11px;border:none;background:var(--hov);border-radius:var(--r-s);width:25px;height:25px;cursor:pointer;color:var(--ink2);font-size:14px}
 #iclose:hover{background:#e4e8f1}
@@ -402,11 +404,11 @@ body.inspdrag{cursor:col-resize;user-select:none}
 #itabs{display:flex;gap:2px;margin-top:9px}
 #itabs .t{font-size:12px;font-weight:650;padding:5px 10px;border-radius:var(--r-s) 7px 0 0;cursor:pointer;color:var(--ink2);border:1px solid transparent;border-bottom:none;margin-bottom:-1px}
 #itabs .t.on{background:var(--card);border-color:var(--line);color:var(--ink)}
-#ib{padding:10px 16px 20px;overflow:auto;flex:1}
+#ib{padding:var(--s4) var(--s6) var(--s7);overflow:auto;flex:1}
 /* Постоянный футер панели: «Дублировать» и «Удалить узел» лежали внутри свёрнутого
    раздела «Тип, колонка, служебное» — красная необратимая кнопка пряталась там,
    где её никто не найдёт, а нужна она регулярно. */
-#ifoot{border-top:1px solid var(--line);padding:9px 16px;display:none;gap:8px;background:var(--card)}
+#ifoot{border-top:1px solid var(--line);padding:var(--s3) var(--s6);display:none;gap:8px;background:var(--card)}
 #ifoot.on{display:flex}
 .sect{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:18px 0 7px}
 .kv{font-size:12.2px;color:var(--ink2);margin-top:5px}
@@ -672,7 +674,7 @@ body.dark .pill,body.dark .dchip{filter:brightness(1.5) saturate(.85)}
 #home{position:fixed;inset:0;background:var(--bg);z-index:250;display:none;flex-direction:column}
 #home.open{display:flex}
 
-#hhead{height:60px;min-height:60px;display:flex;align-items:center;gap:14px;padding:0 20px;
+#hhead{height:48px;min-height:48px;display:flex;align-items:center;gap:var(--s5);padding:0 var(--s6);
   background:var(--card);border-bottom:1px solid var(--line)}
 .hbrand{display:flex;align-items:center;gap:9px;cursor:pointer;user-select:none;flex-shrink:0}
 .hbrand .logo{width:26px;height:26px}
