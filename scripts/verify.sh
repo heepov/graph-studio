@@ -60,6 +60,8 @@ echo "── конструктор: правила (без браузера)"
 node test/flow-rules.js
 
 echo "── конструктор: страница в браузере"
+# Выгрузки тест разбирает exceljs и fflate из node_modules — на свежем клоне их нет.
+[ -d node_modules/exceljs ] && [ -d node_modules/fflate ] || npm ci --no-audit --no-fund
 node test/flow.js
 
 echo "── коннектор для Claude: OAuth и MCP"
