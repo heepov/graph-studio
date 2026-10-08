@@ -405,7 +405,7 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     // Элемент панели может быть ниже видимой части — человек сначала прокрутил бы к нему.
     const center = sel => c.eval(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) return null;
       // Прокручиваем только контейнер панели: scrollIntoView сдвинул бы и саму страницу.
-      const sc = el.closest('.fl-ibody, .fl-ll, .fl-tw');
+      const sc = el.closest('.fl-ibody, .fl-ll, .fl-tw, .fl-pop');
       if (sc) { const r0 = el.getBoundingClientRect(), rs = sc.getBoundingClientRect();
         if (r0.top < rs.top || r0.bottom > rs.bottom) sc.scrollTop += (r0.top - rs.top) - rs.height / 2;
         if (r0.left < rs.left || r0.right > rs.right) sc.scrollLeft += (r0.left - rs.left) - rs.width / 3; }
@@ -637,7 +637,7 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     check(srcAfter === srcBefore + 1, 'источник из библиотеки ставится ещё раз — для разгрузки связей', `${srcBefore} → ${srcAfter}`);
 
     // --- табличный редактор ------------------------------------------------------
-    await clickEl('.fl-bar .btn:nth-child(2)');
+    await clickEl('#flowBar [data-a="table"]');
     await sleep(300);
     const tbl = await c.eval(`({rows: document.querySelectorAll('#mbox table.fl-lt tbody tr').length,
       heads: [...document.querySelectorAll('#mbox table.fl-lt thead tr:first-child th')].map(t => t.textContent.replace(/[▲▼]/g, '').trim())})`);
@@ -647,6 +647,145 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     await clickEl('#mbox [data-a=c]');
     const norm = await c.eval(`P.flowLib.checks.find(x => x.id === 'chk_2_6').norm`);
     check(norm === 'ФЗ-115', 'правка в ячейке меняет блок библиотеки', norm);
+
+    /* =====================  M3: профили и оверлеи  ===================== */
+    // Свежая доска из seed: тесты M2 уже правили библиотеку предыдущей.
+    const SEED_PG = 'pg_kyc_rko';
+    await c.eval(`(async () => { const d = normalize(JSON.parse(${JSON.stringify(seedDoc)})); d.id = 'seed_m3'; d.name = 'KYC — профили';
+      await dbPut(STORE, d); await loadProjects(); await openProject('seed_m3'); gotoPage(${JSON.stringify(SEED_PG)}); return true; })()`);
+    await c.waitFor(`P && P.id === 'seed_m3' && FLOW.state().rfNodes > 100`, 10000, 'seed');
+    const docBefore = await c.eval(`JSON.stringify(pageById(${JSON.stringify(SEED_PG)}).flow.profiles) + pageById(${JSON.stringify(SEED_PG)}).flow.profile`);
+    // С2: P-ИП — 45 из 55, погашены ровно десять
+    await choose('#flowBar select[data-f="profile"]', 'pf_ip');
+    await sleep(250);
+    const ip = await c.eval(`(() => { const a = FLOW.active();
+      return {c: a.checks, s: a.sources, o: a.outcomes, h: a.holes, off: a.off.sort((x, y) => x.localeCompare(y, 'ru', {numeric: true})),
+        bar: document.querySelector('#flowBar .fl-stats').textContent.replace(/\\s+/g, ' '),
+        dim: [...document.querySelectorAll('.react-flow__node-check .fl-node.fl-off')].length,
+        offEdges: document.querySelectorAll('.react-flow__edge-path.fl-off').length}; })()`);
+    check(ip.c.on === 45 && ip.c.all === 55 && ip.s.on === 22 && ip.s.all === 24
+      && ip.off.join(' ') === '2.8 2.9 2.10 2.11 3.8 3.9 4.2 4.3 4.5 5.3', 'С2: P-ИП — проверок 45/55, источников 22/24, погашены 2.8…5.3', ip.off.join(' '));
+    check(/Проверок 45\/55\s*·\s*источников 22\/24\s*·\s*исходов 8\/8\s*·\s*входов без источника 2/.test(ip.bar), 'С2: сводка в полосе профиля', ip.bar.trim());
+    check(ip.offEdges > 0, 'неактивные связи приглушены', `${ip.offEdges} связей`);
+    await choose('#flowBar select[data-f="profile"]', 'pf_ooo1');
+    await sleep(250);
+    const ooo = await c.eval(`FLOW.active()`);
+    check(ooo.checks.on === 54 && ooo.off.join() === '4.5', 'С2: P-ООО-простое — 54/55, погашена 4.5', `${ooo.checks.on}/55`);
+    // профиль — личный: в документ не попадает
+    const profKey = await c.eval(`Object.keys(localStorage).find(k => k.startsWith('gs_flowprof:') && k.endsWith(${JSON.stringify(':' + SEED_PG)}))`);
+    const docAfter = await c.eval(`JSON.stringify(pageById(${JSON.stringify(SEED_PG)}).flow.profiles) + pageById(${JSON.stringify(SEED_PG)}).flow.profile`);
+    check(profKey && docAfter === docBefore, 'активный профиль — в localStorage, документ не меняется', profKey);
+
+    // список за числом сводки — с переходом к ноде
+    await clickEl('#flowBar [data-stat="holes"]');
+    await sleep(150);
+    const holesList = await c.eval(`[...document.querySelectorAll('.fl-pop-list .fl-sl-i')].map(x => x.textContent)`);
+    await c.eval(`[...document.querySelectorAll('.fl-pop-list .fl-sl-i')].find(x => /3\\.19/.test(x.textContent)).click()`);
+    await sleep(250);
+    const jumped = await c.eval(`FLOW.state().selected`);
+    check(holesList.length === 2 && holesList.some(t => /3\.15/.test(t)) && jumped.includes('n_chk_3_19'),
+      'число «входов без источника» открывает список, клик ведёт к ноде', holesList.join(' | '));
+
+    // С3: оверлей «Покрытие источниками»
+    await choose('#flowBar select[data-f="profile"]', '');
+    await choose('#flowBar select[data-f="overlay"]', 'coverage');
+    await sleep(250);
+    const cov = await c.eval(`(() => { const col = id => { const el = document.querySelector('.react-flow__node[data-id="' + id + '"] .fl-node'); return el ? el.style.getPropertyValue('--ov') : 'нет в DOM'; };
+      const reds = FLOW.api().state ? null : null;
+      return {c315: col('n_chk_3_15'), c319: col('n_chk_3_19'), c317: col('n_chk_3_17'), c12: col('n_chk_1_2'), c26: col('n_chk_2_6'),
+        legend: [...document.querySelectorAll('.fl-legend .fl-lg-r')].map(x => x.dataset.key + ':' + x.querySelector('b').textContent),
+        holes: [...document.querySelectorAll('.fl-legend .fl-lg-holes .fl-sl-i')].map(x => x.textContent.split(' ')[0])}; })()`);
+    // часть нод вне экрана не отрисована — проверяем по легенде и по тем, что видны
+    check(cov.holes.join(' ') === '3.15 3.17 3.19' && cov.legend.includes('red:3'), 'С3: красным — 3.15, 3.19 (вход без связи) и 3.17 (источник без доступа)', cov.legend.join(' '));
+    await c.eval(`FLOW.call('select', ['n_chk_1_2'])`);
+    await key(c, 'KeyF', 'f', 0, 70);
+    await sleep(250);
+    const yellow = await c.eval(`document.querySelector('.react-flow__node[data-id="n_chk_1_2"] .fl-node').style.getPropertyValue('--ov')`);
+    check(/e6a700/i.test(yellow), 'С3: жёлтым — проверка на источнике «планируется» (1.2)', yellow);
+    const ovDoc = await c.eval(`pageById(${JSON.stringify(SEED_PG)}).flow.overlay`);
+    check(ovDoc === 'coverage', 'оверлей хранится в странице (page.flow.overlay)');
+    await choose('#flowBar select[data-f="overlay"]', 'tbd');
+    await sleep(200);
+    const tbdCount = await c.eval(`(document.querySelector('.fl-legend [data-key="tbd"] b') || {}).textContent`);
+    check(tbdCount === '15', 'оверлей «вердикт не определён»: в seed — 15', tbdCount);
+    await choose('#flowBar select[data-f="overlay"]', 'bank');
+    await sleep(200);
+    const bankLg = await c.eval(`[...document.querySelectorAll('.fl-legend .fl-lg-r')].map(x => x.dataset.key + ':' + x.querySelector('b').textContent).join(' ')`);
+    check(/accepted:3/.test(bankLg) && /discussion:1/.test(bankLg) && /none:49/.test(bankLg), 'оверлей согласования: счётчики по статусам', bankLg);
+    await choose('#flowBar select[data-f="overlay"]', '');
+
+    // видимость связей: все → только у выделенной → скрыть → все
+    const execShown = () => c.eval(`(() => { const f = curPage().flow; const ids = f.edges.filter(e => /^exec/.test(e.sh)).map(e => e.id);
+      return ids.filter(id => document.querySelector('.react-flow__edge[data-id="' + id + '"]')).length; })()`);
+    await c.eval(`FLOW.call('fit')`);
+    await sleep(200);
+    const ex0 = await execShown();
+    await clickEl('#flowBar [data-ek="exec"]');
+    await c.eval(`FLOW.call('select', ['n_st_s2'])`);
+    await sleep(250);
+    const ex2 = await execShown();
+    await clickEl('#flowBar [data-ek="exec"]');
+    await sleep(200);
+    const ex3 = await execShown();
+    await clickEl('#flowBar [data-ek="exec"]');
+    await sleep(200);
+    const ex4 = await execShown();
+    check(ex0 === 9 && ex2 === 2 && ex3 === 0 && ex4 === 9, 'видимость порядка ▶: все → у выделенной → скрыть → все', `${ex0} → ${ex2} → ${ex3} → ${ex4}`);
+
+    // Ctrl+F — поиск по полю и переход
+    await click(await paneAt(60, 400));
+    await key(c, 'KeyF', 'f', 2, 70);
+    await sleep(200);
+    await typeText('Сайт');
+    await sleep(150);
+    const found = await c.eval(`[...document.querySelectorAll('.fl-pop-find .fl-ai')].map(x => x.textContent)`);
+    await key(c, 'Enter', 'Enter', 0, 13);
+    await sleep(300);
+    const fsel = await c.eval(`FLOW.state().selected`);
+    check(found.length >= 2 && found.some(t => /3\.17/.test(t)) && fsel.length === 1, 'Ctrl+F: поиск по полю «Сайт» находит 3.17, Enter ведёт к ноде', found.slice(0, 3).join(' | '));
+
+    // Настроить → свой выбор → «Сохранить как…» → профиль по умолчанию
+    await clickEl('#flowBar .fl-bar > .btn.fl-popbtn');
+    await sleep(150);
+    await clickEl('.fl-pop-edit [data-dim="dim_ctype"] [data-val="v_ip"] input');
+    await sleep(200);
+    const custom = await c.eval(`FLOW.active().checks.on`);
+    await clickEl('.fl-pop-edit [data-a="saveas"]');
+    await sleep(150);
+    await fill('#pbin', 'Только ИП');
+    await clickEl('#mbox [data-a=ok]');
+    await sleep(250);
+    const saved = await c.eval(`(() => { const f = pageById(${JSON.stringify(SEED_PG)}).flow; const p = f.profiles.find(x => x.name === 'Только ИП');
+      return p ? {sel: p.sel, active: FLOW.active().profile.id === p.id} : null; })()`);
+    // «Тип клиента = ИП» гасит те же десять, что и P-ИП: ось ОПФ ни к одной проверке не привязана.
+    check(custom === 45 && saved && JSON.stringify(saved.sel) === '{"dim_ctype":["v_ip"]}' && saved.active,
+      'свой выбор значений гасит проверки и сохраняется профилем', `${custom}/55 · ${JSON.stringify(saved)}`);
+    await key(c, 'Escape', 'Escape', 0, 27);
+
+    // раскладка ELK: ноды переезжают, Ctrl+Z возвращает
+    const posBefore = await c.eval(`JSON.stringify(curPage().flow.nodes.map(n => [n.id, n.x, n.y]))`);
+    await clickEl('#flowBar .fl-bar .btn[title^="Авто-раскладка"]');
+    await c.waitFor(`JSON.stringify(curPage().flow.nodes.map(n => [n.id, n.x, n.y])) !== ${JSON.stringify(posBefore)}`, 15000, 'ELK отработал');
+    const elk = await c.eval(`(() => { const f = curPage().flow; const st = f.nodes.filter(n => n.k === 'stage');
+      return {stages: st.length, fit: st.every(s => s.fit === 1), kids: f.nodes.filter(n => n.parent).length}; })()`);
+    await click(await paneAt(60, 400));
+    await key(c, 'KeyZ', 'z', 2, 90);
+    await sleep(300);
+    const posUndo = await c.eval(`JSON.stringify(curPage().flow.nodes.map(n => [n.id, n.x, n.y]))`);
+    check(elk.stages === 7 && elk.fit && elk.kids === 55 && posUndo === posBefore, '«Разложить»: ELK переставляет ноды, рамки подгоняются, Ctrl+Z возвращает', JSON.stringify(elk));
+
+    // режим чтения: профиль и оверлей переключаются, документ не меняется
+    await c.eval(`(() => { setReadonly(true); renderPage(); })()`);
+    await sleep(200);
+    const roDoc = await c.eval(`JSON.stringify(pageById(${JSON.stringify(SEED_PG)}).flow)`);
+    await choose('#flowBar select[data-f="profile"]', 'pf_ip');
+    await choose('#flowBar select[data-f="overlay"]', 'wave');
+    await sleep(200);
+    const roView = await c.eval(`({on: FLOW.active().checks.on, lg: !!document.querySelector('.fl-legend[data-overlay="wave"]'),
+      same: JSON.stringify(pageById(${JSON.stringify(SEED_PG)}).flow) === ${JSON.stringify(roDoc)},
+      layout: !!document.querySelector('#flowBar .btn[title^="Авто-раскладка"]')})`);
+    check(roView.on === 45 && roView.lg && roView.same && !roView.layout, 'в режиме чтения профиль и оверлей переключаются без записи, раскладки нет', JSON.stringify(roView));
+    await c.eval(`(() => { setReadonly(false); renderPage(); })()`);
 
     if (c.errors.length) bad('исключения в консоли', c.errors.join(' | ').slice(0, 400));
     else ok('исключений в консоли нет');

@@ -229,6 +229,50 @@ const ROOT = path.join(__dirname, '..');
     JSON.stringify(del));
   check(M.verdictUses(SL, 'stop_b') > 0 && M.verdictUses(SL, 'nope') === 0, 'использование вердикта считается по проверкам и исходам');
 
+  /* ---------- M3: применимость по профилю (§5) ---------- */
+  const C = (pos, neg) => ({pos, neg});
+  check(R.appliesCond({}, {D: ['a']}), 'без связей «Когда» блок применим всегда');
+  check(R.appliesCond({D: C(['a'], [])}, {}) && R.appliesCond({D: C(['a'], [])}, {D: []}), 'пустой выбор по измерению = «любое»');
+  check(R.appliesCond({D: C(['a'], [])}, {D: ['a']}) && !R.appliesCond({D: C(['a'], [])}, {D: ['b']}), 'обычная связь: применим только при своём значении');
+  check(!R.appliesCond({D: C([], ['a'])}, {D: ['a']}) && R.appliesCond({D: C([], ['a'])}, {D: ['b']}), '«кроме»: гасит своё значение, пропускает остальные');
+  check(R.appliesCond({D: C(['a', 'b'], [])}, {D: ['b']}), 'внутри измерения — ИЛИ');
+  check(!R.appliesCond({D: C(['a'], []), E: C(['x'], [])}, {D: ['a'], E: ['y']}) && R.appliesCond({D: C(['a'], []), E: C(['x'], [])}, {D: ['a'], E: ['x']}),
+    'между измерениями — И');
+  check(R.appliesCond({D: C(['a'], [])}, {D: ['b', 'a']}), 'выбрано несколько значений — хватает одного подходящего');
+  check(!R.appliesCond({D: C(['a'], ['a'])}, {D: ['a']}), 'значение и «кроме» на одно и то же — не проходит');
+
+  const expectOff = {'P-ИП': '2.8 2.9 2.10 2.11 3.8 3.9 4.2 4.3 4.5 5.3', 'P-ООО-простое': '4.5', 'P-ООО-разделённое': '', 'P-АО (Волна 2)': ''};
+  const expectNum = {'P-ИП': [45, 22], 'P-ООО-простое': [54, 24], 'P-ООО-разделённое': [55, 24], 'P-АО (Волна 2)': [55, 24]};
+  for (const p of SF.profiles) {
+    const a = R.activity(SF, SL, p.sel), st = R.profileStats(SF, SL, p.sel, a);
+    const off = SF.nodes.filter(n => n.k === 'check' && !a.nodes.has(n.id)).map(n => SL.checks.find(x => x.id === n.ref).code).sort(R.codeCompare ? (x, y) => x.localeCompare(y, 'ru', {numeric: true}) : undefined);
+    const [ch, sr] = expectNum[p.name];
+    check(st.checks.on === ch && st.checks.all === 55 && st.sources.on === sr && st.sources.all === 24 && off.join(' ') === expectOff[p.name],
+      `контрольные цифры §5: ${p.name} — ${ch}/55, источников ${sr}/24`, `${st.checks.on}/55, ${st.sources.on}/24, погашены: ${off.join(' ') || '—'}`);
+  }
+  const ip = SF.profiles.find(p => p.name === 'P-ИП').sel;
+  const stIP = R.profileStats(SF, SL, ip);
+  check(stIP.outcomes.on === 8 && stIP.outcomes.all === 8 && stIP.holes.length === 2, 'P-ИП: исходов 8/8, входов без источника 2',
+    stIP.holes.map(h => h.code + '.' + h.input).join(', '));
+  const all = R.activity(SF, SL, {});
+  check(all.nodes.size === SF.nodes.length && all.edges.size === SF.edges.length, 'без профиля активно всё');
+  // выключенная проверка и выключенный этап
+  const fm = JSON.parse(JSON.stringify(SF));
+  fm.nodes.find(n => n.ref === 'chk_2_6').muted = 1;
+  fm.nodes.find(n => n.id === 'n_st_s5').muted = 1;
+  const am = R.activity(fm, SL, {});
+  const kidsS5 = fm.nodes.filter(n => n.parent === 'n_st_s5');
+  check(!am.nodes.has(fm.nodes.find(n => n.ref === 'chk_2_6').id) && kidsS5.length > 0 && kidsS5.every(n => !am.nodes.has(n.id)),
+    'выключенная нода (M) вне активных; выключенный этап гасит свои проверки', `в этапе 5: ${kidsS5.length}`);
+  // связь применимости через reroute и на источнике
+  const fr = M.normalizeFlow({nodes: [{id: 'd', k: 'dim', ref: 'dim_ctype'}, {id: 'r', k: 'reroute'},
+    {id: 'c', k: 'check', ref: 'chk_2_6'}, {id: 's', k: 'source', ref: 'src_egrul'}],
+    edges: [{id: 'e1', s: 'd', sh: 'val:v_ul', t: 'r', th: 'in'}, {id: 'e2', s: 'r', sh: 'out', t: 'c', th: 'cond-in', neg: 1},
+      {id: 'e3', s: 's', sh: 'out:f_regdate', t: 'c', th: 'in:reg'}, {id: 'e4', s: 'd', sh: 'val:v_ip', t: 's', th: 'cond-in'}]});
+  const ar1 = R.activity(fr, SL, {dim_ctype: ['v_ul']}), ar2 = R.activity(fr, SL, {dim_ctype: ['v_ip']});
+  check(!ar1.nodes.has('c') && !ar1.edges.has('e2') && ar2.nodes.has('c') && ar2.nodes.has('r'), '«кроме» через точку перегиба работает так же');
+  check(ar2.nodes.has('s') && !ar1.nodes.has('s'), 'источник с «Когда» активен только при своём значении и при активной проверке');
+
   const fail = results.filter(r => r[0] === '✗');
   console.log(`\n===== ${results.length - fail.length}/${results.length} пройдено =====`);
   process.exit(fail.length ? 1 : 0);

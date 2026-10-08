@@ -7,7 +7,7 @@ import {FlowCtx} from '../ctx.js';
 
 export function cls(data, selected, extra) {
   return ['fl-node', 'fl-k-' + data.k, extra, selected && 'fl-sel', data.muted && 'fl-muted',
-    data.off && 'fl-off', data.collapsed && 'fl-col', data.ovl].filter(Boolean).join(' ');
+    data.off && 'fl-off', data.collapsed && 'fl-col', data.ov && 'fl-ov', data.ovfill && 'fl-ovfill'].filter(Boolean).join(' ');
 }
 
 // Правка «на месте»: поле поверх подписи. Фиксируется на Enter и уходе фокуса,
@@ -84,7 +84,7 @@ export function Folded({id, rows}) {
 export function Block({id, data, selected}) {
   const fx = useContext(FlowCtx);
   return (
-    <div className={cls(data, selected)} style={{width: data.w}}>
+    <div className={cls(data, selected)} style={data.ov ? {width: data.w, '--ov': data.ov} : {width: data.w}}>
       <Header id={id} data={data}/>
       {data.collapsed ? <Folded id={id} rows={data.rows}/> : <>
         <Rows id={id} rows={data.rows}/>

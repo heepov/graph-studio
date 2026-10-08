@@ -280,3 +280,51 @@ table.fl-lt tr.fl-filt input{width:100%;font-size:11.5px;text-transform:none;fon
   .fl-lib,.fl-insp{position:absolute;top:0;bottom:0;box-shadow:var(--sh3)}
   .fl-lib{left:0}.fl-insp{right:0;max-width:92vw}
 }
+
+/* ============ профиль, оверлеи, видимость связей ============ */
+.fl-bar{flex-wrap:wrap;row-gap:2px}
+.fl-pf{display:flex;align-items:center;gap:5px;font-size:var(--t-meta);color:var(--muted);white-space:nowrap}
+.fl-pf select{width:auto;min-width:120px;max-width:200px;height:var(--h-ctl-sm);padding:0 6px;font-size:var(--t-meta)}
+.fl-stats{display:flex;align-items:center;gap:2px;flex-wrap:wrap}
+.fl-num{border:none;background:transparent;color:var(--ink2);font-size:var(--t-meta);padding:2px 4px;border-radius:var(--r-xs);cursor:pointer;white-space:nowrap}
+.fl-num b{color:var(--ink);font-variant-numeric:tabular-nums}
+.fl-num:hover,.fl-num.on{background:var(--hov2);color:var(--ink)}
+.fl-dot{color:var(--muted)}
+.fl-sep{width:1px;height:18px;background:var(--line);margin:0 4px}
+.fl-eks{display:flex;align-items:center;gap:2px;font-size:var(--t-meta);color:var(--muted)}
+.fl-ek{width:22px;height:22px;border:1px solid var(--line);background:var(--card);border-radius:var(--r-xs);cursor:pointer;
+  font-size:11px;line-height:1;color:var(--ink);padding:0}
+.fl-ek.fl-ek2{background:var(--accent-bg);border-color:var(--accent-br);color:var(--accent-ink)}
+.fl-ek.fl-ek0{color:var(--muted);text-decoration:line-through;opacity:.6}
+.fl-pop{position:absolute;z-index:60;top:calc(var(--h-topbar) + var(--h-pagebar) - 2px);background:var(--card);border:1px solid var(--line);
+  border-radius:var(--r-l);box-shadow:var(--sh3);padding:10px;max-height:70vh;overflow:auto}
+.fl-pop-edit{left:120px;width:560px}
+.fl-pop-find{left:50%;transform:translateX(-50%);width:420px;display:flex;flex-direction:column;padding:0}
+.fl-pop-list{left:260px;width:380px}
+.fl-pe-h{font-size:var(--t-meta);font-weight:700;margin-bottom:8px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.fl-pe-dims{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
+.fl-pe-dim{display:flex;flex-direction:column;gap:2px;min-width:0}
+.fl-pe-dim b{font-size:var(--t-meta);color:var(--ink)}
+.fl-pe-dim small{color:var(--muted);margin-left:4px;font-size:var(--t-micro)}
+.fl-pe-f{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line2)}
+.fl-sl{margin-bottom:8px}
+.fl-sl-h{font-size:var(--t-cap);font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:4px 0}
+.fl-sl-i{display:block;width:100%;text-align:left;border:none;background:transparent;color:var(--ink);font-size:var(--t-meta);
+  padding:3px 6px;border-radius:var(--r-xs);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fl-sl-i:hover{background:var(--hov)}
+.fl-sl-i small{color:var(--muted)}
+
+/* оверлей: рамка проверки цветом статуса; «не определён» ещё и заливкой */
+.fl-node.fl-ov{box-shadow:0 0 0 3px var(--ov),var(--sh1)}
+.react-flow__node.selected .fl-node.fl-ov{box-shadow:0 0 0 3px var(--ov),0 0 0 5px var(--accent)}
+.fl-node.fl-ovfill .fl-rows,.fl-node.fl-ovfill .fl-body{background:rgba(230,167,0,.14)}
+.fl-legend{position:absolute;left:12px;top:12px;z-index:7;min-width:220px;max-width:300px;max-height:60%;overflow:auto;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:var(--shf);padding:8px 10px}
+.fl-lg-h{display:flex;align-items:center;justify-content:space-between;font-size:var(--t-cap);font-weight:800;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+.fl-lg-r{display:flex;align-items:center;gap:7px;font-size:var(--t-meta);padding:2px 0}
+.fl-lg-r i{width:12px;height:12px;border-radius:3px;flex:0 0 auto}
+.fl-lg-r span{flex:1;color:var(--ink2)}
+.fl-lg-r b{font-variant-numeric:tabular-nums}
+.fl-lg-holes{margin-top:6px;padding-top:6px;border-top:1px solid var(--line2)}
+.fl-lg-sh{font-size:var(--t-micro);color:var(--muted);text-transform:uppercase;margin-bottom:2px}

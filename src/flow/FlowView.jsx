@@ -23,6 +23,9 @@ import {nodeTypes} from './nodes/index.js';
 import Library from './panels/Library.jsx';
 import Inspector from './panels/Inspector.jsx';
 import {openLibTable} from './panels/LibTable.js';
+import ProfileBar from './panels/ProfileBar.jsx';
+import Legend, {OV} from './panels/Legend.jsx';
+import {runLayout} from './layout.js';
 import TypedEdge from './edges/TypedEdge.jsx';
 import ConnLine from './edges/ConnLine.jsx';
 import AddMenu from './panels/AddMenu.jsx';
@@ -84,11 +87,34 @@ export function nodeLabel(lib, n) {
   return R.KIND_NAMES[n.k] || n.k;
 }
 
+// Цвет оверлея для проверки (ТЗ §8.5). Возвращает [ключ легенды, цвет].
+function overlayOf(kind, n, c) {
+  const it = R.itemOf(c.lib, n);
+  if (!it || n.k !== 'check') return null;
+  if (kind === 'bank') { const k = (it.bank || {}).status || 'none'; return [k, (OV.bank[k] || OV.bank.none)[0]]; }
+  if (kind === 'tbd') return it.verdictTbd ? ['tbd', OV.tbd.tbd[0]] : ['ok', null];
+  if (kind === 'wave') { const k = String(it.wave == null ? 1 : it.wave); return [k, (OV.wave[k] || OV.wave[0])[0]]; }
+  if (kind === 'actor') { const k = it.actor || 'system'; return [k, (OV.actor[k] || OV.actor.client)[0]]; }
+  if (kind === 'coverage') {
+    if (!(it.inputs || []).length) return ['none', OV.coverage.none[0]];
+    const h = R.checkHoles(c.flow, c.lib, n);
+    const k = h.unwired.length || h.noAccess.length ? 'red' : h.planned.length || h.unknown.length ? 'yellow' : 'green';
+    return [k, OV.coverage[k][0]];
+  }
+  return null;
+}
+
 function nodeData(n, c, conn, opt) {
   const {flow, lib} = c;
   const it = R.itemOf(lib, n), d = n.data || {};
   const dec = s => s && Object.assign({}, s, {color: sockColor(s, lib), conn: conn.has(n.id + '\u0000' + s.id)});
   const base = {k: n.k, ro: !!opt.ro, muted: !!n.muted, collapsed: !!n.collapsed};
+  // Профиль гасит неприменимое: нода видна и выделяется, но приглушена.
+  if (opt.act && !opt.act.nodes.has(n.id)) base.off = true;
+  if (opt.overlay) {
+    const o = overlayOf(opt.overlay, n, c);
+    if (o && o[1]) { base.ov = o[1]; if (opt.overlay === 'tbd') base.ovfill = true; }
+  }
   // Правка на месте: у гейта и заметки правится тело, у остальных — заголовок.
   if (opt.editing === n.id) base.editing = n.k === 'gate' || n.k === 'note' ? 'body' : 'title';
   if (n.k === 'stage') {
@@ -188,7 +214,7 @@ function deriveNodes(c, prev, opt) {
 function deriveEdges(c, prev, opt) {
   const {flow, lib} = c;
   const prevById = new Map(prev.map(e => [e.id, e]));
-  const show = flow.show || {};
+  const show = opt.show || flow.show || {};
   const known = new Set(flow.nodes.map(n => n.id));
   const out = [];
   for (const e of flow.edges) {
@@ -197,7 +223,7 @@ function deriveEdges(c, prev, opt) {
     const mode = show[kind] == null ? 1 : +show[kind];
     const hidden = mode === 0 || (mode === 2 && !opt.sel.has(e.s) && !opt.sel.has(e.t));
     const hv = opt.hover;
-    const data = {kind, color: R.edgeColor(flow, lib, e), neg: !!e.neg,
+    const data = {kind, color: R.edgeColor(flow, lib, e), neg: !!e.neg, off: !!(opt.act && !opt.act.edges.has(e.id)),
       hl: !!hv && (e.s === hv || e.t === hv), dim: !!hv && e.s !== hv && e.t !== hv};
     const sig = JSON.stringify(data) + (hidden ? 'h' : '');
     const p = prevById.get(e.id);
@@ -246,6 +272,21 @@ function FlowView({ctx, pageId, rev, api}) {
   // тогда пересоздаются и показывают новое значение.
   const [extGen, setExtGen] = useState(0);
   const gen = rev * 1000 + extGen;
+  // Активный профиль — личный: localStorage, а не документ. Без своего выбора —
+  // профиль страницы по умолчанию (им открывается ссылка и viewer).
+  const pkey = ctx.viewKey(pageId).replace(/^gs_view:/, 'gs_flowprof:');
+  const [prof, setProfState] = useState(() => {
+    try { const v = JSON.parse(localStorage.getItem(pkey) || 'null'); if (v && (v.id || v.sel)) return v; } catch (e) { /* нет выбора */ }
+    const f = c0.flow;
+    return f && f.profile ? {id: f.profile} : {sel: {}};
+  });
+  const setProf = useCallback(v => {
+    setProfState(v);
+    if (!ctx.viewer) { try { localStorage.setItem(pkey, JSON.stringify(v)); } catch (e) { /* не запомнится */ } }
+  }, [ctx, pkey]);
+  // Оверлей и видимость связей лежат в документе (ТЗ §6.2), но в режиме чтения
+  // их тоже можно переключать — тогда только у себя, без записи.
+  const [viewOv, setViewOv] = useState(null);
 
   // Тема следует за body.dark. Наблюдатель, а не вызов из applyTheme(): так
   // приложению не нужно знать, что где-то есть React, а при размонтировании
@@ -267,6 +308,18 @@ function FlowView({ctx, pageId, rev, api}) {
     return R.nodeSize(c.flow, c.lib, n);
   }, [rf, cur]);
 
+  /* ---------- профиль и оверлей ---------- */
+  const flowNow = c0.flow || {profiles: []};
+  const profObj = prof.id ? (flowNow.profiles || []).find(p => p.id === prof.id) : null;
+  // prof = {id} — сохранённый профиль; {id, sel} — он же с несохранёнными
+  // правками выбора; {sel} — свой выбор без имени.
+  const sel = prof.sel || (profObj ? profObj.sel : {});
+  const overlay = (viewOv && viewOv.overlay != null) ? viewOv.overlay : (flowNow.overlay || '');
+  const show = Object.assign({}, flowNow.show || {}, (viewOv && viewOv.show) || {});
+  const selJson = JSON.stringify(sel), showJson = JSON.stringify(show);
+  const act = useMemo(() => (c0.flow ? R.activity(c0.flow, c0.lib, sel) : null), [rev, tick, selJson]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const stats = useMemo(() => (c0.flow ? R.profileStats(c0.flow, c0.lib, sel, act) : null), [act]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   /* ---------- состояние React Flow ---------- */
   const [nodes, setNodes] = useState(() => (c0.flow ? deriveNodes(c0, [], {ro, sizeOf: n => R.nodeSize(c0.flow, c0.lib, n)}) : []));
   const [edges, setEdges] = useState(() => (c0.flow ? deriveEdges(c0, [], {sel: new Set(), hover: null}) : []));
@@ -275,8 +328,8 @@ function FlowView({ctx, pageId, rev, api}) {
   useLayoutEffect(() => {
     const c = cur(); if (!c.flow) return;
     const want = pick.current; pick.current = null;
-    setNodes(prev => deriveNodes(c, prev, {ro, sizeOf, pick: want, editing, relayout: relayout.current}));
-  }, [rev, tick, ro, fitTick, cur, sizeOf, editing]);
+    setNodes(prev => deriveNodes(c, prev, {ro, sizeOf, pick: want, editing, relayout: relayout.current, act, overlay}));
+  }, [rev, tick, ro, fitTick, cur, sizeOf, editing, act, overlay]);
   // Перемерить ручки нод, у которых поменялась раскладка сокетов, — после того,
   // как React отрисовал новую разметку (см. socketLayout).
   const updateInternals = useUpdateNodeInternals();
@@ -288,8 +341,8 @@ function FlowView({ctx, pageId, rev, api}) {
   });
   useLayoutEffect(() => {
     const c = cur(); if (!c.flow) return;
-    setEdges(prev => deriveEdges(c, prev, {sel: new Set(selKey ? selKey.split('\u0001') : []), hover}));
-  }, [rev, tick, selKey, hover, cur]);
+    setEdges(prev => deriveEdges(c, prev, {sel: new Set(selKey ? selKey.split('\u0001') : []), hover, act, show}));
+  }, [rev, tick, selKey, hover, cur, act, showJson]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const onNodesChange = useCallback(ch => {
     // Нода получила размеры — рамкам с fit:1 пора подогнаться. Во время ресайза
@@ -817,6 +870,7 @@ function FlowView({ctx, pageId, rev, api}) {
     if (!mod && !e.shiftKey && K(e, 'KeyF', 'f')) { stop(); fitSel(); return; }
     if (mod && K(e, 'KeyC', 'c')) { stop(); copySel(); return; }
     if (mod && K(e, 'KeyA', 'a')) { stop(); selectOnly(rf.getNodes().map(n => n.id)); return; }
+    if (mod && K(e, 'KeyF', 'f')) { stop(); if (fx.openPop) fx.openPop('find'); return; }
     if (ctx.ro()) return;
     if (!mod && K(e, 'KeyM', 'm')) { stop(); toggleFlag('muted'); return; }
     if (!mod && K(e, 'KeyH', 'h')) { stop(); toggleFlag('collapsed'); return; }
@@ -907,6 +961,95 @@ function FlowView({ctx, pageId, rev, api}) {
     },
     resized,
     focusDone: () => setFocusReq(0),
+    /* --- профиль, оверлей, видимость связей --- */
+    setProfile(v) { if (v !== '__custom') setProf(v ? {id: v} : {sel: {}}); },
+    pickValue(dim, val, on) {
+      const next = JSON.parse(JSON.stringify(sel));
+      const l = new Set(next[dim] || []);
+      if (on) l.add(val); else l.delete(val);
+      if (l.size) next[dim] = [...l]; else delete next[dim];
+      setProf(prof.id ? {id: prof.id, sel: next} : {sel: next});
+    },
+    clearProfile() { setProf({sel: {}}); },
+    saveProfileAs() {
+      ctx.promptBox('Профиль клиента', 'Название профиля', profObj ? profObj.name + ' (копия)' : 'P-', name => {
+        let id = null;
+        edit(x => { id = M.newId('pf_', new Set(x.flow.profiles.map(q => q.id))); x.flow.profiles.push({id, name, sel: JSON.parse(JSON.stringify(sel))}); });
+        if (id) setProf({id});
+      });
+    },
+    overwriteProfile(id) {
+      edit(x => { const q = x.flow.profiles.find(y => y.id === id); if (q) q.sel = JSON.parse(JSON.stringify(sel)); });
+      setProf({id});
+    },
+    renameProfile(id) {
+      const q = cur().flow.profiles.find(y => y.id === id); if (!q) return;
+      ctx.promptBox('Профиль клиента', 'Название', q.name, name => edit(x => { const z = x.flow.profiles.find(y => y.id === id); if (z) z.name = name; }));
+    },
+    defaultProfile(id) { edit(x => { x.flow.profile = x.flow.profile === id ? null : id; }); },
+    deleteProfile(id) {
+      const q = cur().flow.profiles.find(y => y.id === id); if (!q) return;
+      ctx.confirmBox(`Удалить профиль «${q.name}»?`, () => {
+        edit(x => { x.flow.profiles = x.flow.profiles.filter(y => y.id !== id); if (x.flow.profile === id) x.flow.profile = null; });
+        setProf({sel: {}});
+      }, 'Удалить');
+    },
+    // Оверлей и видимость — настройка вида, а не правка: без снимка для отмены,
+    // как фильтр на странице-таблице. В режиме чтения — только у себя.
+    setOverlay(v) {
+      if (ctx.ro()) { setViewOv(o => Object.assign({}, o, {overlay: v})); return; }
+      cur().flow.overlay = v; ctx.save(); bump();
+    },
+    cycleShow(k) {
+      const now = show[k] == null ? 1 : +show[k], next = now === 1 ? 2 : now === 2 ? 0 : 1;
+      if (ctx.ro()) { setViewOv(o => Object.assign({}, o, {show: Object.assign({}, (o || {}).show, {[k]: next})})); return; }
+      const f = cur().flow; f.show = Object.assign({}, f.show, {[k]: next}); ctx.save(); bump();
+    },
+    async layout() {
+      if (ctx.ro()) return;
+      try {
+        const c = cur();
+        const r = await runLayout(c.flow, c.lib, sizeOf);
+        edit(x => { r.apply(x.flow); });
+        setTimeout(() => { rf.fitView({padding: 0.08, duration: 0}); saveVp(rf.getViewport()); }, 60);
+        ctx.toast('Схема разложена — Ctrl+Z вернёт как было');
+      } catch (e) { ctx.toast('Раскладка не загрузилась: ' + (e.message || e)); }
+    },
+    focusNode(id) {
+      selectOnly([id]);
+      setTimeout(() => rf.fitView({nodes: [{id}], padding: 0.6, maxZoom: 1.2, duration: 200}), 30);
+    },
+    // Списки за числами сводки: что именно посчитано.
+    statList(what) {
+      const c = cur(), lib = c.lib, f = c.flow;
+      const item = n => ({id: n.id, label: nodeLabel(lib, n), off: !act.nodes.has(n.id)});
+      const by = k => f.nodes.filter(n => n.k === k).sort((a, b) => R.codeCompare(R.itemOf(lib, a), R.itemOf(lib, b)));
+      if (what === 'holes') return [{title: 'Входы без источника', items: stats.holes.map(h => ({id: h.node, label: `${h.code} ${nodeLabel(lib, f.nodes.find(n => n.id === h.node)).replace(/^\S+ /, '')}`, sub: h.name}))}];
+      const k = {checks: 'check', sources: 'source', outcomes: 'outcome'}[what];
+      const all = by(k).map(item);
+      return [{title: 'Участвуют', items: all.filter(x => !x.off)}, {title: 'Погашены профилем', items: all.filter(x => x.off)}];
+    },
+    // Поиск по схеме: код, название, имена входов и полей, названия источников входа.
+    search(q) {
+      const c = cur(), lib = c.lib, words = q.toLowerCase().replace(/ё/g, 'е').split(/\s+/).filter(Boolean);
+      const out = [];
+      for (const n of c.flow.nodes) {
+        const it = R.itemOf(lib, n), d = n.data || {};
+        const parts = [nodeLabel(lib, n)];
+        if (it && it.inputs) parts.push(...it.inputs.map(i => i.name));
+        if (it && it.fields) parts.push(...it.fields.map(fl => fl.name));
+        if (it && it.values) parts.push(...it.values.map(v => v.name + ' ' + (v.code || '')));
+        if (n.k === 'check') parts.push(R.sourceText(c.flow, lib, n));
+        if (d.text) parts.push(d.text);
+        const hay = parts.join(' ').toLowerCase().replace(/ё/g, 'е');
+        if (words.every(w => hay.includes(w))) {
+          const why = parts.slice(1).find(x => words.some(w => String(x).toLowerCase().replace(/ё/g, 'е').includes(w))) || '';
+          out.push({id: n.id, k: n.k, label: nodeLabel(lib, n), why: why && why !== parts[0] ? why : ''});
+        }
+        if (out.length >= 60) break;
+      }
+      return out;
+    },
     label: n => nodeLabel(cur().lib, n),
     // Блок в библиотеке: если он стоит на этой схеме — выделяем его ноду
     // (инспектор покажет и блок, и ноду), иначе инспектор показывает блок.
@@ -999,6 +1142,10 @@ function FlowView({ctx, pageId, rev, api}) {
         insp: (() => { const el = rootRef.current && rootRef.current.querySelector('.fl-insp'); return el ? el.getAttribute('data-insp') || 'empty' : null; })()};
     };
     api.pickLib = (sec, id) => { fx.pickLib(sec, id); return true; };
+    // Сводка активного профиля — те же числа, что в полосе (FLOW.active()).
+    api.active = () => ({profile: prof, sel, checks: stats.checks, sources: stats.sources, outcomes: stats.outcomes,
+      holes: stats.holes.length, nodes: [...act.nodes], edges: act.edges.size,
+      off: c0.flow.nodes.filter(n => n.k === 'check' && !act.nodes.has(n.id)).map(n => (R.itemOf(c0.lib, n) || {}).code)});
     api.setViewport = vp => { const v = {x: vp.x, y: vp.y, zoom: vp.k != null ? vp.k : vp.zoom}; rf.setViewport(v); saveVp(v); return true; };
     api.fit = () => { rf.fitView({padding: 0.12, duration: 0}); saveVp(rf.getViewport()); return true; };
     // Соединение тем же путём, что и мышью: from/to — «нода.ручка».
@@ -1054,6 +1201,18 @@ function FlowView({ctx, pageId, rev, api}) {
   else if (selEdges.length === 1) { const e = flow.edges.find(x => x.id === selEdges[0].id); if (e) target = {edge: e}; }
   else if (libSel && (c0.lib[libSel.sec] || []).some(x => x.id === libSel.id)) target = {sec: libSel.sec, id: libSel.id};
   const bar = ctx.bar();
+  // Легенда оверлея: сколько проверок каждого цвета, у покрытия — список дыр.
+  const lgCounts = {}, lgHoles = [];
+  if (overlay) {
+    for (const n of flow.nodes) {
+      const o = overlayOf(overlay, n, c0); if (!o) continue;
+      lgCounts[o[0]] = (lgCounts[o[0]] || 0) + 1;
+      if (overlay === 'coverage' && o[0] === 'red') {
+        const h = R.checkHoles(flow, c0.lib, n);
+        lgHoles.push({id: n.id, label: nodeLabel(c0.lib, n), why: h.unwired.length ? 'вход без источника' : 'источник без доступа'});
+      }
+    }
+  }
 
   return (
     <FlowCtx.Provider value={fx}>
@@ -1100,17 +1259,13 @@ function FlowView({ctx, pageId, rev, api}) {
             </div>
           )}
           {menu ? <AddMenu x={menu.x} y={menu.y} title={menu.title} items={menu.items} onClose={() => setMenu(null)}/> : null}
+          <Legend fx={fx} overlay={overlay} counts={lgCounts} holes={lgHoles}/>
         </div>
         {panels.insp ? <Inspector fx={fx} t={target} P={c0.P} flow={flow} lib={c0.lib} ro={ro} gen={gen} focus={focusReq}/>
           : <button className="fl-rail fl-rail-r" title="Показать инспектор" onClick={() => fx.panel('insp', true)}>‹ Инспектор</button>}
         <div className="fl-ctip" ref={tipRef}/>
-        {bar ? createPortal(<div className="fl-bar">
-          <button className={'btn sm' + (panels.lib ? ' act' : '')} onClick={() => fx.panel('lib', !panels.lib)}>Библиотека</button>
-          <button className="btn sm" onClick={() => fx.openTable('checks')}>Таблица</button>
-          <span className="fl-sp"/>
-          <span className="hint">{ro ? 'Только просмотр' : 'Shift+A — добавить блок · двойной клик по шапке — переименовать'}</span>
-          <button className={'btn sm' + (panels.insp ? ' act' : '')} onClick={() => fx.panel('insp', !panels.insp)}>Инспектор</button>
-        </div>, bar) : null}
+        {bar ? createPortal(<ProfileBar fx={fx} flow={flow} lib={c0.lib} prof={prof} stats={stats} overlay={overlay}
+          show={show} ro={ro} panels={panels}/>, bar) : null}
       </div>
     </FlowCtx.Provider>
   );

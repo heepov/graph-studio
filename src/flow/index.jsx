@@ -69,6 +69,10 @@ export const FLOW = {
     return Object.assign({mounted: true, pageId: R.pageId, rev: R.rev}, a.state ? a.state() : {});
   },
   api() { return R ? R.api : null; },
+  // Сводка активного профиля: проверки, источники, исходы, дыры (ТЗ §7.3).
+  active() { return R && R.api.active ? R.api.active() : null; },
+  // Соединить «нода.ручка» → «нода.ручка» тем же путём, что и мышью.
+  connect(from, to) { return R && R.api.connect ? R.api.connect(from, to) : {ok: false, reason: 'конструктор не смонтирован'}; },
   call(name, ...args) {
     if (!R || typeof R.api[name] !== 'function') throw new Error('конструктор не смонтирован или нет ' + name);
     return R.api[name](...args);

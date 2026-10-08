@@ -489,3 +489,181 @@ export function sourceText(flow, lib, node) {
 // Натуральная сортировка кода проверки: «2.9» < «2.10» (ТЗ §10).
 export const codeCompare = (a, b) => String((a && a.code) || '').localeCompare(String((b && b.code) || ''), 'ru', {numeric: true})
   || String((a && a.name) || '').localeCompare(String((b && b.name) || ''), 'ru');
+
+/* ---------- применимость по профилю (ТЗ §5) ----------
+   Профиль — выбор значений по измерениям: sel = {dimId: [valueId…]}. Измерение,
+   которого нет в sel (или пустой массив), означает «любое». Внутри измерения —
+   ИЛИ, между измерениями — И. Ничего не исполняется: ответ только на вопрос
+   «какие блоки участвуют в конвейере для этого типа клиента». */
+export function appliesCond(cond, sel) {
+  for (const [dim, c] of Object.entries(cond)) {
+    const S = (sel && sel[dim]) || [];
+    if (!S.length) continue;
+    if (!S.some(v => (!c.pos.length || c.pos.includes(v)) && !c.neg.includes(v))) return false;
+  }
+  return true;
+}
+export const applies = (flow, lib, nodeId, sel) => appliesCond(condOf(flow, lib, nodeId), sel);
+
+const DATA_HELPERS = new Set(['anyof', 'calc', 'reroute']);
+
+// Активность всего конвейера при профиле sel:
+//   проверка — применима сама, применим её этап, не выключена;
+//   источник — применим, не выключен и кормит активную проверку (напрямую или
+//              через «один из», показатель, reroute);
+//   исход — в него ведёт вердикт или порядок от активного блока;
+//   связь — активны оба конца (reroute — по тому, что он соединяет).
+export function activity(flow, lib, sel) {
+  const N = new Map(flow.nodes.map(n => [n.id, n]));
+  const act = new Set();
+  const stageOk = new Map();
+  const okStage = id => {
+    if (!stageOk.has(id)) { const s = N.get(id); stageOk.set(id, !!s && !s.muted && applies(flow, lib, id, sel)); }
+    return stageOk.get(id);
+  };
+  for (const n of flow.nodes) {
+    if (n.k === 'check') { if (!n.muted && applies(flow, lib, n.id, sel) && (!n.parent || okStage(n.parent))) act.add(n.id); }
+    else if (n.k === 'stage') { if (okStage(n.id)) act.add(n.id); }
+    else if (n.k === 'dim' || n.k === 'note') { if (!n.muted) act.add(n.id); }
+    else if (n.k === 'gate') { if (!n.muted) act.add(n.id); }
+  }
+  // Назад по данным от активных проверок: источники и посредники, которые их кормят.
+  const into = new Map();
+  for (const e of flow.edges) { if (!into.has(e.t)) into.set(e.t, []); into.get(e.t).push(e); }
+  const fed = new Set();
+  const stack = [...act].filter(id => (N.get(id) || {}).k === 'check');
+  while (stack.length) {
+    const id = stack.pop();
+    for (const e of into.get(id) || []) {
+      if (e.th === 'cond-in' || e.th === 'exec-in' || e.th === 'vin') continue;
+      const s = N.get(e.s); if (!s || fed.has(s.id)) continue;
+      if (s.k === 'source') fed.add(s.id);
+      else if (DATA_HELPERS.has(s.k)) { fed.add(s.id); stack.push(s.id); }
+    }
+  }
+  for (const id of fed) {
+    const s = N.get(id);
+    if (s.muted) continue;
+    if (s.k === 'source' && !applies(flow, lib, id, sel)) continue;
+    act.add(id);
+  }
+  // Вперёд по потоку управления от активных блоков: исходы, в которые он приходит.
+  const out = new Map();
+  for (const e of flow.edges) { if (!out.has(e.s)) out.set(e.s, []); out.get(e.s).push(e); }
+  const ctl = [...act].filter(id => ['check', 'stage', 'gate'].includes((N.get(id) || {}).k));
+  const seenC = new Set(ctl);
+  while (ctl.length) {
+    const id = ctl.pop();
+    for (const e of out.get(id) || []) {
+      if (!/^exec|^v:/.test(e.sh) && e.sh !== 'out') continue;
+      const t = N.get(e.t); if (!t || seenC.has(t.id)) continue;
+      if (t.k === 'outcome' && !t.muted) { act.add(t.id); seenC.add(t.id); ctl.push(t.id); }
+      else if (t.k === 'reroute') { seenC.add(t.id); ctl.push(t.id); }
+    }
+  }
+  // Связь активна, когда активен её исток и хоть один потребитель (reroute — насквозь).
+  const origin = (id, d = 0) => {
+    const n = N.get(id);
+    if (!n || n.k !== 'reroute' || d > 16) return n;
+    const e = (into.get(id) || [])[0];
+    return e ? origin(e.s, d + 1) : null;
+  };
+  const consumer = (id, d = 0) => {
+    const n = N.get(id);
+    if (!n) return false;
+    if (n.k !== 'reroute' || d > 16) return act.has(id);
+    return (out.get(id) || []).some(e => consumer(e.t, d + 1));
+  };
+  const edges = new Set();
+  for (const e of flow.edges) {
+    const o = origin(e.s);
+    if (o && act.has(o.id) && consumer(e.t)) edges.add(e.id);
+  }
+  for (const n of flow.nodes) {
+    if (n.k === 'reroute' && flow.edges.some(e => edges.has(e.id) && (e.s === n.id || e.t === n.id))) act.add(n.id);
+  }
+  return {nodes: act, edges};
+}
+
+// Сводка профиля: «Проверок 45/55 · источников 22/24 · исходов 8/8 · входов без
+// источника 2». Источники и исходы считаются по блокам: один источник может
+// стоять на схеме несколько раз.
+export function profileStats(flow, lib, sel, a) {
+  const A = a || activity(flow, lib, sel);
+  const by = k => flow.nodes.filter(n => n.k === k);
+  const refs = (list, onlyActive) => new Set(list.filter(n => !onlyActive || A.nodes.has(n.id)).map(n => n.ref));
+  const checks = by('check'), sources = by('source'), outcomes = by('outcome');
+  const holes = [];
+  for (const n of checks) {
+    if (!A.nodes.has(n.id)) continue;
+    const it = itemOf(lib, n);
+    for (const inp of (it && it.inputs) || []) {
+      if (!flow.edges.some(e => e.t === n.id && e.th === 'in:' + inp.id)) holes.push({node: n.id, input: inp.id, name: inp.name, code: it.code});
+    }
+  }
+  return {
+    checks: {on: checks.filter(n => A.nodes.has(n.id)).length, all: checks.length},
+    sources: {on: refs(sources, true).size, all: refs(sources).size},
+    outcomes: {on: refs(outcomes, true).size, all: refs(outcomes).size},
+    holes,
+  };
+}
+
+/* ---------- авто-раскладка (ELK) ----------
+   План строится здесь, чтобы интерфейс и сервер (flow_layout) раскладывали
+   одинаково; сам ELK зовёт вызывающий. Внутри рамки этапа проверки идут
+   столбцом по коду — они исполняются параллельно, и порядок «по коду» читается
+   как в xls. Верхний уровень раскладывает ELK слоями слева направо: измерения
+   и источники — раньше этапов, исходы — после. Рамка для ELK — один блок:
+   связь к проверке внутри этапа считается связью к самому этапу. */
+export const ELK_OPTIONS = {
+  'elk.algorithm': 'layered', 'elk.direction': 'RIGHT',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '110', 'elk.spacing.nodeNode': '36',
+  'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP', 'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
+};
+export function layoutPlan(flow, lib, sizeOf) {
+  const sz = sizeOf || (n => nodeSize(flow, lib, n));
+  const {PADT, PAD, GAP, MINW, MINH} = SIZE.STAGE;
+  const byId = new Map(flow.nodes.map(n => [n.id, n]));
+  const stages = {};
+  for (const s of flow.nodes.filter(n => n.k === 'stage')) {
+    const kids = flow.nodes.filter(n => n.parent === s.id);
+    kids.sort((a, b) => (a.k === 'check' && b.k === 'check' ? codeCompare(itemOf(lib, a), itemOf(lib, b))
+      : a.k === 'check' ? -1 : b.k === 'check' ? 1 : (+a.y || 0) - (+b.y || 0)));
+    let y = PADT, w = 0;
+    const pos = [];
+    for (const k of kids) { const s2 = sz(k); pos.push({id: k.id, x: PAD, y}); y += s2.h + GAP; w = Math.max(w, s2.w); }
+    stages[s.id] = {w: Math.max(MINW, Math.round(w + PAD * 2)), h: Math.max(MINH, Math.round(y - GAP + PAD)), kids: pos};
+  }
+  const top = flow.nodes.filter(n => !n.parent || !stages[n.parent]);
+  const anc = id => { const n = byId.get(id); return n && n.parent && stages[n.parent] ? n.parent : id; };
+  const children = top.map(n => {
+    const s = stages[n.id] || sz(n);
+    return {id: n.id, width: s.w, height: s.h};
+  });
+  const seen = new Set(), edges = [];
+  for (const e of flow.edges) {
+    const a = anc(e.s), b = anc(e.t);
+    if (a === b || !byId.has(a) || !byId.has(b) || seen.has(a + '>' + b)) continue;
+    seen.add(a + '>' + b);
+    edges.push({id: 'l' + edges.length, sources: [a], targets: [b]});
+  }
+  return {graph: {id: 'root', layoutOptions: ELK_OPTIONS, children, edges}, stages};
+}
+// Записать результат ELK в конвейер: позиции верхнего уровня, размеры рамок
+// и места детей внутри них. Рамка после раскладки снова подгоняется (fit:1).
+export function applyLayout(flow, plan, result) {
+  const pos = new Map(((result && result.children) || []).map(c => [c.id, c]));
+  const byId = new Map(flow.nodes.map(n => [n.id, n]));
+  let moved = 0;
+  for (const n of flow.nodes) {
+    const p = pos.get(n.id);
+    if (p) { n.x = Math.round(p.x); n.y = Math.round(p.y); moved++; }
+    const st = plan.stages[n.id];
+    if (st) {
+      n.w = st.w; n.h = st.h; n.fit = 1;
+      for (const k of st.kids) { const c = byId.get(k.id); if (c) { c.x = k.x; c.y = k.y; } }
+    }
+  }
+  return moved;
+}
