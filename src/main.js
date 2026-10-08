@@ -818,7 +818,13 @@ function paintSave() {
   } else if (cloud.CLOUD.account) {
     where = '<br><span style="color:var(--muted)" title="проект хранится только в этом браузере">только здесь</span>';
   }
-  el.innerHTML = `${nOf(P ? P.nodes.length : 0, NODES)} · ${nOf(P ? P.links.length : 0, LINKS)}<br>сохранено ${UI.lastSave ? UI.lastSave.toLocaleTimeString('ru-RU').slice(0, 5) : '—'}${where}`;
+  // На конструкторе узлов пула нет — «0 узлов» читалось бы как «доска пустая».
+  // try — paintSave зовут и до того, как объявлены curPage/isFlow (TDZ на ранней загрузке).
+  let ff = null;
+  try { const fpg = P && curPage(); ff = fpg && isFlow(fpg) ? (fpg.flow || {}) : null; } catch (e) { ff = null; }
+  const counts = ff ? `${nOf((ff.nodes || []).length, ['блок', 'блока', 'блоков'])} · ${nOf((ff.edges || []).length, LINKS)}`
+    : `${nOf(P ? P.nodes.length : 0, NODES)} · ${nOf(P ? P.links.length : 0, LINKS)}`;
+  el.innerHTML = `${counts}<br>сохранено ${UI.lastSave ? UI.lastSave.toLocaleTimeString('ru-RU').slice(0, 5) : '—'}${where}`;
   const vl = qs('.verlink', el);
   if (vl) vl.onclick = () => showHistory();
   const nm = $('bName');
@@ -3811,7 +3817,11 @@ $('palin').onkeydown = e => {
   if (e.key === 'Enter') {const i = list[palIdx]; if (i) {$('pal').classList.remove('open'); i.go();}}
 };
 $('pal').onclick = e => {if (e.target.id === 'pal') $('pal').classList.remove('open');};
-$('bFind').onclick = openPalette;
+$('bFind').onclick = () => {
+  // На конструкторе — поиск по схеме (код, название, поле, источник), а не по узлам пула.
+  if (P && isFlow(curPage())) { try { FLOW.call('find'); return; } catch (e) { /* конструктор ещё не смонтирован */ } }
+  openPalette();
+};
 
 
 /* ==========================================================================
@@ -3876,6 +3886,11 @@ function renderPage() {
   // Сюда приходят не только из gotoPage — ещё отмена, чужая правка, другая доска.
   if (!isFlow(pg)) unmountFlow();
   $('pgTitle').textContent = pg.name;
+  // На конструкторе «＋» — меню блоков, а «Поиск» ищет по схеме: узлов пула
+  // там нет, и «Узел» с поиском по узлам обещали бы то, чего на странице не бывает.
+  const ba = $('bAdd'), bf = $('bFind');
+  if (ba && ba.lastChild) { ba.lastChild.textContent = isFlow(pg) ? 'Добавить' : 'Узел'; ba.title = isFlow(pg) ? 'Добавить блок · Shift+A' : ''; }
+  if (bf) bf.title = isFlow(pg) ? 'Поиск по схеме · Ctrl+F' : 'Быстрый поиск · Ctrl+K';
   if (isFlow(pg)) {
     const f = pg.flow || {};
     $('pgSub').textContent = `${kindName(pg.kind)} · ${nOf((f.nodes || []).length, ['блок', 'блока', 'блоков'])}, ${nOf((f.edges || []).length, LINKS)}`;

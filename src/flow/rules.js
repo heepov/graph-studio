@@ -41,7 +41,7 @@ export const DEFAULT_VERDICTS = [
 export const NODE_KINDS = ['dim', 'source', 'check', 'outcome', 'stage', 'gate', 'anyof', 'calc', 'note', 'reroute'];
 export const KIND_NAMES = {
   dim: 'Измерение', source: 'Источник', check: 'Проверка', outcome: 'Исход', stage: 'Этап',
-  gate: 'Гейт', anyof: 'Один из', calc: 'Показатель', note: 'Заметка', reroute: 'Точка перегиба',
+  gate: 'Условие перехода', anyof: 'Резерв источников', calc: 'Показатель', note: 'Заметка', reroute: 'Точка перегиба',
 };
 export const KIND_COLORS = {
   dim: '#7c5cff', source: '#0f9f8f', check: '#3355d1', stage: '#3355d1',
@@ -68,9 +68,13 @@ export const nameOf = (list, key) => (list.find(x => x[0] === key) || [key, key 
 
 // Единственное место, где описано «пустое»: normalize в приложении и addPage
 // на сервере берут умолчания отсюда, а не держат по своей копии.
+// Видимость связей по умолчанию: порядок этапов — всегда, остальное — у
+// выделенного блока и блока под курсором (2). Все 137 связей seed разом —
+// это каша, в которой не видно ничего; схема читается по этапам, а связи
+// конкретной проверки появляются, когда на неё смотрят.
 export function defaultFlow() {
   return {nodes: [], edges: [], profiles: [], profile: null,
-    show: {exec: 1, data: 1, cond: 1, verdict: 1}, overlay: ''};
+    show: {exec: 1, data: 2, cond: 2, verdict: 2}, overlay: ''};
 }
 export function defaultLib() {
   return {v: 1, dims: [], sources: [], checks: [], outcomes: [],
@@ -460,6 +464,14 @@ export function condText(flow, lib, nodeId) {
   }
   if (!pos.length && !neg.length) return 'все';
   return pos.concat(neg.length ? ['кроме: ' + neg.join(', ')] : []).join('; ');
+}
+
+// «Для кого» словами — подпись сокета «Когда» на ноде, в рамке этапа и в инспекторе.
+// Связи применимости по умолчанию скрыты, и без подписи не видно, кому проверка.
+export function whoText(flow, lib, id) {
+  const t = condText(flow, lib, id);
+  if (t === 'все') return 'для всех';
+  return /^кроме/.test(t) ? 'для всех, ' + t : 'для: ' + t;
 }
 
 // Колонка «Источник»: уникальные названия источников подключённых входов,

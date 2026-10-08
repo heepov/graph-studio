@@ -44,6 +44,9 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     await c.send('Page.navigate', {url: URL});
     await c.waitFor('document.getElementById("home") !== null', 20000, 'загрузка html');
     await c.waitFor(BOOTED, 25000, 'приложение загрузилось');
+    // Профиль Chrome у теста постоянный: панели и «скрыть погашенные», запомненные
+    // прошлым прогоном, подменили бы умолчания, которые здесь и проверяются.
+    await c.eval(`(() => { localStorage.removeItem('gs_flow_panels2'); localStorage.removeItem('gs_flow_hideoff'); return true; })()`);
     await c.eval(`createFromTemplate('demo')`);
     await c.waitFor('typeof P !== "undefined" && P && P.nodes.length > 0' + EDITOR_SHOWN, 15000, 'проект открылся');
     ok('приложение загрузилось, проект открыт');
@@ -88,6 +91,35 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     check(made.bar && !made.cv, 'полоса конструктора на месте, холст приложения не рисуется');
     check(made.icon, 'у страницы свой значок в списке');
     const PID = made.id;
+
+    // --- 2.10: экран по умолчанию — схема на всю ширину ---------------------
+    const ux0 = await c.eval(`({lib: !!document.querySelector('.fl-lib'), insp: !!document.querySelector('.fl-insp'),
+      rails: document.querySelectorAll('.fl-rail').length, show: curPage().flow.show,
+      add: document.getElementById('bAdd').textContent.trim(), stat: document.getElementById('saveState').textContent,
+      find: document.getElementById('bFind').title,
+      acts: [...document.querySelectorAll('.fl-empty [data-a]')].map(b => b.dataset.a).join(' '),
+      bar: document.querySelector('#flowBar .fl-bar').textContent})`);
+    check(!ux0.lib && !ux0.insp && ux0.rails === 2, 'панели по умолчанию свёрнуты — схема на всю ширину, вкладки по краям', `вкладок ${ux0.rails}`);
+    check(ux0.show.exec === 1 && ux0.show.data === 2 && ux0.show.cond === 2 && ux0.show.verdict === 2,
+      'новая схема: видны связи порядка, остальные — у выделенного блока', JSON.stringify(ux0.show));
+    check(ux0.add === 'Добавить' && /^0 блоков · 0 связей/.test(ux0.stat) && /по схеме/.test(ux0.find),
+      'шапка на конструкторе: «Добавить», счётчик блоков, поиск по схеме', `${ux0.add} · ${ux0.stat.slice(0, 22)}`);
+    check(ux0.acts === 'new-check new-source new-dim' && /Клиент/.test(ux0.bar) && /Подсветка/.test(ux0.bar) && !/Оверлей|Найти/.test(ux0.bar),
+      'пустая схема — кнопки создания; полоса словами: «Клиент», «Подсветка», без «Оверлей» и «Найти»', ux0.acts);
+    await c.eval(`document.querySelector('.fl-empty [data-a="new-check"]').click()`);
+    await sleep(500);
+    const nc = await c.eval(`({nodes: curPage().flow.nodes.length, lib: P.flowLib.checks.length, insp: document.querySelector('.fl-insp') ? document.querySelector('.fl-insp').dataset.insp : null,
+      focus: document.activeElement && document.activeElement.closest('.fl-insp') ? 'инспектор' : String(document.activeElement && document.activeElement.className)})`);
+    check(nc.nodes === 1 && nc.lib === 1 && nc.insp === 'check' && nc.focus === 'инспектор',
+      '«+ Проверка»: блок в библиотеке, нода на схеме, инспектор открылся сам с фокусом в названии', JSON.stringify(nc));
+    await c.eval(`FLOW.call('select', [])`);
+    await sleep(250);
+    const closed = await c.eval(`!document.querySelector('.fl-insp')`);
+    check(closed, 'выделение снято — инспектор, открытый автоматически, закрывается');
+    await c.eval(`undo()`);
+    await sleep(300);
+    const undo0 = await c.eval(`({nodes: curPage().flow.nodes.length, lib: P.flowLib.checks.length, empty: !!document.querySelector('.fl-empty')})`);
+    check(undo0.nodes === 0 && undo0.lib === 0 && undo0.empty, 'Ctrl+Z убирает и ноду, и блок библиотеки', JSON.stringify(undo0));
 
     // --- камера: личная, переживает перезагрузку ----------------------------
     await c.eval(`FLOW.call('setViewport', {x: 123, y: -45, k: 0.77})`);
@@ -173,13 +205,17 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
       lib.outcomes.push({id: 'out_t', name: 'Средний риск', verdict: 'risk'});
       normalizeLib(lib);
       const pg = {id: 'pg_m1', name: 'Грамматика', kind: 'flow', filter: {q: '', cats: [], statuses: [], types: [], f: {}},
-        flow: normalizeFlow({nodes: [
+        flow: normalizeFlow({show: {exec: 1, data: 1, cond: 1, verdict: 1}, nodes: [
           {id: 'nSt', k: 'stage', x: 760, y: 300, w: 380, h: 260, data: {num: '1', name: 'Этап', point: ''}},
           {id: 'nD', k: 'dim', ref: 'dim_t', x: -280, y: 0},
           {id: 'nS', k: 'source', ref: 'src_t', x: 0, y: 0},
           {id: 'nC1', k: 'check', ref: 'chk_t1', x: 420, y: 0},
           {id: 'nC2', k: 'check', ref: 'chk_t2', x: 420, y: 300},
           {id: 'nO', k: 'outcome', ref: 'out_t', x: 840, y: 0}], edges: []})};
+      // Дальше тесты рассчитаны на раскладку с открытыми панелями — как выбор человека
+      // (он запоминается). Ставим ДО открытия страницы: иначе схема впишется в широкий
+      // холст, а открывшиеся следом панели закроют её часть.
+      localStorage.setItem('gs_flow_panels2', JSON.stringify({lib: true, insp: true}));
       P.pages.push(pg); save(1); gotoPage(pg.id);
       FLOW.call('setViewport', {x: 380, y: 160, k: 0.9});
     })()`);
@@ -310,14 +346,14 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     await key(c, 'Enter', 'Enter', 0, 13);
     await sleep(300);
     const gate = await c.eval(`curPage().flow.nodes.filter(n => n.k === 'gate').length`);
-    check(gate === 1, 'поиск в меню и Enter ставят ноду под курсор');
+    check(gate === 1, 'поиск в меню и Enter ставят ноду под курсор (по прежнему слову «гейт» — «Условие перехода»)');
 
     await drag(await H('nS', 'out:f_m'), {x: pane.x + 300, y: pane.y - 60});
     const m2 = await c.eval(`FLOW.state().menu`);
-    const okList = m2 && m2.items.includes('Один из') && m2.items.includes('Показатель') && m2.items.includes('9.2 Капитал')
-      && !m2.items.includes('Гейт') && !m2.items.includes('Этап') && !m2.items.some(x => /Тип/.test(x));
+    const okList = m2 && m2.items.includes('Резерв источников') && m2.items.includes('Показатель') && m2.items.includes('9.2 Капитал')
+      && !m2.items.includes('Условие перехода') && !m2.items.includes('Этап') && !m2.items.some(x => /Тип/.test(x));
     check(okList, 'связь в пустоту: меню только из совместимых блоков', m2 && m2.items.join(', '));
-    await c.eval(`[...document.querySelectorAll('.fl-ai')].find(x => /Один из/.test(x.textContent)).click()`);
+    await c.eval(`[...document.querySelectorAll('.fl-ai')].find(x => /Резерв источников/.test(x.textContent)).click()`);
     await sleep(300);
     const any = await c.eval(`(() => { const f = curPage().flow, a = f.nodes.find(n => n.k === 'anyof');
       return a ? {type: a.data.type, edge: f.edges.some(e => e.t === a.id && e.s === 'nS' && e.sh === 'out:f_m')} : null; })()`);
@@ -337,7 +373,8 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     await sleep(200);
     f2 = await c.eval(`(() => { const n = curPage().flow.nodes.find(x => x.id === 'nC2');
       return {hide: n.hide || [], rows: document.querySelectorAll('.react-flow__node[data-id="nC2"] .fl-row').length}; })()`);
-    check(f2.hide.includes('in:x') && !f2.hide.includes('cond-in') && f2.rows === 2,
+    // Остаются «Когда» и вход порядка; строка порядка у проверки живёт в шапке — в строках одна.
+    check(f2.hide.includes('in:x') && !f2.hide.includes('cond-in') && f2.rows === 1,
       'Ctrl+H прячет только несоединённые сокеты', `скрыто: ${f2.hide.join(', ')}`);
     await key(c, 'KeyH', 'h', 2, 72);
     await key(c, 'KeyM', 'm', 0, 77);
@@ -654,6 +691,51 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     await c.eval(`(async () => { const d = normalize(JSON.parse(${JSON.stringify(seedDoc)})); d.id = 'seed_m3'; d.name = 'KYC — профили';
       await dbPut(STORE, d); await loadProjects(); await openProject('seed_m3'); gotoPage(${JSON.stringify(SEED_PG)}); return true; })()`);
     await c.waitFor(`P && P.id === 'seed_m3' && FLOW.state().rfNodes > 100`, 10000, 'seed');
+    // Связи seed по умолчанию: на экране только порядок этапов, остальные — у выделенного блока.
+    const domEdges = () => c.eval(`document.querySelectorAll('#flowRoot .react-flow__edge').length`);
+    await c.eval(`FLOW.call('select', [])`);
+    await sleep(200);
+    const sE0 = await domEdges();
+    await c.eval(`FLOW.call('select', ['n_chk_3_11'])`);
+    await sleep(250);
+    const sE1 = await domEdges();
+    check(sE0 === 9 && sE1 > 9, 'seed: видны 9 связей порядка, у выделенной проверки появляются её связи', `${sE0} → ${sE1}`);
+    // Меню «Связи»: словами, по видам — показываем все, как было до 2.10, для проверок ниже
+    await clickEl('#flowBar [data-a="edges"]');
+    await sleep(150);
+    for (const k of ['data', 'cond', 'verdict']) await clickEl(`.fl-pop-edges [data-ek="${k}"] [data-mode="1"]`);
+    const allShow = await c.eval(`JSON.stringify(curPage().flow.show)`);
+    await key(c, 'Escape', 'Escape', 0, 27);
+    await c.eval(`FLOW.call('select', [])`);
+    await sleep(250);
+    check(JSON.parse(allShow).data === 1 && await domEdges() === 137, 'меню «Связи»: «все» по каждому виду — на экране все 137', allShow);
+
+    // Облик нод (2.10): у проверки строка порядка — в шапке, название в две строки;
+    // «Когда» подписан тем, для кого проверка; вход без источника — красной точкой.
+    const nodeLook = async id => { await c.eval(`FLOW.call('select', [${JSON.stringify(id)}])`); await key(c, 'KeyF', 'f', 0, 70); await sleep(300);
+      return c.eval(`(() => { const el = document.querySelector('.react-flow__node[data-id="${id}"]'); if (!el) return null;
+        return {hd2: !!el.querySelector('.fl-hd2 .react-flow__handle[data-handleid="exec-in"]') && !!el.querySelector('.fl-hd2 .react-flow__handle[data-handleid="exec-out"]'),
+          who: (el.querySelector('.fl-who') || {}).textContent || '', miss: [...el.querySelectorAll('.fl-miss')].map(x => x.textContent),
+          ty: !!el.querySelector('.fl-ty'), h: Math.round(el.getBoundingClientRect().height / FLOW.state().viewport.k)}; })()`); };
+    const l38 = await nodeLook('n_chk_3_8'), l315 = await nodeLook('n_chk_3_15');
+    check(l38 && l38.hd2 && l38.who === 'для всех, кроме: ИП, Свежерег < 180 дней' && !l38.ty,
+      'проверка: порядок в шапке, «для кого» словами, типы данных не пишутся', l38 && l38.who);
+    check(l315 && l315.miss.length === 1, 'вход без источника помечен на самой ноде', l315 && l315.miss.join(', '));
+    await c.eval(`FLOW.call('select', ['n_st_s3b'])`);
+    await key(c, 'KeyF', 'f', 0, 70);
+    await sleep(300);
+    const cnt3b = await c.eval(`(document.querySelector('.react-flow__node[data-id="n_st_s3b"] .fl-st-cnt') || {}).textContent`);
+    check(cnt3b === '19', 'в шапке этапа — число проверок', cnt3b);
+    // Издалека: подписи этапов крупно, мелкие подписи нод спрятаны
+    await c.eval(`FLOW.call('select', [])`);
+    await c.eval(`FLOW.call('setViewport', {x: 200, y: 120, k: 0.22})`);
+    await sleep(300);
+    const far = await c.eval(`({far: document.querySelector('.fl-root').classList.contains('fl-far'), labels: [...document.querySelectorAll('.fl-farlbl b')].map(x => x.textContent)})`);
+    await c.eval(`FLOW.call('setViewport', {x: 0, y: 0, k: 1})`);
+    await sleep(250);
+    const near = await c.eval(`({far: document.querySelector('.fl-root').classList.contains('fl-far'), labels: document.querySelectorAll('.fl-farlbl').length})`);
+    check(far.far && far.labels.length === 7 && far.labels.includes('3b. Углублённая проверка по ИНН/ОГРН') && !near.far && near.labels === 0,
+      'издалека этапы подписаны крупно, вблизи — обычный вид', far.labels.slice(0, 3).join(' | '));
     const docBefore = await c.eval(`JSON.stringify(pageById(${JSON.stringify(SEED_PG)}).flow.profiles) + pageById(${JSON.stringify(SEED_PG)}).flow.profile`);
     // С2: P-ИП — 45 из 55, погашены ровно десять
     await choose('#flowBar select[data-f="profile"]', 'pf_ip');
@@ -665,7 +747,9 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
         offEdges: document.querySelectorAll('.react-flow__edge-path.fl-off').length}; })()`);
     check(ip.c.on === 45 && ip.c.all === 55 && ip.s.on === 22 && ip.s.all === 24
       && ip.off.join(' ') === '2.8 2.9 2.10 2.11 3.8 3.9 4.2 4.3 4.5 5.3', 'С2: P-ИП — проверок 45/55, источников 22/24, погашены 2.8…5.3', ip.off.join(' '));
-    check(/Проверок 45\/55\s*·\s*источников 22\/24\s*·\s*исходов 8\/8\s*·\s*входов без источника 2/.test(ip.bar), 'С2: сводка в полосе профиля', ip.bar.trim());
+    check(/45\/55 проверок\s*·\s*22\/24 источника\s*·\s*2 без источника/.test(ip.bar), 'С2: сводка в полосе профиля — числа впереди, слова в нужном падеже', ip.bar.trim());
+    const banner = await c.eval(`(document.querySelector('.fl-pbanner') || {}).textContent || ''`);
+    check(/«P-ИП»/.test(banner) && /45 из 55 проверок, погашено 10/.test(banner), 'плашка профиля над схемой: участвуют 45 из 55, погашено 10', banner.replace(/\s+/g, ' ').trim());
     check(ip.offEdges > 0, 'неактивные связи приглушены', `${ip.offEdges} связей`);
     await choose('#flowBar select[data-f="profile"]', 'pf_ooo1');
     await sleep(250);
@@ -720,14 +804,16 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     await c.eval(`FLOW.call('fit')`);
     await sleep(200);
     const ex0 = await execShown();
-    await clickEl('#flowBar [data-ek="exec"]');
+    const execMode = async m => { await clickEl('#flowBar [data-a="edges"]'); await sleep(120);
+      await clickEl(`.fl-pop-edges [data-ek="exec"] [data-mode="${m}"]`); await key(c, 'Escape', 'Escape', 0, 27); await sleep(150); };
+    await execMode(2);
     await c.eval(`FLOW.call('select', ['n_st_s2'])`);
     await sleep(250);
     const ex2 = await execShown();
-    await clickEl('#flowBar [data-ek="exec"]');
+    await execMode(0);
     await sleep(200);
     const ex3 = await execShown();
-    await clickEl('#flowBar [data-ek="exec"]');
+    await execMode(1);
     await sleep(200);
     const ex4 = await execShown();
     check(ex0 === 9 && ex2 === 2 && ex3 === 0 && ex4 === 9, 'видимость порядка ▶: все → у выделенной → скрыть → все', `${ex0} → ${ex2} → ${ex3} → ${ex4}`);
@@ -764,7 +850,7 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
 
     // раскладка ELK: ноды переезжают, Ctrl+Z возвращает
     const posBefore = await c.eval(`JSON.stringify(curPage().flow.nodes.map(n => [n.id, n.x, n.y]))`);
-    await clickEl('#flowBar .fl-bar .btn[title^="Авто-раскладка"]');
+    await clickEl('#flowBar [data-a="layout"]');
     await c.waitFor(`JSON.stringify(curPage().flow.nodes.map(n => [n.id, n.x, n.y])) !== ${JSON.stringify(posBefore)}`, 15000, 'ELK отработал');
     const elk = await c.eval(`(() => { const f = curPage().flow; const st = f.nodes.filter(n => n.k === 'stage');
       return {stages: st.length, fit: st.every(s => s.fit === 1), kids: f.nodes.filter(n => n.parent).length}; })()`);
@@ -783,7 +869,7 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     await sleep(200);
     const roView = await c.eval(`({on: FLOW.active().checks.on, lg: !!document.querySelector('.fl-legend[data-overlay="wave"]'),
       same: JSON.stringify(pageById(${JSON.stringify(SEED_PG)}).flow) === ${JSON.stringify(roDoc)},
-      layout: !!document.querySelector('#flowBar .btn[title^="Авто-раскладка"]')})`);
+      layout: !!document.querySelector('#flowBar [data-a="layout"]')})`);
     check(roView.on === 45 && roView.lg && roView.same && !roView.layout, 'в режиме чтения профиль и оверлей переключаются без записи, раскладки нет', JSON.stringify(roView));
     await c.eval(`(() => { setReadonly(false); renderPage(); })()`);
 
@@ -805,7 +891,9 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
       return {page: curPage().kind, nodes: document.querySelectorAll('#flowRoot .react-flow__node').length,
         edges: document.querySelectorAll('#flowRoot .react-flow__edge').length,
         inside: x0 >= pane.left - 2 && y0 >= pane.top - 2 && x1 <= pane.right + 2 && y1 <= pane.bottom + 2, k: FLOW.state().viewport.k}; })()`);
-    check(c1.page === 'flow' && c1.nodes === 109 && c1.edges === 137, 'С1: страница-конструктор показывает 109 нод и 137 связей', `${c1.nodes} нод, ${c1.edges} связей`);
+    const rfE = await c.eval(`FLOW.state().rfEdges`);
+    check(c1.page === 'flow' && c1.nodes === 109 && rfE === 137 && c1.edges === 9,
+      'С1: 109 нод и 137 связей; на экране — порядок этапов, остальные связи — у выделенного блока', `${c1.nodes} нод, ${rfE} связей, видно ${c1.edges}`);
     check(c1.inside, 'С1: камера вписывает всю схему', `масштаб ${c1.k}`);
     // контрольные цифры §13 — из документа, созданного шаблоном
     const s13 = await c.eval(`(() => { const L = P.flowLib, f = curPage().flow, k = {};

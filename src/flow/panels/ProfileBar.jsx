@@ -1,5 +1,6 @@
 // Полоса конструктора в панели страницы приложения (#flowBar): профиль клиента,
-// сводка по нему, оверлей, видимость связей, раскладка и поиск.
+// сводка по нему, подсветка, видимость связей и раскладка. Поиск по схеме —
+// кнопкой «Поиск» в шапке приложения и Ctrl+F, здесь его второй копии нет.
 //
 // Активный профиль — личное состояние (localStorage), а не документ: иначе
 // переключение профиля одним человеком меняло бы экран другому. В документе
@@ -9,8 +10,10 @@ import * as R from '../rules.js';
 
 export const OVERLAYS = [['', 'нет'], ['bank', 'Согласование банка'], ['coverage', 'Покрытие источниками'],
   ['tbd', 'Вердикт не определён'], ['wave', 'Волна'], ['actor', 'Исполнитель']];
-const EDGE_KINDS = [['exec', '▶', 'порядок'], ['data', '●', 'данные'], ['cond', '◆', 'применимость'], ['verdict', '■', 'вердикты']];
-const SHOW_NAME = {1: 'все', 2: 'только у выделенной ноды', 0: 'скрыты'};
+const EDGE_KINDS = [['exec', '▶', 'Порядок этапов'], ['data', '●', 'Данные: источник → проверка'],
+  ['cond', '◆', 'Для кого: клиент → проверка'], ['verdict', '■', 'Вердикт → исход']];
+const MODES = [[1, 'все'], [2, 'у выделенной'], [0, 'скрыть']];
+const plural = (n, f) => { const a = Math.abs(n) % 100, b = a % 10; return f[a > 10 && a < 20 ? 2 : b === 1 ? 0 : b >= 2 && b <= 4 ? 1 : 2]; };
 
 // Всплывающая панель под кнопкой; закрывается кликом мимо и по Esc.
 function Pop({onClose, children, cls}) {
@@ -27,50 +30,66 @@ function Pop({onClose, children, cls}) {
 
 export default function ProfileBar({fx, flow, lib, prof, stats, overlay, show, ro, panels}) {
   const [pop, setPop] = useState(null);
-  // Ctrl+F на холсте открывает поиск отсюда же.
+  // Ctrl+F на холсте и «Поиск» в шапке открывают поиск отсюда же.
   useEffect(() => { fx.openPop = setPop; return () => { if (fx.openPop === setPop) fx.openPop = null; }; }, [fx]);
   const close = () => setPop(null);
   const toggle = name => setPop(p => (p === name ? null : name));
   const sel = prof.sel || {};
   const custom = !prof.id && Object.values(sel).some(v => (v || []).length);
-  const num = (name, label, a, b) => (
-    <button className={'fl-num fl-popbtn' + (pop === name ? ' on' : '')} onClick={() => toggle(name)} data-stat={name}>
-      {label} <b>{a}{b != null ? '/' + b : ''}</b></button>);
+  // Число впереди, слово после и в нужном падеже: «45/55 проверок», «22/24 источника».
+  const num = (name, a, b, forms, cls) => (
+    <button className={'fl-num fl-popbtn' + (pop === name ? ' on' : '') + (cls ? ' ' + cls : '')} onClick={() => toggle(name)} data-stat={name}>
+      <b>{a}</b>{b != null ? '/' + b : ''} {plural(b != null ? b : a, forms)}</button>);
+  const mode = k => (show[k] == null ? 1 : +show[k]);
+  const allShown = EDGE_KINDS.filter(([k]) => mode(k) === 1).length;
   return (
     <div className="fl-bar">
-      <label className="fl-pf">Профиль:
+      <label className="fl-pf" title="Профиль клиента: для кого показать проверки">Клиент
         <select value={prof.id || (custom ? '__custom' : '')} data-f="profile" onChange={e => fx.setProfile(e.target.value)}>
           <option value="">все клиенты</option>
           {flow.profiles.map(p => <option key={p.id} value={p.id}>{p.name}{flow.profile === p.id ? ' · по умолчанию' : ''}</option>)}
           {custom ? <option value="__custom">свой выбор</option> : null}
         </select></label>
-      <button className={'btn sm fl-popbtn' + (pop === 'edit' ? ' act' : '')} onClick={() => toggle('edit')}>Настроить</button>
+      <button className={'btn sm fl-popbtn' + (pop === 'edit' ? ' act' : '')} onClick={() => toggle('edit')}
+        title="Выбрать значения измерений и сохранить профиль">Настроить</button>
       <span className="fl-stats">
-        {num('checks', 'Проверок', stats.checks.on, stats.checks.all)}<span className="fl-dot">·</span>
-        {num('sources', 'источников', stats.sources.on, stats.sources.all)}<span className="fl-dot">·</span>
-        {num('outcomes', 'исходов', stats.outcomes.on, stats.outcomes.all)}<span className="fl-dot">·</span>
-        {num('holes', 'входов без источника', stats.holes.length)}
+        {num('checks', stats.checks.on, stats.checks.all, ['проверка', 'проверки', 'проверок'])}<span className="fl-dot">·</span>
+        {num('sources', stats.sources.on, stats.sources.all, ['источник', 'источника', 'источников'])}
+        {stats.holes.length ? <><span className="fl-dot">·</span>
+          {num('holes', stats.holes.length, null, ['без источника', 'без источника', 'без источника'], 'fl-num-bad')}</> : null}
       </span>
       <span className="fl-sep"/>
-      <label className="fl-pf">Оверлей:
+      <label className="fl-pf">Подсветка
         <select value={overlay} data-f="overlay" onChange={e => fx.setOverlay(e.target.value)}>
           {OVERLAYS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></label>
-      <span className="fl-eks" title="Видимость связей по видам: все → только у выделенной ноды → скрыть">Связи:
-        {EDGE_KINDS.map(([k, g, n]) => <button key={k} className={'fl-ek fl-ek' + (show[k] == null ? 1 : show[k])} data-ek={k}
-          title={`${n}: ${SHOW_NAME[show[k] == null ? 1 : show[k]]}`} onClick={() => fx.cycleShow(k)}>{g}</button>)}</span>
-      {!ro ? <button className="btn sm" onClick={() => fx.layout()} title="Авто-раскладка ELK с учётом сокетов и рамок">Разложить</button> : null}
-      <button className={'btn sm fl-popbtn' + (pop === 'find' ? ' act' : '')} onClick={() => toggle('find')} title="Поиск по схеме · Ctrl+F">Найти</button>
+      <button className={'btn sm fl-popbtn' + (pop === 'edges' ? ' act' : '')} data-a="edges" onClick={() => toggle('edges')}
+        title="Какие связи показывать">Связи{allShown === EDGE_KINDS.length ? ': все' : allShown ? '' : ': у выделенной'}</button>
+      {!ro ? <button className="btn sm" data-a="layout" onClick={() => fx.layout()} title="Разложить блоки слоями слева направо, проверки в этапе — по коду">Разложить</button> : null}
       <span className="fl-sp"/>
-      <button className={'btn sm' + (panels.lib ? ' act' : '')} onClick={() => fx.panel('lib', !panels.lib)}>Библиотека</button>
+      {/* Библиотека и инспектор открываются вкладками по краям холста — второй пары кнопок здесь нет. */}
       <button className="btn sm" data-a="table" onClick={() => fx.openTable('checks')}>Таблица</button>
       <button className="btn sm" data-a="export" title="xlsx, JSON-контракт, Markdown-архив, PNG, SVG" onClick={() => fx.showExport()}>Экспорт</button>
-      <button className={'btn sm' + (panels.insp ? ' act' : '')} onClick={() => fx.panel('insp', !panels.insp)}>Инспектор</button>
       {pop === 'edit' ? <Pop onClose={close} cls="fl-pop-edit"><ProfileEdit fx={fx} flow={flow} lib={lib} prof={prof} ro={ro}/></Pop> : null}
       {pop === 'find' ? <Pop onClose={close} cls="fl-pop-find"><Search fx={fx} onDone={close}/></Pop> : null}
+      {pop === 'edges' ? <Pop onClose={close} cls="fl-pop-edges"><EdgeVis fx={fx} mode={mode}/></Pop> : null}
       {['checks', 'sources', 'outcomes', 'holes'].includes(pop) ? <Pop onClose={close} cls="fl-pop-list">
         <StatList fx={fx} what={pop} onDone={close}/></Pop> : null}
     </div>
   );
+}
+
+// Какие связи показывать: по видам, словами, а не значками с тремя скрытыми состояниями.
+function EdgeVis({fx, mode}) {
+  return <>
+    <div className="fl-pe-h">Какие связи показывать</div>
+    {EDGE_KINDS.map(([k, g, n]) => (
+      <div key={k} className="fl-ev" data-ek={k}>
+        <span className="fl-ev-n"><i className={'fl-evg fl-evg-' + k}>{g}</i>{n}</span>
+        <span className="fl-seg">{MODES.map(([v, t]) => <button key={v} className={mode(k) === v ? 'on' : ''} data-mode={v}
+          onClick={() => fx.setShow(k, v)}>{t}</button>)}</span>
+      </div>))}
+    <div className="hint fl-ev-hint">«У выделенной» — линии видны у выделенного блока и у блока под курсором.</div>
+  </>;
 }
 
 // Выбор значений по измерениям и сохранённые профили.

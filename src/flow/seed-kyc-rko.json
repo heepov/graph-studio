@@ -1964,9 +1964,9 @@
     "profile": null,
     "show": {
      "exec": 1,
-     "data": 1,
-     "cond": 1,
-     "verdict": 1
+     "data": 2,
+     "cond": 2,
+     "verdict": 2
     },
     "overlay": ""
    }

@@ -12,6 +12,7 @@ import {SIZE} from '../rules.js';
 export default memo(function StageNode({id, data, selected}) {
   const fx = useContext(FlowCtx);
   const s = data.socks || {};
+  const n = data.count || 0;
   return (
     <div className={cls(data, selected, 'fl-stage')}>
       {selected && !data.ro ? <NodeResizer minWidth={SIZE.STAGE.MINW} minHeight={SIZE.STAGE.MINH}
@@ -22,12 +23,13 @@ export default memo(function StageNode({id, data, selected}) {
         <span className="fl-st-num">{data.code || '·'}</span>
         {data.editing ? <InlineEdit id={id} value={data.title} cls="fl-st-ed"/>
           : <span className="fl-st-name" title={data.title}>{data.title || 'Этап'}</span>}
+        {n ? <span className="fl-st-cnt">{n}</span> : null}
         {(data.badges || []).map((b, i) => <span key={i} className={'fl-bdg ' + (b.c || '')} title={b.title}>{b.t}</span>)}
         {s.out ? <Socket nodeId={id} s={s.out} side="out" color={s.out.color} conn={s.out.conn}/> : null}
       </div>
       <div className="fl-st-sub">
         {s.cond ? <Socket nodeId={id} s={s.cond} side="in" color={s.cond.color} conn={s.cond.conn}/> : null}
-        <span className="fl-st-when">◆ Когда</span>
+        <span className="fl-st-when" title={data.who}>{data.who || 'для всех'}</span>
         <span className="fl-st-point" title={data.body}>{data.body}</span>
       </div>
     </div>

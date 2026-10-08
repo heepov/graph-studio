@@ -49,40 +49,74 @@ body.dark .fl-empty{background:rgba(30,35,46,.86)}
 .fl-empty .txt{font-size:var(--t-meta);color:var(--ink2);line-height:1.6}
 .fl-empty b{color:var(--ink)}
 
+/* пустая схема: модель в одну строку и кнопки — пустой холст не должен
+   оставлять человека с вопросом «а с чего начать» */
+.fl-model{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;margin:4px 0 12px;font-size:var(--t-meta)}
+.fl-model span{padding:2px 8px;border-radius:var(--r-s);font-weight:650;color:var(--kc);
+  background:color-mix(in srgb,var(--kc) 12%,var(--card))}
+.fl-model i{font-style:normal;color:var(--muted)}
+.fl-empty-acts{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;pointer-events:auto}
+
+/* плашка выбранного профиля над схемой */
+.fl-pbanner{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:6;display:flex;align-items:center;gap:12px;
+  max-width:calc(100% - 24px);padding:6px 8px 6px 14px;border-radius:var(--r-l);background:var(--card);border:1px solid var(--accent-br);
+  box-shadow:var(--sh2);font-size:var(--t-meta);color:var(--ink2);white-space:nowrap}
+.fl-pbanner b{color:var(--ink)}
+.fl-pbanner > span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.fl-pbanner .fl-chk{display:flex;align-items:center;gap:5px;color:var(--ink);cursor:pointer}
+
 /* полоса конструктора в панели страницы приложения (#pagebar) */
 #flowBar{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;min-height:28px;flex:1;min-width:0}
 
 /* ============ ноды ============
    Высоты строк, шапки и тела — те же числа, что SIZE в rules.js: по ним сервер
-   оценивает размеры без DOM, и расхождение положило бы ноды друг на друга. */
-.fl-node{background:var(--card);border:1px solid var(--line-str);border-radius:var(--r-m);box-shadow:var(--sh1);
-  font-size:11.5px;line-height:1.3;color:var(--ink);position:relative}
-.react-flow__node.selected .fl-node,.fl-node.fl-sel{box-shadow:0 0 0 2px var(--accent),var(--sh2);border-color:var(--accent)}
-.fl-hd{height:34px;display:flex;align-items:center;gap:6px;padding:0 10px;color:#fff;font-weight:650;font-size:12.5px;
-  border-radius:calc(var(--r-m) - 1px) calc(var(--r-m) - 1px) 0 0;background:#6b7280;overflow:hidden;white-space:nowrap}
-.fl-col .fl-hd{border-radius:calc(var(--r-m) - 1px)}
-.fl-code{font-variant-numeric:tabular-nums;font-weight:800;opacity:.92;flex:0 0 auto}
+   оценивает размеры без DOM, и расхождение положило бы ноды друг на друга.
+   Облик (2.10): светлая карточка с полосой цвета вида слева. Залитые цветом
+   шапки с белым текстом спорили со связями и делали схему пёстрой. */
+.fl-node{background:var(--card);border:1px solid var(--line);border-radius:10px;
+  box-shadow:0 1px 2px rgba(16,24,40,.07),0 1px 1px rgba(16,24,40,.03);
+  font-size:11.5px;line-height:1.3;color:var(--ink);position:relative;transition:box-shadow .12s}
+.fl-node::before{content:'';position:absolute;left:-1px;top:-1px;bottom:-1px;width:4px;border-radius:10px 0 0 10px;
+  background:var(--kc,#9aa1b2);pointer-events:none;z-index:1}
+.react-flow__node:hover .fl-node{box-shadow:0 2px 8px rgba(16,24,40,.10),0 1px 2px rgba(16,24,40,.05)}
+.react-flow__node.selected .fl-node,.fl-node.fl-sel{box-shadow:0 0 0 2px var(--accent),0 6px 16px rgba(16,24,40,.12);border-color:var(--accent)}
+.fl-hd{height:34px;display:flex;align-items:center;gap:7px;padding:0 10px 0 14px;position:relative;
+  color:var(--ink);font-weight:650;font-size:12.5px;white-space:nowrap;overflow:hidden;
+  background:color-mix(in srgb,var(--kc,#9aa1b2) 9%,var(--card));border-bottom:1px solid var(--line2);
+  border-radius:9px 9px 0 0}
+.fl-hd2{height:56px;white-space:normal;overflow:visible}
+.fl-hd2 .fl-ttl{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:16px;overflow:hidden}
+.fl-col .fl-hd{border-radius:9px;border-bottom:none}
+.fl-code{flex:0 0 auto;font-variant-numeric:tabular-nums;font-weight:750;font-size:11px;line-height:18px;
+  padding:0 6px;border-radius:5px;background:var(--kc,#6b7280);color:#fff}
 .fl-ttl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.fl-bdg{flex:0 0 auto;font-size:10px;font-weight:800;line-height:16px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;
-  background:rgba(255,255,255,.22);color:#fff;text-align:center}
-.fl-b-red{background:#e0473a;border:2px solid #fff;width:12px;min-width:12px;height:12px;padding:0;border-radius:50%}
-.fl-b-tbd{background:#fff;color:#3355d1}
-.fl-b-warn{background:#fff5da;color:#8a5d00;font-weight:700}
-.fl-b-bad{background:#fdecea;color:#b3261e;font-weight:700}
+.fl-bdg{flex:0 0 auto;font-size:10px;font-weight:700;line-height:16px;min-width:16px;height:16px;padding:0 5px;border-radius:8px;
+  background:var(--line2);color:var(--ink2);text-align:center}
+.fl-b-red{background:#e0473a;border:2px solid var(--card);width:12px;min-width:12px;height:12px;padding:0;border-radius:50%}
+.fl-b-tbd{background:var(--accent-bg);color:var(--accent-ink)}
+.fl-b-warn{background:#fff3d6;color:#8a5d00}
+.fl-b-bad{background:#fde8e6;color:#b3261e}
+.fl-b-wave{background:var(--line2);color:var(--ink2)}
+.fl-b-bank{color:#fff}
 .fl-bank-accepted{background:#2e9d58}.fl-bank-accepted_comments{background:#8fbf3a}
 .fl-bank-discussion{background:#e08a1e}.fl-bank-rejected{background:#e0473a}
-.fl-rows{padding:0}
-.fl-row{height:22px;position:relative;display:flex;align-items:center;gap:4px;padding:0 12px;white-space:nowrap}
+.fl-rows{padding:2px 0 0}
+.fl-k-check .fl-rows{padding:0}
+.fl-row{height:22px;position:relative;display:flex;align-items:center;gap:4px;padding:0 12px 0 14px;white-space:nowrap}
 .fl-lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--ink2)}
+.fl-who{color:#6b4fd8;font-size:11px}
+body.dark .fl-who{color:#a995ff}
+.fl-miss{color:#b3261e}
+.fl-miss::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:#e0473a;margin-right:5px;vertical-align:1px}
 .fl-rl{text-align:right}
 .fl-sp{flex:1;min-width:6px}
-.fl-ty{font-size:10px;color:var(--muted);margin:0 6px;font-family:ui-monospace,Menlo,monospace}
 .fl-tbd{color:var(--muted);font-style:italic}
-.fl-body{height:44px;padding:4px 10px 0;color:var(--ink2);font-size:11px;line-height:1.35;overflow:hidden;
+.fl-body{height:44px;padding:5px 12px 0 14px;color:var(--muted);font-size:11px;line-height:1.38;overflow:hidden;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;border-top:1px solid var(--line2)}
-.fl-k-outcome .fl-body,.fl-k-calc .fl-body{height:24px;-webkit-line-clamp:1;padding-top:3px}
-.fl-k-gate .fl-body{height:32px;padding-top:2px}
-.fl-k-dim .fl-rows,.fl-k-source .fl-rows,.fl-k-anyof .fl-rows{padding-bottom:12px}
+.fl-k-outcome .fl-body,.fl-k-calc .fl-body{height:24px;-webkit-line-clamp:1;padding-top:4px}
+.fl-k-gate .fl-body{height:32px;padding-top:3px;color:var(--ink2)}
+.fl-k-check .fl-rows{padding-bottom:0}
+.fl-k-dim .fl-rows,.fl-k-source .fl-rows,.fl-k-anyof .fl-rows{padding:0 0 12px}
 .fl-k-calc .fl-rows{padding-bottom:0}
 .fl-k-calc .fl-body{margin-bottom:12px}
 .fl-plus{position:absolute;left:50%;bottom:-9px;transform:translateX(-50%);width:18px;height:18px;border-radius:50%;
@@ -93,39 +127,64 @@ body.dark .fl-empty{background:rgba(30,35,46,.86)}
 .fl-addin{border:none;background:transparent;color:var(--muted);font-size:10.5px;cursor:pointer;padding:0 2px}
 .fl-addin:hover{color:var(--accent)}
 .fl-fold{position:absolute;left:0;right:0;top:17px;height:0}
-.fl-muted{opacity:.55;filter:grayscale(1)}
-.fl-muted .fl-hd{background:#9aa1b2}
+.fl-muted{opacity:.6;filter:grayscale(1)}
+.fl-muted.fl-node{border-style:dashed}
 .fl-off{opacity:.18}
 
+/* Издалека (масштаб < 0.5): мелкие подписи прячутся, коды проверок растут
+   обратно масштабу — схема читается как карта этапов, а не как рябь. */
+.fl-far .fl-row .fl-lbl,.fl-far .fl-body,.fl-far .fl-bdg,.fl-far .fl-ttl,.fl-far .fl-st-sub,
+.fl-far .fl-st-hd .fl-st-name,.fl-far .fl-st-hd .fl-st-num,.fl-far .fl-st-cnt,.fl-far .fl-note-t{visibility:hidden}
+.fl-far .fl-code{font-size:min(calc(11px / var(--fl-z,1)),40px);line-height:1.15;padding:1px 6px}
+.fl-far .fl-hd{overflow:visible}
+.fl-far .react-flow__handle.fl-sock{opacity:0}
+
 /* сокеты: ▶ порядок, ◆ применимость, ● данные, ■ вердикт */
-.fl-root .react-flow__handle.fl-sock{width:10px;height:10px;min-width:0;min-height:0;border:1.5px solid var(--card);
-  background:var(--sc,var(--ink2));border-radius:50%;box-sizing:border-box}
-.fl-root .react-flow__handle.fl-s-exec{width:11px;height:12px;border:none;border-radius:0;background:var(--ink2);
+.fl-root .react-flow__handle.fl-sock{width:9px;height:9px;min-width:0;min-height:0;border:2px solid var(--card);
+  background:var(--sc,var(--ink2));border-radius:50%;box-sizing:content-box;box-shadow:0 0 0 1px rgba(16,24,40,.12);
+  transition:transform .1s;z-index:2}
+.fl-root .react-flow__handle.fl-sock:hover{transform:translate(-50%,-50%) scale(1.35)}
+.fl-root .react-flow__handle-right.fl-sock:hover{transform:translate(50%,-50%) scale(1.35)}
+.fl-root .react-flow__handle.fl-s-exec{width:10px;height:11px;border:none;border-radius:0;background:var(--ink2);box-shadow:none;
   clip-path:polygon(0 0,100% 50%,0 100%)}
-.fl-root .react-flow__handle.fl-s-cond{width:10px;height:10px;border-radius:1px;background:var(--sc,#7c5cff);
+.fl-root .react-flow__handle.fl-s-cond{width:8px;height:8px;border-radius:1px;background:var(--sc,#7c5cff);
   transform:translate(-50%,-50%) rotate(45deg)}
+.fl-root .react-flow__handle.fl-s-cond:hover{transform:translate(-50%,-50%) rotate(45deg) scale(1.35)}
 .fl-root .react-flow__handle-right.fl-s-cond{transform:translate(50%,-50%) rotate(45deg)}
 .fl-root .react-flow__handle.fl-s-verdict,.fl-root .react-flow__handle.fl-s-vin{border-radius:2px}
-.fl-root .react-flow__handle.fl-s-vin{background:var(--card);border:2px solid #8a94a6}
+.fl-root .react-flow__handle.fl-s-vin{background:var(--card);border:2px solid #8a94a6;box-shadow:none}
 .fl-root .react-flow__handle.fl-s-any{background:#c4c9d4}
-.fl-root .react-flow__handle.fl-sock:not(.fl-on){opacity:.85}
+.fl-root .react-flow__handle.fl-sock:not(.fl-on){opacity:.8}
 .fl-root .react-flow__handle.fl-sock.connectingto.valid{box-shadow:0 0 0 3px rgba(46,157,88,.45)}
 .fl-root .react-flow__handle.fl-sock.connectingto:not(.valid){box-shadow:0 0 0 3px rgba(224,71,58,.45)}
 .fl-root.fl-badconn,.fl-root.fl-badconn *{cursor:not-allowed!important}
 .fl-ctip{position:fixed;display:none;z-index:200;pointer-events:none;max-width:320px;padding:4px 8px;border-radius:var(--r-s);
   background:#b3261e;color:#fff;font-size:12px;font-weight:600;box-shadow:var(--shf)}
 
-/* этап — рамка; заливка 6 % цвета проверок */
-.fl-stage{width:100%;height:100%;background:rgba(51,85,209,.06);border:1.5px dashed rgba(51,85,209,.38);
-  border-radius:var(--r-l);box-shadow:none;position:relative}
-.react-flow__node.selected .fl-stage{border-style:solid;border-color:var(--accent);box-shadow:none}
-.fl-st-hd{height:30px;display:flex;align-items:center;gap:8px;padding:0 12px;position:relative;color:#3355d1;font-weight:750;font-size:13px}
+/* этап — рамка; заливка 4 % цвета проверок */
+.fl-stage{width:100%;height:100%;background:rgba(51,85,209,.04);border:1.5px solid rgba(51,85,209,.22);
+  border-radius:14px;box-shadow:none;position:relative}
+.fl-stage::before{display:none}
+.react-flow__node.selected .fl-stage{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.fl-st-hd{height:30px;display:flex;align-items:center;gap:8px;padding:0 12px;position:relative;color:#2c45b0;font-weight:750;font-size:13px}
 body.dark .fl-st-hd{color:#8da2ff}
-.fl-st-num{font-variant-numeric:tabular-nums;background:#3355d1;color:#fff;border-radius:6px;padding:0 6px;font-size:12px;line-height:18px}
+.fl-st-num{font-variant-numeric:tabular-nums;background:#3355d1;color:#fff;border-radius:6px;padding:0 7px;font-size:12px;line-height:19px}
 .fl-st-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-st-cnt{flex:0 0 auto;font-size:11px;font-weight:650;color:#5b6cb8;background:rgba(51,85,209,.10);border-radius:9px;padding:0 7px;line-height:18px}
 .fl-st-sub{height:22px;display:flex;align-items:center;gap:8px;padding:0 12px;position:relative;font-size:11px;color:var(--muted)}
-.fl-st-when{flex:0 0 auto;color:#7c5cff}
+.fl-st-when{flex:0 0 auto;color:#6b4fd8;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.dark .fl-st-when{color:#a995ff}
 .fl-st-point{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-farlbl{position:absolute;left:0;top:0;z-index:1000;pointer-events:none;box-sizing:border-box;display:flex;flex-direction:column;gap:.15em;
+  padding:.35em .5em .45em;border-radius:calc(12px / var(--fl-z,1));font-size:calc(13px / var(--fl-z,1));line-height:1.12;
+  color:#2c45b0;background:color-mix(in srgb,var(--card) 90%,transparent);border:calc(1.5px / var(--fl-z,1)) solid rgba(51,85,209,.35);
+  box-shadow:0 calc(2px / var(--fl-z,1)) calc(10px / var(--fl-z,1)) rgba(16,24,40,.12)}
+.fl-farlbl b{font-weight:800;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;hyphens:auto}
+.fl-farlbl span{font-size:.72em;color:#5b6cb8;font-weight:650}
+body.dark .fl-farlbl{color:#8da2ff}
+.fl-exporting .fl-farlbl{display:none}
+.fl-far .fl-hd{border-bottom-color:transparent}
+.fl-far .fl-body{border-top-color:transparent}
 .fl-rsz{border-color:var(--accent)!important}
 .fl-rszh{background:var(--card)!important;border:1.5px solid var(--accent)!important;width:9px!important;height:9px!important;border-radius:2px!important}
 
@@ -282,9 +341,21 @@ table.fl-lt tr.fl-filt input{width:100%;font-size:11.5px;text-transform:none;fon
 }
 
 /* ============ профиль, оверлеи, видимость связей ============ */
+.fl-num-bad,.fl-num-bad b{color:var(--red,#b3261e)}
+.fl-pop-edges{left:auto;right:300px;width:440px}
+.fl-ev{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--line2)}
+.fl-ev:last-of-type{border-bottom:none}
+.fl-ev-n{flex:1;min-width:0;display:flex;align-items:center;gap:8px;font-size:var(--t-meta);color:var(--ink)}
+.fl-evg{font-style:normal;width:18px;text-align:center;font-size:12px;color:var(--ink2)}
+.fl-evg-cond{color:#7c5cff}.fl-evg-data{color:#4fa3e0}.fl-evg-verdict{color:#c26a00}
+.fl-seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r-s);overflow:hidden;flex:0 0 auto}
+.fl-seg button{border:none;background:var(--card);color:var(--ink2);font-size:var(--t-meta);padding:3px 9px;cursor:pointer}
+.fl-seg button + button{border-left:1px solid var(--line)}
+.fl-seg button.on{background:var(--accent-bg);color:var(--accent-ink);font-weight:650}
+.fl-ev-hint{margin-top:8px}
 .fl-bar{flex-wrap:wrap;row-gap:2px}
 .fl-pf{display:flex;align-items:center;gap:5px;font-size:var(--t-meta);color:var(--muted);white-space:nowrap}
-.fl-pf select{width:auto;min-width:120px;max-width:200px;height:var(--h-ctl-sm);padding:0 6px;font-size:var(--t-meta)}
+.fl-pf select{width:auto;min-width:0;max-width:150px;height:var(--h-ctl-sm);padding:0 6px;font-size:var(--t-meta)}
 .fl-stats{display:flex;align-items:center;gap:2px;flex-wrap:wrap}
 .fl-num{border:none;background:transparent;color:var(--ink2);font-size:var(--t-meta);padding:2px 4px;border-radius:var(--r-xs);cursor:pointer;white-space:nowrap}
 .fl-num b{color:var(--ink);font-variant-numeric:tabular-nums}

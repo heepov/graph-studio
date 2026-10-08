@@ -13,7 +13,7 @@ export default function AddMenu({x, y, title, items, onClose}) {
   const shown = useMemo(() => {
     const words = norm(q).split(/\s+/).filter(Boolean);
     return items.filter(it => {
-      const hay = norm(it.label + ' ' + (it.hint || '') + ' ' + (it.group || ''));
+      const hay = norm(it.label + ' ' + (it.hint || '') + ' ' + (it.group || '') + ' ' + (it.keys || ''));
       return words.every(w => hay.includes(w));
     }).slice(0, 80);
   }, [q, items]);

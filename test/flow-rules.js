@@ -31,8 +31,8 @@ const ROOT = path.join(__dirname, '..');
   /* ---------- умолчания и нормализация ---------- */
   const f0 = M.normalizeFlow(undefined);
   check(Array.isArray(f0.nodes) && Array.isArray(f0.edges) && Array.isArray(f0.profiles) && f0.profile === null
-    && f0.show.exec === 1 && f0.show.data === 1 && f0.show.cond === 1 && f0.show.verdict === 1 && f0.overlay === '',
-    'пустой конвейер получает все умолчания');
+    && f0.show.exec === 1 && f0.show.data === 2 && f0.show.cond === 2 && f0.show.verdict === 2 && f0.overlay === '',
+    'пустой конвейер получает все умолчания: порядок виден, остальные связи — у выделенного блока');
   const l0 = M.normalizeLib(null);
   check(l0.v === 1 && l0.dims.length === 0 && l0.verdicts.length === 9, 'пустая библиотека: v1 и девять вердиктов');
   // Умолчания независимы: правка одной библиотеки не должна задеть другую.

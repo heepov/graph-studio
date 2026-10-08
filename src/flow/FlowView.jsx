@@ -14,7 +14,7 @@
 import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {createPortal} from 'react-dom';
 import {ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, useReactFlow, useUpdateNodeInternals,
-  applyNodeChanges, applyEdgeChanges} from '@xyflow/react';
+  applyNodeChanges, applyEdgeChanges, useStore, ViewportPortal} from '@xyflow/react';
 import * as R from './rules.js';
 import * as M from './model.js';
 import {FlowCtx, nav} from './ctx.js';
@@ -69,8 +69,11 @@ function download(name, blob) {
 const fileSafe = s => String(s || '').replace(/[/\\:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
 const dateStr = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
 
+// Ключ сменён в 2.10: в 2.9 умолчание было «обе панели открыты», и запомненное
+// тогда состояние держало бы старую тесноту у тех, кто однажды щёлкнул панелью.
+const PANELS_KEY = 'gs_flow_panels2';
 function savePanels(v) {
-  try { localStorage.setItem('gs_flow_panels', JSON.stringify(v)); } catch (e) { /* не запомнится — не беда */ }
+  try { localStorage.setItem(PANELS_KEY, JSON.stringify({lib: !!v.lib, insp: !!v.insp})); } catch (e) { /* не запомнится — не беда */ }
   return v;
 }
 
@@ -91,8 +94,8 @@ export function nodeLabel(lib, n) {
   if (n.k === 'check') return it ? `${it.code} ${it.name}` : n.ref;
   if (it) return it.name;
   if (n.k === 'stage') return `Этап ${d.num || ''} ${d.name || ''}`.trim();
-  if (n.k === 'gate') return 'Гейт: ' + (d.text || '');
-  if (n.k === 'anyof') return d.label || 'Один из';
+  if (n.k === 'gate') return 'Условие: ' + (d.text || '');
+  if (n.k === 'anyof') return d.label || 'Резерв источников';
   if (n.k === 'calc') return d.name || 'Показатель';
   return R.KIND_NAMES[n.k] || n.k;
 }
@@ -114,11 +117,13 @@ function overlayOf(kind, n, c) {
   return null;
 }
 
+const whoText = R.whoText;
+
 function nodeData(n, c, conn, opt) {
   const {flow, lib} = c;
   const it = R.itemOf(lib, n), d = n.data || {};
   const dec = s => s && Object.assign({}, s, {color: sockColor(s, lib), conn: conn.has(n.id + '\u0000' + s.id)});
-  const base = {k: n.k, ro: !!opt.ro, muted: !!n.muted, collapsed: !!n.collapsed};
+  const base = {k: n.k, ro: !!opt.ro, muted: !!n.muted, collapsed: !!n.collapsed, kname: R.KIND_NAMES[n.k] || n.k};
   // Профиль гасит неприменимое: нода видна и выделяется, но приглушена.
   if (opt.act && !opt.act.nodes.has(n.id)) base.off = true;
   if (opt.overlay) {
@@ -131,6 +136,7 @@ function nodeData(n, c, conn, opt) {
     const s = R.socketsOf(flow, lib, n);
     const f = n.fit ? R.fitStage(flow, lib, n, opt.sizeOf) : null;
     return Object.assign(base, {code: d.num || '', title: d.name || '', body: d.point || '',
+      who: whoText(flow, lib, n.id), count: flow.nodes.filter(x => x.parent === n.id && x.k === 'check').length,
       w: f ? f.w : (+n.w || R.SIZE.W.stage), h: f ? f.h : (+n.h || 200), fit: !!n.fit,
       socks: {in: dec(s.ins[0]), cond: dec(s.ins[1]), out: dec(s.outs[0])}});
   }
@@ -140,6 +146,12 @@ function nodeData(n, c, conn, opt) {
     return Object.assign(base, {color: sockColor(s.outs[0], lib) || '#8a94a6', socks: {in: dec(s.ins[0]), out: dec(s.outs[0])}});
   }
   const rows = R.nodeRows(flow, lib, n).map(r => ({l: dec(r.l), r: r.r && r.r.kind === 'tbd' ? r.r : dec(r.r), add: !!r.add}));
+  // Сокет «Когда» подписан тем, для кого блок; вход проверки без источника — красной точкой.
+  const unwired = n.k === 'check' ? new Set(R.checkHoles(flow, lib, n).unwired.map(id => 'in:' + id)) : null;
+  for (const r of rows) {
+    if (r.l && r.l.kind === 'cond') r.l.text = whoText(flow, lib, n.id);
+    if (r.l && unwired && unwired.has(r.l.id)) { r.l.miss = true; r.l.tip = (r.l.name || '') + ' — источник не подключён'; }
+  }
   const out = Object.assign(base, {rows, w: R.SIZE.W[n.k] || 220, color: R.KIND_COLORS[n.k] || '#6b7280', badges: []});
   const lost = R.LIB_KINDS[n.k] && !it;
   if (lost) return Object.assign(out, {title: 'Нет в библиотеке: ' + n.ref, color: '#9aa1b2', body: null});
@@ -166,9 +178,9 @@ function nodeData(n, c, conn, opt) {
     case 'outcome':
       return Object.assign(out, {title: it.name, color: R.verdictOf(lib, it.verdict).color, body: it.desc || ''});
     case 'gate':
-      return Object.assign(out, {title: 'Гейт', body: d.text || ''});
+      return Object.assign(out, {title: 'Условие перехода', body: d.text || ''});
     case 'anyof':
-      return Object.assign(out, {title: d.label || 'Один из (по порядку)', body: null});
+      return Object.assign(out, {title: d.label || 'Резерв источников', body: null});
     case 'calc':
       return Object.assign(out, {title: d.name || 'Показатель', body: d.formula || ''});
     default:
@@ -198,7 +210,7 @@ function deriveNodes(c, prev, opt) {
   const order = flow.nodes.filter(n => n.k === 'stage').concat(flow.nodes.filter(n => n.k !== 'stage'));
   return order.map(n => {
     const data = nodeData(n, c, conn, opt);
-    const sig = JSON.stringify(data);
+    const sig = JSON.stringify(data) + (opt.hideOff && data.off ? 'h' : '');
     const p = prevById.get(n.id);
     const parentId = n.parent && known.has(n.parent) && n.parent !== n.id ? n.parent : undefined;
     const position = {x: +n.x || 0, y: +n.y || 0};
@@ -213,7 +225,7 @@ function deriveNodes(c, prev, opt) {
     // связь, у которой конец сидит в рамке, до z этого конца; без общего z=2 такие
     // связи ложились бы поверх гейтов, источников и исходов верхнего уровня.
     const o = {id: n.id, type: n.k, position, data, __sig: sig, __lay: lay, parentId, selected,
-      zIndex: n.k === 'stage' ? -1 : 2,
+      zIndex: n.k === 'stage' ? -1 : 2, hidden: !!(opt.hideOff && data.off),
       draggable: !opt.ro, connectable: !opt.ro && n.k !== 'note', deletable: false};
     if (p && p.measured) o.measured = p.measured;
     if (n.k === 'stage' || n.k === 'note') { o.style = {width: data.w, height: data.h}; o.width = data.w; o.height = data.h; }
@@ -230,9 +242,15 @@ function deriveEdges(c, prev, opt) {
   for (const e of flow.edges) {
     if (!known.has(e.s) || !known.has(e.t)) continue;
     const kind = R.edgeKind(flow, lib, e);
-    const mode = show[kind] == null ? 1 : +show[kind];
-    const hidden = mode === 0 || (mode === 2 && !opt.sel.has(e.s) && !opt.sel.has(e.t));
+    // Картинка схемы — документ, а не снимок экрана: связи «у выделенной» в неё
+    // попадают все. Явно скрытые (0) остаются скрытыми.
+    const m0 = show[kind] == null ? 1 : +show[kind], mode = m0 === 2 && opt.exporting ? 1 : m0;
     const hv = opt.hover;
+    // «У выделенной» — это и выделенная нода, и нода под курсором: навёл на
+    // проверку — увидел, откуда в неё данные и куда ведут вердикты.
+    const near = id => opt.sel.has(id) || id === hv;
+    const gone = opt.hideOff && opt.act && (!opt.act.nodes.has(e.s) || !opt.act.nodes.has(e.t));
+    const hidden = gone || mode === 0 || (mode === 2 && !near(e.s) && !near(e.t));
     const data = {kind, color: R.edgeColor(flow, lib, e), neg: !!e.neg, off: !!(opt.act && !opt.act.edges.has(e.id)),
       hl: !!hv && (e.s === hv || e.t === hv), dim: !!hv && e.s !== hv && e.t !== hv};
     const sig = JSON.stringify(data) + (hidden ? 'h' : '');
@@ -245,6 +263,51 @@ function deriveEdges(c, prev, opt) {
 }
 
 /* ---------- компонент ---------- */
+
+// Масштаб — в CSS-переменную --fl-z и класс fl-far корня, без перерисовки нод:
+// издалека мелкие подписи прячутся, а коды проверок и подписи этапов растут
+// обратно масштабу и остаются читаемыми.
+const FAR_K = 0.5;
+function ZoomVar({rootRef}) {
+  const z = useStore(st => st.transform[2]);
+  useLayoutEffect(() => {
+    const el = rootRef.current; if (!el) return;
+    el.style.setProperty('--fl-z', String(z));
+    el.classList.toggle('fl-far', z < FAR_K);
+  }, [z, rootRef]);
+  return null;
+}
+
+// Издалека этапы подписаны крупно — отдельным слоем поверх нод (ViewportPortal),
+// иначе проверки внутри рамки закрывали бы подпись. Размер шрифта растёт
+// обратно масштабу (--fl-z), поэтому на экране он остаётся читаемым.
+const STAGE_WORD = n => (n % 10 === 1 && n % 100 !== 11 ? 'проверка' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'проверки' : 'проверок');
+function FarLabels({nodes}) {
+  const far = useStore(st => st.transform[2] < FAR_K);
+  if (!far) return null;
+  const st = nodes.filter(n => n.type === 'stage' && !n.hidden);
+  // Подпись может занять место до соседнего этапа справа (там обычно гейт, издалека
+  // он всё равно не читается), но не больше двух ширин рамки: рвать слова пополам
+  // в узкой рамке хуже, чем закрыть кусок пустого холста.
+  const widthOf = n => {
+    const w = n.data.w || 360, x = n.position.x, y0 = n.position.y, y1 = y0 + (n.data.h || 200);
+    let next = Infinity;
+    for (const m of st) {
+      if (m === n || m.position.x <= x) continue;
+      if (m.position.y < y1 && m.position.y + (m.data.h || 200) > y0) next = Math.min(next, m.position.x);
+    }
+    return Math.max(w, Math.min(w * 2, next - x - 24));
+  };
+  return (
+    <ViewportPortal>
+      {st.map(n => (
+        <div key={n.id} className="fl-farlbl" lang="ru" style={{transform: `translate(${n.position.x}px, ${n.position.y}px)`, width: widthOf(n)}}>
+          <b>{n.data.code ? n.data.code + '. ' : ''}{n.data.title || 'Этап'}</b>
+          <span>{n.data.count || 0} {STAGE_WORD(n.data.count || 0)}</span>
+        </div>))}
+    </ViewportPortal>
+  );
+}
 
 export default function FlowApp(props) {
   return <ReactFlowProvider><FlowView {...props}/></ReactFlowProvider>;
@@ -267,13 +330,19 @@ function FlowView({ctx, pageId, rev, api}) {
   const [menu, setMenu] = useState(null);
   const [hover, setHover] = useState(null);
   // Панели (библиотека, инспектор) — личная настройка, как ширина инспектора.
+  // По умолчанию обе свёрнуты: схеме нужна ширина, а инспектор открывается сам,
+  // когда что-то выделено (autoInsp), и сам закрывается, когда выделение снято.
   const [panels, setPanels] = useState(() => {
-    try { const v = JSON.parse(localStorage.getItem('gs_flow_panels') || 'null'); if (v) return v; } catch (e) { /* нет — умолчание */ }
-    // Граница — та же, что у @media (max-width:900px) в flow.css: там панели
-    // ложатся поверх холста, и открытые по умолчанию закрыли бы его целиком.
-    const narrow = typeof innerWidth === 'number' && innerWidth <= 900;
-    return {lib: !narrow, insp: !narrow};
+    try { const v = JSON.parse(localStorage.getItem(PANELS_KEY) || 'null'); if (v) return v; } catch (e) { /* нет — умолчание */ }
+    return {lib: false, insp: false};
   });
+  // Инспектор открыт автоматически (не человеком) — тогда его и закрывать автоматически.
+  const autoInsp = useRef(false);
+  const openInspAuto = useCallback(() => {
+    setPanels(p => { if (p.insp) return p; autoInsp.current = true; return Object.assign({}, p, {insp: true}); });
+  }, []);
+  // Скрыть погашенное профилем — личная настройка вида, как панели.
+  const [hideOff, setHideOff] = useState(() => { try { return localStorage.getItem('gs_flow_hideoff') === '1'; } catch (e) { return false; } });
   const [libSel, setLibSel] = useState(null);       // блок, выбранный в библиотеке: {sec, id}
   // Запрос «фокус в поле названия» — одноразовый: поле забирает его и гасит.
   // Висящий запрос уводил бы фокус в инспектор при каждой смене выделения.
@@ -332,6 +401,8 @@ function FlowView({ctx, pageId, rev, api}) {
   const overlay = (viewOv && viewOv.overlay != null) ? viewOv.overlay : (flowNow.overlay || '');
   const show = Object.assign({}, flowNow.show || {}, (viewOv && viewOv.show) || {});
   const selJson = JSON.stringify(sel), showJson = JSON.stringify(show);
+  const profOn = Object.values(sel || {}).some(v => (v || []).length);
+  const hideNow = hideOff && profOn;
   const act = useMemo(() => (c0.flow ? R.activity(c0.flow, c0.lib, sel) : null), [rev, tick, selJson]);   // eslint-disable-line react-hooks/exhaustive-deps
   const stats = useMemo(() => (c0.flow ? R.profileStats(c0.flow, c0.lib, sel, act) : null), [act]);   // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -343,8 +414,8 @@ function FlowView({ctx, pageId, rev, api}) {
   useLayoutEffect(() => {
     const c = cur(); if (!c.flow) return;
     const want = pick.current; pick.current = null;
-    setNodes(prev => deriveNodes(c, prev, {ro, sizeOf, pick: want, editing, relayout: relayout.current, act, overlay}));
-  }, [rev, tick, ro, fitTick, cur, sizeOf, editing, act, overlay]);
+    setNodes(prev => deriveNodes(c, prev, {ro, sizeOf, pick: want, editing, relayout: relayout.current, act, overlay, hideOff: hideNow}));
+  }, [rev, tick, ro, fitTick, cur, sizeOf, editing, act, overlay, hideNow]);
   // Перемерить ручки нод, у которых поменялась раскладка сокетов, — после того,
   // как React отрисовал новую разметку (см. socketLayout).
   const updateInternals = useUpdateNodeInternals();
@@ -356,8 +427,33 @@ function FlowView({ctx, pageId, rev, api}) {
   });
   useLayoutEffect(() => {
     const c = cur(); if (!c.flow) return;
-    setEdges(prev => deriveEdges(c, prev, {sel: new Set(selKey ? selKey.split('\u0001') : []), hover, act, show}));
-  }, [rev, tick, selKey, hover, cur, act, showJson]);   // eslint-disable-line react-hooks/exhaustive-deps
+    setEdges(prev => deriveEdges(c, prev, {sel: new Set(selKey ? selKey.split('\u0001') : []), hover, act, show, hideOff: hideNow, exporting}));
+  }, [rev, tick, selKey, hover, cur, act, showJson, hideNow, exporting]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selEdgeKey = edges.filter(e => e.selected).map(e => e.id).join('\u0001');
+  useEffect(() => {
+    const has = !!(selKey || selEdgeKey || libSel);
+    if (has) openInspAuto();
+    else if (autoInsp.current) { autoInsp.current = false; setPanels(p => (p.insp ? Object.assign({}, p, {insp: false}) : p)); }
+  }, [selKey, selEdgeKey, libSel, openInspAuto]);
+  // Открылся инспектор — холст стал уже. Выделенная нода у правого края оказалась
+  // бы за панелью: подвигаем камеру, чтобы её было видно целиком.
+  useEffect(() => {
+    if (!panels.insp || !selKey) return undefined;
+    const id = selKey.split('\u0001')[0];
+    const t = setTimeout(() => {
+      const pane = paneRef.current, el = pane && pane.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"]`);
+      if (!el) return;
+      const p = pane.getBoundingClientRect(), r = el.getBoundingClientRect(), m = 24;
+      let dx = 0;
+      if (r.right > p.right - m) dx = p.right - m - r.right;
+      if (r.left + dx < p.left + m) dx = p.left + m - r.left;
+      if (Math.abs(dx) < 2) return;
+      const vp = rf.getViewport();
+      rf.setViewport({x: vp.x + dx, y: vp.y, zoom: vp.zoom}, {duration: 180});
+    }, 40);
+    return () => clearTimeout(t);
+  }, [panels.insp, selKey]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const onNodesChange = useCallback(ch => {
     // Нода получила размеры — рамкам с fit:1 пора подогнаться. Во время ресайза
@@ -567,7 +663,7 @@ function FlowView({ctx, pageId, rev, api}) {
     const dt = ft && ft.kind === 'data' && ft.type !== 'any' ? ft.type : null;
     if (k === 'stage') Object.assign(n, {w: 360, h: 200, fit: 1, data: {num: '', name: 'Новый этап', point: ''}});
     if (k === 'gate') n.data = {text: 'Условие перехода'};
-    if (k === 'anyof') n.data = {type: dt || 'any', label: 'Один из (по порядку)', n: 2};
+    if (k === 'anyof') n.data = {type: dt || 'any', label: 'Резерв источников', n: 2};
     if (k === 'calc') n.data = {name: 'Показатель', formula: '', inputs: [{id: 'a', name: 'Вход', type: dt || 'number'}], type: dt || 'number'};
     if (k === 'note') Object.assign(n, {w: 240, h: 120, data: {text: ''}});
     return n;
@@ -631,7 +727,7 @@ function FlowView({ctx, pageId, rev, api}) {
       selectOnly([made]);
       // Новый блок — сразу в инспектор с фокусом в названии: двух кликов
       // достаточно, чтобы завести проверку и начать её описывать.
-      if (spec.create) { setLibSel(null); setPanels(p => (p.insp ? p : savePanels(Object.assign({}, p, {insp: true})))); setFocusReq(Date.now()); }
+      if (spec.create) { setLibSel(null); openInspAuto(); setFocusReq(Date.now()); }
     }
     return made;
   }, [ctx, cur, edit, rf, sizeOf, doConnect, selectOnly]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -641,12 +737,14 @@ function FlowView({ctx, pageId, rev, api}) {
     const c = cur(), {flow, lib} = c;
     const onPage = new Set(flow.nodes.filter(n => n.k === 'check').map(n => n.ref));
     const items = [];
-    const put = (group, label, hint, color, k, ref, existing) => items.push({key: group + '|' + (ref || k) + '|' + items.length,
-      group, label, hint, color, k, ref, existing});
-    for (const [k, label, hint] of [['stage', 'Этап', 'рамка: проверки внутри идут параллельно'], ['gate', 'Гейт', 'условие перехода между этапами'],
-      ['anyof', 'Один из', 'резерв источников по приоритету'], ['calc', 'Показатель', 'вычисляемая величина'],
-      ['note', 'Заметка', ''], ['reroute', 'Точка перегиба', 'чтобы развести связи']]) {
-      put('Ноды', label, hint, R.KIND_COLORS[k] || '#9aa1b2', k);
+    const put = (group, label, hint, color, k, ref, existing, keys) => items.push({key: group + '|' + (ref || k) + '|' + items.length,
+      group, label, hint, color, k, ref, existing, keys});
+    // keys — прежние названия видов: кто привык искать «гейт», найдёт и сейчас.
+    for (const [k, label, hint, keys] of [['stage', 'Этап', 'рамка: проверки внутри идут параллельно', 'рамка'],
+      ['gate', 'Условие перехода', 'между этапами: да / нет', 'гейт'],
+      ['anyof', 'Резерв источников', 'один из нескольких — по приоритету', 'один из'], ['calc', 'Показатель', 'вычисляемая величина', 'формула'],
+      ['note', 'Заметка', '', 'текст'], ['reroute', 'Точка перегиба', 'чтобы развести связи', 'reroute']]) {
+      put('Ноды', label, hint, R.KIND_COLORS[k] || '#9aa1b2', k, null, false, keys);
     }
     for (const d of lib.dims) put('Измерения', d.name, d.code ? 'ось ' + d.code : '', R.KIND_COLORS.dim, 'dim', d.id);
     for (const s of lib.sources) put('Источники', s.name, R.nameOf(R.SOURCE_STATUSES, s.status || 'unknown'), R.KIND_COLORS.source, 'source', s.id);
@@ -1016,11 +1114,6 @@ function FlowView({ctx, pageId, rev, api}) {
       if (ctx.ro()) { setViewOv(o => Object.assign({}, o, {overlay: v})); return; }
       cur().flow.overlay = v; ctx.save(); bump();
     },
-    cycleShow(k) {
-      const now = show[k] == null ? 1 : +show[k], next = now === 1 ? 2 : now === 2 ? 0 : 1;
-      if (ctx.ro()) { setViewOv(o => Object.assign({}, o, {show: Object.assign({}, (o || {}).show, {[k]: next})})); return; }
-      const f = cur().flow; f.show = Object.assign({}, f.show, {[k]: next}); ctx.save(); bump();
-    },
     async layout() {
       if (ctx.ro()) return;
       try {
@@ -1075,9 +1168,22 @@ function FlowView({ctx, pageId, rev, api}) {
       const n = c.flow.nodes.find(x => x.k === k && x.ref === id);
       if (n && !focus) { setLibSel(null); selectOnly([n.id]); }
       else { setLibSel({sec, id}); selectOnly([]); }
-      if (focus) { setPanels(p => (p.insp ? p : savePanels(Object.assign({}, p, {insp: true})))); setFocusReq(Date.now()); }
+      if (focus) { openInspAuto(); setFocusReq(Date.now()); }
     },
-    panel(which, open) { setPanels(p => savePanels(Object.assign({}, p, {[which]: open}))); },
+    // Человек сам открыл или закрыл панель — это его выбор, он запоминается,
+    // и автоматика инспектора больше его не трогает.
+    panel(which, open) { if (which === 'insp') autoInsp.current = false; setPanels(p => savePanels(Object.assign({}, p, {[which]: open}))); },
+    hideOff(v) { try { localStorage.setItem('gs_flow_hideoff', v ? '1' : '0'); } catch (e) { /* не запомнится */ } setHideOff(!!v); },
+    // Создать блок с нуля посреди видимой части схемы — кнопки пустой страницы.
+    createAt(k) {
+      const sec = {check: 'checks', source: 'sources', dim: 'dims', outcome: 'outcomes'}[k];
+      const r = paneRef.current.getBoundingClientRect();
+      return placeNode({k, create: {sec}}, {x: r.left + r.width / 2, y: r.top + r.height * 0.42});
+    },
+    setShow(k, v) {
+      if (ctx.ro()) { setViewOv(o => Object.assign({}, o, {show: Object.assign({}, (o || {}).show, {[k]: v})})); return; }
+      const f = cur().flow; f.show = Object.assign({}, f.show, {[k]: v}); ctx.save(); bump();
+    },
     // Ширина инспектора — та же настройка человека, что у инспектора приложения.
     inspGrip(e) {
       e.preventDefault();
@@ -1158,6 +1264,10 @@ function FlowView({ctx, pageId, rev, api}) {
         insp: (() => { const el = rootRef.current && rootRef.current.querySelector('.fl-insp'); return el ? el.getAttribute('data-insp') || 'empty' : null; })()};
     };
     api.pickLib = (sec, id) => { fx.pickLib(sec, id); return true; };
+    // «Поиск» в шапке приложения на конструкторе открывает поиск по схеме.
+    api.find = () => { if (fx.openPop) fx.openPop('find'); return true; };
+    api.panel = (which, open) => { fx.panel(which, open); return true; };
+    api.createAt = k => fx.createAt(k);
     api.goNode = (pageId, nodeId) => fx.goNode(pageId, nodeId);
     // Выгрузки (ТЗ §10): все строятся из контракта kycflow/1. «Только для профиля» —
     // применимые к активному профилю проверки; профиль с несохранёнными галочками
@@ -1193,6 +1303,10 @@ function FlowView({ctx, pageId, rev, api}) {
     api.exportImage = async fmt => {
       const c = cur(); if (!c.flow.nodes.length) { ctx.toast('Схема пустая — выгружать нечего'); return false; }
       setExporting(true);
+      // На время снимка — полная детализация: «вид издалека» зависит от масштаба
+      // экрана, а картинка рисуется в масштабе 1.
+      const root = rootRef.current;
+      root.classList.remove('fl-far'); root.classList.add('fl-exporting'); root.style.setProperty('--fl-z', '1');
       try {
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
         const b = rf.getNodesBounds(rf.getNodes()), pad = 40;
@@ -1210,7 +1324,11 @@ function FlowView({ctx, pageId, rev, api}) {
       } catch (e) {
         ctx.toast('Картинка не собралась: ' + (e.message || e));
         return false;
-      } finally { setExporting(false); }
+      } finally {
+        setExporting(false);
+        const z = rf.getViewport().zoom;
+        root.classList.remove('fl-exporting'); root.classList.toggle('fl-far', z < FAR_K); root.style.setProperty('--fl-z', String(z));
+      }
     };
     // Сводка активного профиля — те же числа, что в полосе (FLOW.active()).
     api.active = () => ({profile: prof, sel, checks: stats.checks, sources: stats.sources, outcomes: stats.outcomes,
@@ -1314,6 +1432,8 @@ function FlowView({ctx, pageId, rev, api}) {
             onlyRenderVisibleElements={!exporting}
             attributionPosition="top-right"
           >
+            <ZoomVar rootRef={rootRef}/>
+            <FarLabels nodes={nodes}/>
             <Background gap={22} size={1.2}/>
             <Controls showInteractive={false} position="bottom-left"/>
             <MiniMap pannable zoomable position="bottom-right" className="fl-mini"
@@ -1323,11 +1443,28 @@ function FlowView({ctx, pageId, rev, api}) {
           {empty && (
             <div className="fl-empty">
               <div className="ttl">Схема пока пустая</div>
-              <div className="txt">{ro
-                ? 'Автор ещё ничего сюда не поставил.'
-                : <><b>Shift+A</b> — добавить блок, библиотека слева.<br/>Колесо — панорама, <b>Ctrl</b> + колесо — масштаб.</>}</div>
+              <div className="fl-model">
+                <span style={{'--kc': R.KIND_COLORS.dim}}>Для кого</span><i>→</i>
+                <span style={{'--kc': R.KIND_COLORS.source}}>Источники</span><i>→</i>
+                <span style={{'--kc': R.KIND_COLORS.check}}>Проверки</span><i>→</i>
+                <span style={{'--kc': R.verdictOf(null, 'manual').color}}>Исходы</span>
+              </div>
+              {ro ? <div className="txt">Автор ещё ничего сюда не поставил.</div> : <>
+                <div className="fl-empty-acts">
+                  <button className="btn pri sm" data-a="new-check" onClick={() => fx.createAt('check')}>+ Проверка</button>
+                  <button className="btn sm" data-a="new-source" onClick={() => fx.createAt('source')}>+ Источник</button>
+                  <button className="btn sm" data-a="new-dim" onClick={() => fx.createAt('dim')}>+ Измерение клиента</button>
+                </div>
+                <div className="txt">или <b>Shift+A</b> — все виды блоков и готовые блоки из библиотеки</div>
+              </>}
             </div>
           )}
+          {profOn && stats ? <div className="fl-pbanner" data-banner="profile">
+            <span>Профиль <b>«{profObj && !prof.sel ? profObj.name : profObj ? profObj.name + ' *' : 'свой выбор'}»</b>: участвуют <b>{stats.checks.on}</b> из {stats.checks.all} проверок
+              {stats.checks.all > stats.checks.on ? <>, погашено {stats.checks.all - stats.checks.on}</> : null}</span>
+            <label className="fl-chk"><input type="checkbox" checked={hideOff} data-f="hideoff" onChange={e => fx.hideOff(e.target.checked)}/>скрыть погашенные</label>
+            <button className="fl-ib" title="Все клиенты" onClick={() => fx.setProfile('')}>×</button>
+          </div> : null}
           {menu ? <AddMenu x={menu.x} y={menu.y} title={menu.title} items={menu.items} onClose={() => setMenu(null)}/> : null}
           <Legend fx={fx} overlay={overlay} counts={lgCounts} holes={lgHoles}/>
         </div>
