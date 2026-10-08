@@ -51,3 +51,114 @@ body.dark .fl-empty{background:rgba(30,35,46,.86)}
 
 /* полоса конструктора в панели страницы приложения (#pagebar) */
 #flowBar{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;min-height:28px;flex:1;min-width:0}
+
+/* ============ ноды ============
+   Высоты строк, шапки и тела — те же числа, что SIZE в rules.js: по ним сервер
+   оценивает размеры без DOM, и расхождение положило бы ноды друг на друга. */
+.fl-node{background:var(--card);border:1px solid var(--line-str);border-radius:var(--r-m);box-shadow:var(--sh1);
+  font-size:11.5px;line-height:1.3;color:var(--ink);position:relative}
+.react-flow__node.selected .fl-node,.fl-node.fl-sel{box-shadow:0 0 0 2px var(--accent),var(--sh2);border-color:var(--accent)}
+.fl-hd{height:34px;display:flex;align-items:center;gap:6px;padding:0 10px;color:#fff;font-weight:650;font-size:12.5px;
+  border-radius:calc(var(--r-m) - 1px) calc(var(--r-m) - 1px) 0 0;background:#6b7280;overflow:hidden;white-space:nowrap}
+.fl-col .fl-hd{border-radius:calc(var(--r-m) - 1px)}
+.fl-code{font-variant-numeric:tabular-nums;font-weight:800;opacity:.92;flex:0 0 auto}
+.fl-ttl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.fl-bdg{flex:0 0 auto;font-size:10px;font-weight:800;line-height:16px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;
+  background:rgba(255,255,255,.22);color:#fff;text-align:center}
+.fl-b-red{background:#e0473a;border:2px solid #fff;width:12px;min-width:12px;height:12px;padding:0;border-radius:50%}
+.fl-b-tbd{background:#fff;color:#3355d1}
+.fl-b-warn{background:#fff5da;color:#8a5d00;font-weight:700}
+.fl-b-bad{background:#fdecea;color:#b3261e;font-weight:700}
+.fl-bank-accepted{background:#2e9d58}.fl-bank-accepted_comments{background:#8fbf3a}
+.fl-bank-discussion{background:#e08a1e}.fl-bank-rejected{background:#e0473a}
+.fl-rows{padding:0}
+.fl-row{height:22px;position:relative;display:flex;align-items:center;gap:4px;padding:0 12px;white-space:nowrap}
+.fl-lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--ink2)}
+.fl-rl{text-align:right}
+.fl-sp{flex:1;min-width:6px}
+.fl-ty{font-size:10px;color:var(--muted);margin:0 6px;font-family:ui-monospace,Menlo,monospace}
+.fl-tbd{color:var(--muted);font-style:italic}
+.fl-body{height:44px;padding:4px 10px 0;color:var(--ink2);font-size:11px;line-height:1.35;overflow:hidden;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;border-top:1px solid var(--line2)}
+.fl-k-outcome .fl-body,.fl-k-calc .fl-body{height:24px;-webkit-line-clamp:1;padding-top:3px}
+.fl-k-gate .fl-body{height:32px;padding-top:2px}
+.fl-k-dim .fl-rows,.fl-k-source .fl-rows,.fl-k-anyof .fl-rows{padding-bottom:12px}
+.fl-k-calc .fl-rows{padding-bottom:0}
+.fl-k-calc .fl-body{margin-bottom:12px}
+.fl-plus{position:absolute;left:50%;bottom:-9px;transform:translateX(-50%);width:18px;height:18px;border-radius:50%;
+  border:1px solid var(--line-str);background:var(--card);color:var(--ink2);font-size:13px;line-height:15px;padding:0;cursor:pointer;
+  opacity:0;transition:opacity .12s}
+.react-flow__node:hover .fl-plus,.react-flow__node.selected .fl-plus{opacity:1}
+.fl-plus:hover{color:var(--accent);border-color:var(--accent)}
+.fl-addin{border:none;background:transparent;color:var(--muted);font-size:10.5px;cursor:pointer;padding:0 2px}
+.fl-addin:hover{color:var(--accent)}
+.fl-fold{position:absolute;left:0;right:0;top:17px;height:0}
+.fl-muted{opacity:.55;filter:grayscale(1)}
+.fl-muted .fl-hd{background:#9aa1b2}
+.fl-off{opacity:.18}
+
+/* сокеты: ▶ порядок, ◆ применимость, ● данные, ■ вердикт */
+.fl-root .react-flow__handle.fl-sock{width:10px;height:10px;min-width:0;min-height:0;border:1.5px solid var(--card);
+  background:var(--sc,var(--ink2));border-radius:50%;box-sizing:border-box}
+.fl-root .react-flow__handle.fl-s-exec{width:11px;height:12px;border:none;border-radius:0;background:var(--ink2);
+  clip-path:polygon(0 0,100% 50%,0 100%)}
+.fl-root .react-flow__handle.fl-s-cond{width:10px;height:10px;border-radius:1px;background:var(--sc,#7c5cff);
+  transform:translate(-50%,-50%) rotate(45deg)}
+.fl-root .react-flow__handle-right.fl-s-cond{transform:translate(50%,-50%) rotate(45deg)}
+.fl-root .react-flow__handle.fl-s-verdict,.fl-root .react-flow__handle.fl-s-vin{border-radius:2px}
+.fl-root .react-flow__handle.fl-s-vin{background:var(--card);border:2px solid #8a94a6}
+.fl-root .react-flow__handle.fl-s-any{background:#c4c9d4}
+.fl-root .react-flow__handle.fl-sock:not(.fl-on){opacity:.85}
+.fl-root .react-flow__handle.fl-sock.connectingto.valid{box-shadow:0 0 0 3px rgba(46,157,88,.45)}
+.fl-root .react-flow__handle.fl-sock.connectingto:not(.valid){box-shadow:0 0 0 3px rgba(224,71,58,.45)}
+.fl-root.fl-badconn,.fl-root.fl-badconn *{cursor:not-allowed!important}
+.fl-ctip{position:fixed;display:none;z-index:200;pointer-events:none;max-width:320px;padding:4px 8px;border-radius:var(--r-s);
+  background:#b3261e;color:#fff;font-size:12px;font-weight:600;box-shadow:var(--shf)}
+
+/* этап — рамка; заливка 6 % цвета проверок */
+.fl-stage{width:100%;height:100%;background:rgba(51,85,209,.06);border:1.5px dashed rgba(51,85,209,.38);
+  border-radius:var(--r-l);box-shadow:none;position:relative}
+.react-flow__node.selected .fl-stage{border-style:solid;border-color:var(--accent);box-shadow:none}
+.fl-st-hd{height:30px;display:flex;align-items:center;gap:8px;padding:0 12px;position:relative;color:#3355d1;font-weight:750;font-size:13px}
+body.dark .fl-st-hd{color:#8da2ff}
+.fl-st-num{font-variant-numeric:tabular-nums;background:#3355d1;color:#fff;border-radius:6px;padding:0 6px;font-size:12px;line-height:18px}
+.fl-st-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-st-sub{height:22px;display:flex;align-items:center;gap:8px;padding:0 12px;position:relative;font-size:11px;color:var(--muted)}
+.fl-st-when{flex:0 0 auto;color:#7c5cff}
+.fl-st-point{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-rsz{border-color:var(--accent)!important}
+.fl-rszh{background:var(--card)!important;border:1.5px solid var(--accent)!important;width:9px!important;height:9px!important;border-radius:2px!important}
+
+/* заметка — стикер, как на доске */
+.fl-note{width:100%;height:100%;background:#fff3b0;border-color:#ecd8a0;padding:8px 10px;overflow:hidden}
+body.dark .fl-note{background:#3a3320;border-color:#5a4f2a;color:#f0ead0}
+.fl-note-t{white-space:pre-wrap;font-size:12px;line-height:1.45}
+/* точка перегиба */
+.fl-rr{width:12px;height:12px;border-radius:50%;background:var(--sc,#8a94a6);border:2px solid var(--card);box-shadow:var(--sh1)}
+.fl-rr .react-flow__handle.fl-sock{opacity:0;left:50%!important;right:auto!important;top:50%!important}
+
+/* ============ связи ============ */
+.fl-root .react-flow__edge-path.fl-e{stroke:var(--ink2);fill:none}
+.fl-root .react-flow__edge-path.fl-e-exec{stroke:var(--ink2)}
+.fl-root .react-flow__edge-path.fl-off{opacity:.18}
+.fl-root .react-flow__edge-path.fl-dim{opacity:.22}
+.fl-root .react-flow__edge-path.fl-hl{filter:drop-shadow(0 0 2px rgba(var(--accent-rgb),.6))}
+.fl-negmark circle{fill:var(--card);stroke-width:1.6}
+.fl-negmark path{stroke-width:1.8;stroke-linecap:round}
+.fl-negmark.fl-off{opacity:.18}
+.fl-cline{fill:none}
+
+/* ============ меню добавления ============ */
+.fl-add{position:absolute;z-index:40;width:320px;max-height:380px;display:flex;flex-direction:column;background:var(--card);
+  border:1px solid var(--line);border-radius:var(--r-l);box-shadow:var(--sh3);overflow:hidden}
+.fl-add-t{padding:8px 12px 0;font-size:var(--t-cap);font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.fl-add-q{flex:0 0 auto;margin:8px;height:var(--h-ctl);border:1px solid var(--line);border-radius:var(--r-s);padding:0 9px;font-size:var(--t-body);
+  background:var(--surf);color:var(--ink)}
+.fl-add-l{overflow:auto;padding:0 6px 6px}
+.fl-ag{padding:8px 8px 3px;font-size:var(--t-micro);font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.fl-ai{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:var(--r-s);cursor:pointer;font-size:var(--t-body)}
+.fl-ai.on{background:var(--accent-bg)}
+.fl-ai i{width:9px;height:9px;border-radius:3px;flex:0 0 auto}
+.fl-ai-l{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-ai-h{flex:0 0 auto;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--t-cap);color:var(--muted)}
+.fl-none{color:var(--muted);cursor:default}

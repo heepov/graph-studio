@@ -158,6 +158,248 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     const gone = await c.eval(`({mounted: FLOW.state().mounted, root: !!document.getElementById('flowRoot'), bar: !!document.getElementById('flowBar')})`);
     check(!gone.mounted && !gone.root && !gone.bar, 'уход со страницы размонтирует конструктор целиком', JSON.stringify(gone));
 
+    /* =====================  M1: грамматика  ===================== */
+    // Небольшая схема с известными сокетами: источник с двумя датами и суммой,
+    // проверка с входами date и money, вторая проверка, исход, измерение, этап.
+    await c.eval(`(() => {
+      const lib = P.flowLib;
+      lib.dims.push({id: 'dim_t', code: 'T', name: 'Тип', values: [{id: 'v_a', name: 'А'}, {id: 'v_b', name: 'Б'}]});
+      lib.sources.push({id: 'src_t', name: 'Тестовый реестр', kind: 'gov', access: 'api', mode: 'sync', status: 'live',
+        fields: [{id: 'f_d', name: 'Дата регистрации', type: 'date'}, {id: 'f_m', name: 'Капитал', type: 'money'},
+                 {id: 'f_d2', name: 'Дата решения', type: 'date'}]});
+      lib.checks.push({id: 'chk_t1', code: '9.1', name: 'Свежая регистрация', how: 'Меньше 180 дней',
+        inputs: [{id: 'reg', name: 'Дата', type: 'date'}, {id: 'cap', name: 'Капитал', type: 'money'}], verdicts: ['risk']});
+      lib.checks.push({id: 'chk_t2', code: '9.2', name: 'Капитал', how: '', inputs: [{id: 'x', name: 'Сумма', type: 'money'}], verdicts: ['stop_b']});
+      lib.outcomes.push({id: 'out_t', name: 'Средний риск', verdict: 'risk'});
+      normalizeLib(lib);
+      const pg = {id: 'pg_m1', name: 'Грамматика', kind: 'flow', filter: {q: '', cats: [], statuses: [], types: [], f: {}},
+        flow: normalizeFlow({nodes: [
+          {id: 'nSt', k: 'stage', x: 760, y: 300, w: 380, h: 260, data: {num: '1', name: 'Этап', point: ''}},
+          {id: 'nD', k: 'dim', ref: 'dim_t', x: -280, y: 0},
+          {id: 'nS', k: 'source', ref: 'src_t', x: 0, y: 0},
+          {id: 'nC1', k: 'check', ref: 'chk_t1', x: 420, y: 0},
+          {id: 'nC2', k: 'check', ref: 'chk_t2', x: 420, y: 300},
+          {id: 'nO', k: 'outcome', ref: 'out_t', x: 840, y: 0}], edges: []})};
+      P.pages.push(pg); save(1); gotoPage(pg.id);
+      FLOW.call('setViewport', {x: 380, y: 160, k: 0.9});
+    })()`);
+    await sleep(500);
+    const H = (n, h) => c.eval(`FLOW.call('handleXY', ${JSON.stringify(n)}, ${JSON.stringify(h)})`);
+    const edgesOf = () => c.eval(`curPage().flow.edges.map(e => e.s + '.' + e.sh + '>' + e.t + '.' + e.th + (e.neg ? '!' : ''))`);
+    const drag = async (from, to, mid, mods = 0) => {
+      await c.mouse('mousePressed', from.x, from.y, {modifiers: mods});
+      for (let i = 1; i <= 8; i++) await c.mouse('mouseMoved', from.x + (to.x - from.x) * i / 8, from.y + (to.y - from.y) * i / 8, {modifiers: mods});
+      if (mid) await mid();
+      await c.mouse('mouseReleased', to.x, to.y, {buttons: 0, modifiers: mods});
+      await sleep(250);
+    };
+    const click = async (p, extra = {}) => {
+      await c.mouse('mousePressed', p.x, p.y, extra);
+      await c.mouse('mouseReleased', p.x, p.y, Object.assign({buttons: 0}, extra));
+      await sleep(150);
+    };
+    const nodeHead = async id => { const r = await c.eval(`FLOW.call('nodeXY', ${JSON.stringify(id)})`); return r && {x: r.x + Math.min(60, r.w / 3), y: r.y + 12}; };
+
+    // --- соединение мышью: date → date есть, date → money нет -----------------
+    await drag(await H('nS', 'out:f_d'), await H('nC1', 'in:reg'));
+    let es = await edgesOf();
+    check(es.includes('nS.out:f_d>nC1.in:reg'), 'мышью: date → date соединяется', es.join(' '));
+    const col = await c.eval(`(() => { const p = document.querySelector('.react-flow__edge path.fl-e'); return p ? p.style.stroke : ''; })()`);
+    check(/240, 138, 60|f08a3c/i.test(col), 'связь данных — цветом типа date', col);
+    let tip = null;
+    await drag(await H('nS', 'out:f_d'), await H('nC1', 'in:cap'), async () => {
+      tip = await c.eval(`({show: getComputedStyle(document.querySelector('.fl-ctip')).display, text: document.querySelector('.fl-ctip').textContent,
+        red: document.querySelector('.fl-root').classList.contains('fl-badconn')})`);
+    });
+    es = await edgesOf();
+    check(!es.some(e => e.includes('in:cap')), 'мышью: date → money отклонено', es.join(' '));
+    check(tip && tip.show === 'block' && tip.text === 'date → money: типы не совпадают' && tip.red,
+      'у курсора — красный курсор и причина отказа', tip && tip.text);
+    const tipGone = await c.eval(`({show: getComputedStyle(document.querySelector('.fl-ctip')).display, red: document.querySelector('.fl-root').classList.contains('fl-badconn')})`);
+    check(tipGone.show === 'none' && !tipGone.red, 'после отпускания подсказка исчезает');
+
+    // --- кратность: вход данных держит одну связь ------------------------------
+    await drag(await H('nS', 'out:f_d2'), await H('nC1', 'in:reg'));
+    es = await edgesOf();
+    check(es.includes('nS.out:f_d2>nC1.in:reg') && !es.includes('nS.out:f_d>nC1.in:reg'),
+      'новая связь во вход данных заменяет старую, как в Blender', es.join(' '));
+    // Ctrl+тянуть из занятого сокета — перенос связей на другой сокет той же стороны.
+    // На Mac Ctrl+нажатие — правая кнопка, там тот же жест идёт с Cmd.
+    await drag(await H('nS', 'out:f_d2'), await H('nS', 'out:f_d'), null, process.platform === 'darwin' ? 4 : 2);
+    es = await edgesOf();
+    check(es.includes('nS.out:f_d>nC1.in:reg') && !es.some(e => e.startsWith('nS.out:f_d2')),
+      'Ctrl+тянуть: связи сокета переехали на другой сокет', es.join(' '));
+
+    // --- порядок, вердикт, применимость и цикл ---------------------------------
+    await drag(await H('nC1', 'exec-out'), await H('nC2', 'exec-in'));
+    await drag(await H('nC1', 'v:risk'), await H('nO', 'vin'));
+    await drag(await H('nD', 'val:v_a'), await H('nC2', 'cond-in'));
+    await drag(await H('nC2', 'exec-out'), await H('nC1', 'exec-in'));
+    es = await edgesOf();
+    const rej = await c.eval(`FLOW.state().lastReject`);
+    check(es.includes('nC1.exec-out>nC2.exec-in') && es.includes('nC1.v:risk>nO.vin') && es.includes('nD.val:v_a>nC2.cond-in'),
+      'порядок, вердикт в исход и применимость соединяются', `${es.length} связей`);
+    check(!es.includes('nC2.exec-out>nC1.exec-in') && /цикл/.test(rej), 'цикл по порядку исполнения отклонён', rej);
+
+    // --- «кроме»: правая кнопка по связи применимости --------------------------
+    const condId = await c.eval(`curPage().flow.edges.find(e => e.th === 'cond-in').id`);
+    const cp = await c.eval(`FLOW.call('edgeXY', ${JSON.stringify(condId)})`);
+    await c.mouse('mousePressed', cp.x, cp.y, {button: 'right', buttons: 2});
+    await c.mouse('mouseReleased', cp.x, cp.y, {button: 'right', buttons: 0});
+    await sleep(200);
+    const ctxItems = await c.eval(`[...document.querySelectorAll('#ctx.open .mi')].map(x => x.textContent)`);
+    await c.eval(`(() => { const m = [...document.querySelectorAll('#ctx.open .mi')].find(x => /Исключить/.test(x.textContent)); if (m) m.click(); })()`);
+    await sleep(200);
+    const negNow = await c.eval(`({neg: !!curPage().flow.edges.find(e => e.id === ${JSON.stringify(condId)}).neg,
+      mark: !!document.querySelector('.react-flow__edge .fl-negmark')})`);
+    check(ctxItems.some(t => /Исключить это значение/.test(t)) && negNow.neg && negNow.mark,
+      'ПКМ по связи применимости → «Исключить это значение»: пунктир со знаком ⊘', ctxItems.join(' / '));
+
+    // --- удаление и отмена: нода возвращается со связями ----------------------
+    const before = (await edgesOf()).length;
+    await click(await nodeHead('nC1'));
+    const selNow = await c.eval(`FLOW.state().selected`);
+    await key(c, 'Delete', 'Delete', 0, 46);
+    await sleep(250);
+    const afterDel = await c.eval(`({n: !!curPage().flow.nodes.find(n => n.id === 'nC1'), e: curPage().flow.edges.length})`);
+    check(selNow.includes('nC1') && !afterDel.n && afterDel.e < before, 'Delete убирает ноду со схемы вместе с её связями',
+      `связей ${before} → ${afterDel.e}`);
+    const libKept = await c.eval(`!!P.flowLib.checks.find(x => x.id === 'chk_t1')`);
+    check(libKept, 'блок при этом остаётся в библиотеке');
+    await key(c, 'KeyZ', 'z', 2, 90);
+    await sleep(300);
+    const undone = await c.eval(`({n: !!curPage().flow.nodes.find(n => n.id === 'nC1'), e: curPage().flow.edges.length,
+      dom: !!document.querySelector('.react-flow__node[data-id="nC1"]')})`);
+    check(undone.n && undone.e === before && undone.dom, 'Ctrl+Z возвращает удалённую ноду со связями', `связей ${undone.e}`);
+    await key(c, 'KeyZ', 'z', 2 | 8, 90);
+    await sleep(300);
+    const redone = await c.eval(`!!curPage().flow.nodes.find(n => n.id === 'nC1')`);
+    check(!redone, 'Ctrl+Shift+Z повторяет удаление');
+    await key(c, 'KeyZ', 'z', 2, 90);
+    await sleep(300);
+
+    // --- Alt+клик удаляет связь, двойной клик вставляет точку перегиба ---------
+    const vId = await c.eval(`curPage().flow.edges.find(e => e.sh === 'v:risk').id`);
+    await click(await c.eval(`FLOW.call('edgeXY', ${JSON.stringify(vId)})`), {modifiers: 1});
+    check(!(await edgesOf()).includes('nC1.v:risk>nO.vin'), 'Alt+клик по связи удаляет её');
+    await key(c, 'KeyZ', 'z', 2, 90);
+    await sleep(300);
+    const eId = await c.eval(`curPage().flow.edges.find(e => e.sh === 'exec-out').id`);
+    const ep = await c.eval(`FLOW.call('edgeXY', ${JSON.stringify(eId)})`);
+    await c.mouse('mousePressed', ep.x, ep.y, {clickCount: 1});
+    await c.mouse('mouseReleased', ep.x, ep.y, {buttons: 0, clickCount: 1});
+    await c.mouse('mousePressed', ep.x, ep.y, {clickCount: 2});
+    await c.mouse('mouseReleased', ep.x, ep.y, {buttons: 0, clickCount: 2});
+    await sleep(300);
+    const rr = await c.eval(`(() => { const f = curPage().flow, r = f.nodes.find(n => n.k === 'reroute');
+      return r ? {in: f.edges.filter(e => e.t === r.id).map(e => e.s + '.' + e.sh), out: f.edges.filter(e => e.s === r.id).map(e => e.t + '.' + e.th)} : null; })()`);
+    check(rr && rr.in[0] === 'nC1.exec-out' && rr.out[0] === 'nC2.exec-in', 'двойной клик по связи вставляет точку перегиба', JSON.stringify(rr));
+
+    // --- меню добавления: Shift+A и связь, брошенная в пустоту -----------------
+    const pane = await c.eval(`(() => { const r = document.querySelector('#flowRoot .fl-pane').getBoundingClientRect();
+      return {x: Math.round(r.left + r.width * 0.25), y: Math.round(r.top + r.height * 0.8)}; })()`);
+    await c.mouse('mouseMoved', pane.x, pane.y);
+    await click(pane);
+    await key(c, 'KeyA', 'A', 8, 65);
+    await sleep(200);
+    const m1 = await c.eval(`FLOW.state().menu`);
+    check(m1 && m1.items.includes('Этап') && m1.items.includes('9.1 Свежая регистрация') && m1.items.includes('Тестовый реестр'),
+      'Shift+A: меню с видами нод и блоками библиотеки', m1 && m1.items.length + ' пунктов');
+    await c.send('Input.insertText', {text: 'гейт'});
+    await sleep(100);
+    await key(c, 'Enter', 'Enter', 0, 13);
+    await sleep(300);
+    const gate = await c.eval(`curPage().flow.nodes.filter(n => n.k === 'gate').length`);
+    check(gate === 1, 'поиск в меню и Enter ставят ноду под курсор');
+
+    await drag(await H('nS', 'out:f_m'), {x: pane.x + 300, y: pane.y - 60});
+    const m2 = await c.eval(`FLOW.state().menu`);
+    const okList = m2 && m2.items.includes('Один из') && m2.items.includes('Показатель') && m2.items.includes('9.2 Капитал')
+      && !m2.items.includes('Гейт') && !m2.items.includes('Этап') && !m2.items.some(x => /Тип/.test(x));
+    check(okList, 'связь в пустоту: меню только из совместимых блоков', m2 && m2.items.join(', '));
+    await c.eval(`[...document.querySelectorAll('.fl-ai')].find(x => /Один из/.test(x.textContent)).click()`);
+    await sleep(300);
+    const any = await c.eval(`(() => { const f = curPage().flow, a = f.nodes.find(n => n.k === 'anyof');
+      return a ? {type: a.data.type, edge: f.edges.some(e => e.t === a.id && e.s === 'nS' && e.sh === 'out:f_m')} : null; })()`);
+    check(any && any.edge && any.type === 'money', 'выбранная нода встала под курсор и сразу соединилась', JSON.stringify(any));
+
+    // --- M, H, Ctrl+H ---------------------------------------------------------
+    await click(await nodeHead('nC2'));
+    await key(c, 'KeyM', 'm', 0, 77);
+    await key(c, 'KeyH', 'h', 0, 72);
+    await sleep(200);
+    let f2 = await c.eval(`(() => { const n = curPage().flow.nodes.find(x => x.id === 'nC2');
+      return {muted: !!n.muted, col: !!n.collapsed, h: FLOW.call('nodeXY', 'nC2').h,
+        cls: document.querySelector('.react-flow__node[data-id="nC2"] .fl-node').className}; })()`);
+    check(f2.muted && f2.col && /fl-muted/.test(f2.cls) && f2.h <= 36, 'M выключает ноду, H сворачивает до шапки', `высота ${f2.h}`);
+    await key(c, 'KeyH', 'h', 0, 72);
+    await key(c, 'KeyH', 'h', 2, 72);
+    await sleep(200);
+    f2 = await c.eval(`(() => { const n = curPage().flow.nodes.find(x => x.id === 'nC2');
+      return {hide: n.hide || [], rows: document.querySelectorAll('.react-flow__node[data-id="nC2"] .fl-row').length}; })()`);
+    check(f2.hide.includes('in:x') && !f2.hide.includes('cond-in') && f2.rows === 2,
+      'Ctrl+H прячет только несоединённые сокеты', `скрыто: ${f2.hide.join(', ')}`);
+    await key(c, 'KeyH', 'h', 2, 72);
+    await key(c, 'KeyM', 'm', 0, 77);
+
+    // --- рамка: Ctrl+J, перетаскивание в рамку и из неё ------------------------
+    await click(await nodeHead('nC2'));
+    await key(c, 'KeyJ', 'j', 2, 74);
+    await sleep(300);
+    const wrapped = await c.eval(`(() => { const f = curPage().flow, n = f.nodes.find(x => x.id === 'nC2'), s = f.nodes.find(x => x.id === n.parent);
+      return s ? {stage: s.k, fit: s.fit, first: f.nodes.indexOf(s) < f.nodes.indexOf(n), name: s.data.name} : null; })()`);
+    check(wrapped && wrapped.stage === 'stage' && wrapped.fit === 1 && wrapped.first, 'Ctrl+J оборачивает выделенное в новый этап', JSON.stringify(wrapped));
+    await key(c, 'KeyZ', 'z', 2, 90);
+    await sleep(300);
+    // в существующую рамку nSt: тащим проверку за шапку
+    const into = await c.eval(`(() => { const r = FLOW.call('nodeXY', 'nSt'); return {x: r.x + r.w / 2, y: r.y + r.h / 2}; })()`);
+    await drag(await nodeHead('nC2'), into);
+    const inStage = await c.eval(`(() => { const n = curPage().flow.nodes.find(x => x.id === 'nC2'); return {parent: n.parent || null, x: n.x, y: n.y}; })()`);
+    check(inStage.parent === 'nSt' && inStage.x < 400 && inStage.y < 300, 'проверка, брошенная в рамку, становится её ребёнком', JSON.stringify(inStage));
+    await drag(await nodeHead('nC2'), {x: pane.x, y: pane.y - 200});
+    const outStage = await c.eval(`(curPage().flow.nodes.find(x => x.id === 'nC2').parent) || null`);
+    check(outStage === null, 'и перестаёт им быть, когда её вынесли');
+
+    // --- F: вписать ----------------------------------------------------------
+    await c.eval(`FLOW.call('setViewport', {x: 5000, y: 5000, k: 0.3})`);
+    await click(pane);
+    await key(c, 'KeyF', 'f', 0, 70);
+    await sleep(200);
+    const vpF = await c.eval(`FLOW.state().viewport`);
+    check(!(vpF.x === 5000 && vpF.y === 5000), 'F вписывает схему в экран', JSON.stringify(vpF));
+
+    // --- копия: Ctrl+C / Ctrl+V / Ctrl+D --------------------------------------
+    const nBefore = await c.eval(`curPage().flow.nodes.length`);
+    await c.eval(`FLOW.call('select', ['nS', 'nC1'])`);
+    await sleep(100);
+    await click(pane);
+    await c.eval(`FLOW.call('select', ['nS', 'nC1'])`);
+    await sleep(100);
+    await key(c, 'KeyC', 'c', 2, 67);
+    await key(c, 'KeyV', 'v', 2, 86);
+    await sleep(300);
+    const pasted = await c.eval(`(() => { const f = curPage().flow;
+      return {nodes: f.nodes.length, sources: f.nodes.filter(n => n.ref === 'src_t').length, checks: f.nodes.filter(n => n.ref === 'chk_t1').length,
+        clip: !!localStorage.getItem('gs_flow_clip')}; })()`);
+    check(pasted.clip && pasted.nodes === nBefore + 1 && pasted.sources === 2 && pasted.checks === 1,
+      'Ctrl+C/V: источник скопирован, проверка второй раз не встала (одна на странице)', JSON.stringify(pasted));
+    await c.eval(`FLOW.call('select', [curPage().flow.nodes.find(n => n.k === 'gate').id])`);
+    await sleep(100);
+    await key(c, 'KeyD', 'd', 2, 68);
+    await sleep(300);
+    const gates = await c.eval(`curPage().flow.nodes.filter(n => n.k === 'gate').length`);
+    check(gates === 2, 'Ctrl+D дублирует выделенное');
+
+    // --- режим чтения: соединять нельзя ---------------------------------------
+    await c.eval(`(() => { setReadonly(true); renderPage(); })()`);
+    await sleep(200);
+    const e0 = (await edgesOf()).length;
+    await drag(await H('nS', 'out:f_m'), await H('nC2', 'in:x'));
+    const e1 = (await edgesOf()).length;
+    const roCls = await c.eval(`({conn: document.querySelectorAll('.react-flow__handle.connectable').length})`);
+    check(e1 === e0 && roCls.conn === 0, 'в режиме чтения сокеты не соединяются');
+    await c.eval(`(() => { setReadonly(false); renderPage(); })()`);
+
     if (c.errors.length) bad('исключения в консоли', c.errors.join(' | ').slice(0, 400));
     else ok('исключений в консоли нет');
   } catch (e) {

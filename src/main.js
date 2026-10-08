@@ -1344,7 +1344,7 @@ function flowCtx() {
     uid, esc, icon, dl, viewKey,
     isDark: () => document.body.classList.contains('dark'),
     bar: () => $('flowBar'),
-    gotoPage, kindName, applyInspW, saveInspW,
+    gotoPage, kindName, applyInspW, saveInspW, showCtx,
   };
 }
 /* ---------- инструменты доски ---------- */
@@ -6120,6 +6120,8 @@ $('projBtn').onclick = goHome;
 // визуально не менялось ничего, а узел повисал в проекте. Уводим на холст.
 $('bAdd').onclick = () => {
   if (!P) return;
+  // На конструкторе «＋» — это меню блоков (как Shift+A), а не узел графа.
+  if (isFlow(curPage())) { try { FLOW.call('openAdd'); } catch (e) {} return; }
   if (!isSpatial(curPage())) {
     const spatial = P.pages.find(p => isSpatial(p));
     if (spatial) {gotoPage(spatial.id); setTimeout(() => addNode(), 60); return;}

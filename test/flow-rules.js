@@ -55,6 +55,136 @@ const ROOT = path.join(__dirname, '..');
   check(!M.needsLib({pages: [{kind: 'canvas'}]}) && M.needsLib({pages: [{kind: 'flow'}]}) && M.needsLib({pages: [], flowLib: {}}),
     'flowLib заводится только при странице-конструкторе или уже существующей библиотеке');
 
+  /* ---------- M1: матрица соединений §4.2, клетка за клеткой ---------- */
+  const lib = M.normalizeLib({
+    dims: [{id: 'D', name: 'Ось', values: [{id: 'v1', name: 'Один'}, {id: 'v2', name: 'Два'}]}],
+    sources: [{id: 'S', name: 'Реестр', fields: [{id: 'fd', name: 'Дата', type: 'date'},
+      {id: 'fm', name: 'Сумма', type: 'money'}, {id: 'ft', name: 'Текст', type: 'text'}]}],
+    checks: [{id: 'C1', code: '1.1', name: 'Первая', inputs: [{id: 'd', name: 'Дата', type: 'date'},
+      {id: 'm', name: 'Сумма', type: 'money'}, {id: 'a', name: 'Что угодно', type: 'any'}], verdicts: ['stop_b', 'info']},
+      {id: 'C2', code: '1.2', name: 'Вторая', inputs: [{id: 'd', name: 'Дата', type: 'date'}], verdicts: ['risk']}],
+    outcomes: [{id: 'O', name: 'Отказ', verdict: 'stop_b'}],
+  });
+  const mk = () => M.normalizeFlow({nodes: [
+    {id: 'nSt', k: 'stage', x: 0, y: 0, w: 360, h: 400, data: {num: '1', name: 'Этап'}},
+    {id: 'nD', k: 'dim', ref: 'D', x: 0, y: 0}, {id: 'nS', k: 'source', ref: 'S', x: 0, y: 0},
+    {id: 'nC1', k: 'check', ref: 'C1', x: 0, y: 0}, {id: 'nC2', k: 'check', ref: 'C2', x: 0, y: 0},
+    {id: 'nO', k: 'outcome', ref: 'O', x: 0, y: 0}, {id: 'nG', k: 'gate', x: 0, y: 0, data: {text: 'Гейт'}},
+    {id: 'nA', k: 'anyof', x: 0, y: 0, data: {type: 'date', n: 2}}, {id: 'nAny', k: 'anyof', x: 0, y: 0, data: {type: 'any', n: 2}},
+    {id: 'nCalc', k: 'calc', x: 0, y: 0, data: {name: 'DSCR', inputs: [{id: 'x', name: 'Выручка', type: 'money'}], type: 'money'}},
+    {id: 'nR', k: 'reroute', x: 0, y: 0}, {id: 'nNote', k: 'note', x: 0, y: 0, data: {text: 'заметка'}},
+  ], edges: []});
+  const fl = mk();
+  const can = (s, sh, t, th) => R.canConnect(fl, lib, {source: s, sourceHandle: sh, target: t, targetHandle: th});
+  // Строка — выход, столбец — вход; ожидание прямо из таблицы ТЗ.
+  const OUTS = {
+    'exec-out (проверка)': ['nC1', 'exec-out'], 'exec-out (этап)': ['nSt', 'exec-out'], 'exec-no (гейт)': ['nG', 'exec-no'],
+    'val:* (измерение)': ['nD', 'val:v1'],
+    'out:* date (источник)': ['nS', 'out:fd'], 'out (один из, date)': ['nA', 'out'], 'out (показатель, money)': ['nCalc', 'out'],
+    'v:* (вердикт)': ['nC1', 'v:stop_b'],
+  };
+  const INS = {
+    'exec-in': ['nC2', 'exec-in'], 'cond-in': ['nC2', 'cond-in'], 'in:* date': ['nC2', 'in:d'],
+    'vin': ['nO', 'vin'], 'in:* один из (date)': ['nA', 'in:0'], 'in reroute': ['nR', 'in'],
+  };
+  const EXPECT = {
+    'exec-out (проверка)': {'exec-in': 1, 'cond-in': 0, 'in:* date': 0, 'vin': 1, 'in:* один из (date)': 0, 'in reroute': 1},
+    'exec-out (этап)': {'exec-in': 1, 'cond-in': 0, 'in:* date': 0, 'vin': 1, 'in:* один из (date)': 0, 'in reroute': 1},
+    'exec-no (гейт)': {'exec-in': 1, 'cond-in': 0, 'in:* date': 0, 'vin': 1, 'in:* один из (date)': 0, 'in reroute': 1},
+    'val:* (измерение)': {'exec-in': 0, 'cond-in': 1, 'in:* date': 0, 'vin': 0, 'in:* один из (date)': 0, 'in reroute': 1},
+    'out:* date (источник)': {'exec-in': 0, 'cond-in': 0, 'in:* date': 1, 'vin': 0, 'in:* один из (date)': 1, 'in reroute': 1},
+    'out (один из, date)': {'exec-in': 0, 'cond-in': 0, 'in:* date': 1, 'vin': 0, 'in:* один из (date)': 0, 'in reroute': 1},
+    'out (показатель, money)': {'exec-in': 0, 'cond-in': 0, 'in:* date': 0, 'vin': 0, 'in:* один из (date)': 0, 'in reroute': 1},
+    'v:* (вердикт)': {'exec-in': 0, 'cond-in': 0, 'in:* date': 0, 'vin': 1, 'in:* один из (date)': 0, 'in reroute': 1},
+  };
+  let cells = 0, wrong = [];
+  for (const [on, [s, sh]] of Object.entries(OUTS)) {
+    for (const [inn, [t, th]] of Object.entries(INS)) {
+      if (s === t) continue;   // «один из» сам в себя — это не клетка матрицы, а связь в себя
+      cells++;
+      const r = can(s, sh, t, th);
+      if (!!r.ok !== !!EXPECT[on][inn]) wrong.push(`${on} → ${inn}: ${r.ok ? 'разрешено' : r.reason}`);
+    }
+  }
+  check(!wrong.length, 'матрица §4.2: каждая клетка', wrong.length ? wrong.join('; ') : `${cells} клеток`);
+
+  // Тексты отказов — те, что видит человек у курсора.
+  const r1 = can('nS', 'out:fd', 'nC1', 'in:m');
+  check(!r1.ok && r1.reason === 'date → money: типы не совпадают', 'отказ по типам объясняет, что с чем не сошлось', r1.reason);
+  const r2 = can('nS', 'out:fd', 'nO', 'vin');
+  check(!r2.ok && r2.reason === 'в исход можно вести только вердикт или порядок', 'в исход — только вердикт или порядок', r2.reason);
+  check(can('nS', 'out:fd', 'nC1', 'in:a').ok, 'вход any принимает любой тип данных');
+  check(can('nS', 'out:fm', 'nCalc', 'in:x').ok && !can('nS', 'out:fd', 'nCalc', 'in:x').ok, 'вход показателя типизирован');
+  const self = can('nC1', 'exec-out', 'nC1', 'exec-in');
+  check(!self.ok && /в себя/.test(self.reason), 'связь в себя запрещена', self.reason);
+  check(!can('nC2', 'exec-in', 'nC1', 'exec-out').ok && !can('nC1', 'nope', 'nC2', 'exec-in').ok,
+    'связь всегда от выхода ко входу, несуществующий сокет отклоняется');
+  check(!can('nNote', 'out', 'nC1', 'exec-in').ok, 'у заметки сокетов нет');
+
+  // Кратность: вход данных держит одну связь, новая её заменяет.
+  fl.edges.push({id: 'e1', s: 'nS', sh: 'out:fd', t: 'nC1', th: 'in:d'});
+  const rep = can('nA', 'out', 'nC1', 'in:d');
+  check(rep.ok && rep.replace.length === 1 && rep.replace[0] === 'e1', 'занятый вход данных: новая связь заменяет старую', JSON.stringify(rep.replace));
+  check(!can('nS', 'out:fd', 'nC1', 'in:d').ok, 'повтор существующей связи отклоняется');
+  fl.edges.push({id: 'e2', s: 'nD', sh: 'val:v1', t: 'nC1', th: 'cond-in'});
+  const many = can('nD', 'val:v2', 'nC1', 'cond-in');
+  check(many.ok && many.replace.length === 0, 'cond-in принимает много связей');
+  fl.edges.push({id: 'e3', s: 'nC1', sh: 'v:stop_b', t: 'nO', th: 'vin'});
+  check(can('nC2', 'v:risk', 'nO', 'vin').ok && can('nC2', 'v:risk', 'nO', 'vin').replace.length === 0, 'vin принимает много связей');
+
+  // Циклы по порядку исполнения — в том числе через вердикт и исход.
+  fl.edges.push({id: 'e4', s: 'nC1', sh: 'exec-out', t: 'nC2', th: 'exec-in'});
+  const cyc = can('nC2', 'exec-out', 'nC1', 'exec-in');
+  check(!cyc.ok && /цикл/.test(cyc.reason), 'цикл по exec отклонён', cyc.reason);
+  const cyc2 = can('nO', 'exec-out', 'nC1', 'exec-in');
+  check(!cyc2.ok && /цикл/.test(cyc2.reason), 'цикл через вердикт → исход → порядок отклонён', cyc2.reason);
+  check(can('nO', 'exec-out', 'nG', 'exec-in').ok, 'порядок из исхода дальше — можно, пока нет цикла');
+
+  // Reroute принимает тип первой связи и дальше ведёт себя как сокет этого типа.
+  check(can('nD', 'val:v1', 'nR', 'in').ok && can('nC1', 'v:info', 'nR', 'in').ok, 'пустой reroute примет что угодно');
+  fl.edges.push({id: 'e5', s: 'nS', sh: 'out:fd', t: 'nR', th: 'in'});
+  const rOut = R.socketOf(fl, lib, 'nR', 'out', 'out');
+  check(rOut.kind === 'data' && rOut.type === 'date', 'reroute взял тип первой связи', `${rOut.kind}/${rOut.type}`);
+  check(can('nR', 'out', 'nC2', 'in:d').ok && !can('nR', 'out', 'nC1', 'in:m').ok && !can('nR', 'out', 'nC2', 'cond-in').ok,
+    'reroute дальше ведёт себя как сокет date');
+  const rIn = can('nS', 'out:fm', 'nR', 'in');
+  check(!rIn.ok, 'вход reroute после первой связи уже типизирован', rIn.reason);
+  check(R.edgeKind(fl, lib, {s: 'nR', sh: 'out', t: 'nC2', th: 'in:d'}) === 'data'
+    && R.edgeColor(fl, lib, {s: 'nR', sh: 'out', t: 'nC2', th: 'in:d'}) === '#f08a3c', 'связь из reroute красится цветом своего типа');
+
+  // «Один из» с типом any принимает тип первой связи.
+  fl.edges.push({id: 'e6', s: 'nS', sh: 'out:ft', t: 'nAny', th: 'in:0'});
+  check(R.anyofType(fl, lib, fl.nodes.find(n => n.id === 'nAny')) === 'text', '«один из» any взял тип первой связи');
+  check(!can('nS', 'out:fm', 'nAny', 'in:1').ok && can('nAny', 'out', 'nC1', 'in:a').ok, '«один из» дальше типизирован');
+
+  // Вид связи и её цвет — по сокету-источнику.
+  const kinds = [['nC1', 'exec-out'], ['nD', 'val:v1'], ['nS', 'out:fm'], ['nC1', 'v:stop_b']]
+    .map(([s, sh]) => R.edgeKind(fl, lib, {s, sh}));
+  check(kinds.join(',') === 'exec,cond,data,verdict', 'вид связи определяется выходом', kinds.join(','));
+  check(R.edgeColor(fl, lib, {s: 'nC1', sh: 'v:stop_b'}) === '#e0473a' && R.edgeColor(fl, lib, {s: 'nD', sh: 'val:v1'}) === '#7c5cff',
+    'цвет вердикта и применимости — константы ТЗ');
+
+  // Готовая схема с циклом (пришла из MCP или старого файла) — валидатор его находит.
+  const bad1 = mk(); bad1.edges.push({id: 'x1', s: 'nC1', sh: 'exec-out', t: 'nC2', th: 'exec-in'}, {id: 'x2', s: 'nC2', sh: 'exec-out', t: 'nC1', th: 'exec-in'});
+  check(R.controlCycles(bad1, lib).length === 2, 'цикл в документе находится', R.controlCycles(bad1, lib).join(','));
+
+  /* ---------- размеры: одна раскладка для отрисовки и сервера ---------- */
+  const nC = fl.nodes.find(n => n.id === 'nC1');
+  const sz = R.nodeSize(fl, lib, nC);
+  // exec + Когда + 3 входа = 5 строк слева; exec + 2 вердикта = 3 справа
+  check(sz.w === 300 && sz.h === 34 + 22 * 5 + 44, 'размер проверки — по строкам сокетов', `${sz.w}×${sz.h}`);
+  check(R.nodeSize(fl, lib, Object.assign({}, nC, {collapsed: 1})).h === 34, 'свёрнутая нода — только шапка');
+  const hidden = Object.assign({}, nC, {hide: ['in:m', 'in:a', 'in:d']});
+  // слева остаются exec, «Когда» и соединённая «Дата»; справа exec и два вердикта
+  check(R.nodeSize(fl, lib, hidden).h === 34 + 22 * 3 + 44, 'Ctrl+H прячет только несоединённые сокеты', '«Дата» соединена и осталась');
+  const gate = R.nodeSize(fl, lib, fl.nodes.find(n => n.id === 'nG'));
+  const outc = R.nodeSize(fl, lib, fl.nodes.find(n => n.id === 'nO'));
+  check(gate.h === 110 && outc.h === 80, 'гейт и исход — размеры, которыми размечен seed', `${gate.h}, ${outc.h}`);
+
+  const st = {id: 'S1', k: 'stage', x: 100, y: 100, w: 360, h: 200, fit: 1};
+  const fit = R.fitStage({nodes: [st, {id: 'a', k: 'note', parent: 'S1', x: -30, y: 70, w: 100, h: 50}]}, lib, st);
+  check(fit.dx === 50 && fit.x === 50 && fit.w >= 240, 'рамка растёт влево, когда ребёнок вылез за край', JSON.stringify(fit));
+
   const fail = results.filter(r => r[0] === '✗');
   console.log(`\n===== ${results.length - fail.length}/${results.length} пройдено =====`);
   process.exit(fail.length ? 1 : 0);
