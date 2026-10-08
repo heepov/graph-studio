@@ -1344,7 +1344,9 @@ function flowCtx() {
     uid, esc, icon, dl, viewKey,
     isDark: () => document.body.classList.contains('dark'),
     bar: () => $('flowBar'),
-    gotoPage, kindName, applyInspW, saveInspW, showCtx,
+    gotoPage, kindName, applyInspW, saveInspW, showCtx, showExport,
+    // id доски для контракта: у серверной — её id, у локальной — id проекта
+    boardId: () => (cloud.CLOUD.board ? cloud.CLOUD.board.id : (P && P.id) || ''),
   };
 }
 /* ---------- инструменты доски ---------- */
@@ -5059,11 +5061,14 @@ function buildCanvasSVG() {
   return {svg, w: W, h: H};
 }
 function exportCanvasSVG() {
+  // У конструктора своя картинка — снимок схемы React Flow (src/flow/export/image.js).
+  if (isFlow(curPage())) { flowExportImage('svg'); return; }
   const r = buildCanvasSVG(); if (!r) return;
   dl(fname('svg'), r.svg, 'image/svg+xml');
   toast('SVG экспортирован');
 }
 function exportCanvasPNG() {
+  if (isFlow(curPage())) { flowExportImage('png'); return; }
   const r = buildCanvasSVG(); if (!r) return;
   const scale = 2, img = new Image();
   const url = URL.createObjectURL(new Blob([r.svg], {type: 'image/svg+xml;charset=utf-8'}));
@@ -5091,8 +5096,28 @@ function showExport() {
     `letter-spacing:.6px;color:var(--muted);margin-top:18px">${t}</div>`;
   const row = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:7px';
   const online = !!cloud.CLOUD.account;
+  // Конструктор выгружается своими форматами (ТЗ §10). «Только для профиля» —
+  // активный профиль человека: он личный и в документе не лежит, поэтому
+  // спрашиваем его у модуля.
+  const fl = isFlow(curPage()) ? (FLOW.active() || {}) : null;
+  const flProf = fl && fl.sel && Object.keys(fl.sel).length
+    ? ((fl.profile && fl.profile.id && !fl.profile.sel && (curPage().flow.profiles || []).find(p => p.id === fl.profile.id)) || {name: 'свой выбор'}).name : null;
   modal(`<h3>Экспорт и импорт</h3>
     <div class="kv" style="margin-bottom:6px">Доска «${esc(P.name)}» · ${P.nodes.length} узлов, ${P.links.length} связей.</div>
+    ${fl ? `${cap('Конструктор — эта схема')}
+    <div style="${row};align-items:center">
+      <select id="flExpProf" style="width:auto">
+        <option value="">Все проверки</option>
+        ${flProf ? `<option value="1">Только для профиля «${esc(flProf)}»</option>` : ''}
+      </select>
+      <button class="btn pri" data-x="fxlsx">xlsx</button>
+      <button class="btn" data-x="fjson">JSON-контракт</button>
+      <button class="btn" data-x="fmd">Markdown-архив</button>
+      <button class="btn" data-x="fpng">PNG</button>
+      <button class="btn" data-x="fsvg">SVG</button>
+    </div>
+    <div class="hint" style="margin-top:7px">xlsx — в формате листа «Скоринг» плюс листы источников, профилей и полей; JSON — контракт
+      kycflow/1 (схема — docs/kycflow.schema.json); Markdown — архив для Obsidian.</div>` : ''}
     ${cap('Выгрузить эту доску')}
     <div style="${row}">
       <button class="btn pri" data-x="json">JSON доски</button>
@@ -5106,7 +5131,7 @@ function showExport() {
     <div style="${row}">
       <button class="btn" data-x="png">PNG (2×)</button>
       <button class="btn" data-x="svg">SVG</button>
-      <span class="hint" style="align-self:center">${isGraphCv(curPage()) ? 'экспорт текущего холста' : 'откройте холст или схему'}</span>
+      <span class="hint" style="align-self:center">${isGraphCv(curPage()) ? 'экспорт текущего холста' : isFlow(curPage()) ? 'снимок схемы конструктора' : 'откройте холст или схему'}</span>
     </div>
     ${VIEWER ? '' : `${cap('Загрузить файл')}
     <div style="${row}">
@@ -5141,6 +5166,11 @@ function showExport() {
     qsa('[data-x]', b).forEach(el => el.onclick = () => {
       const a = el.dataset.x;
       if (a === 'json') exportProject(); if (a === 'viewer') exportViewer(); if (a === 'md') exportMd();
+      if (/^f(xlsx|json|md|png|svg)$/.test(a)) {
+        const by = ($('flExpProf') || {}).value === '1';
+        closeModal();
+        FLOW.call('exportFlow', a.slice(1), {byProfile: by});
+      }
       if (a === 'csvn') csvNodes(); if (a === 'csvc') csvChecks(); if (a === 'csvl') csvLinks();
       if (a === 'png') {closeModal(); exportCanvasPNG();} if (a === 'svg') {closeModal(); exportCanvasSVG();}
       if (a === 'all') backupAll();

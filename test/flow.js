@@ -818,6 +818,7 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
       '§13: библиотека — 9 измерений (41 значение), 24 источника (64 поля), 55 проверок, 8 исходов', JSON.stringify(s13).slice(0, 120));
     check(s13.stages === 7 && s13.gates === 3 && s13.ek.data === 78 && s13.ek.verdict === 34 && s13.ek.cond === 16 && s13.ek.exec === 9 && s13.profiles === 4,
       '§13: 7 этапов, 3 гейта, связи 78 + 34 + 16 + 9, 4 профиля', JSON.stringify(s13.ek));
+    const KYC_ID = await c.eval(`P.id`);
     // §15: открытие seed — от gotoPage до отрисовки всех нод
     const tOpen = await c.eval(`(async () => {
       const pg = {id: 'pg_tbl', name: 'Таблица', kind: 'table', filter: {q: '', cats: [], statuses: [], types: [], f: {}}, table: {cols: ['name'], sort: 'name', dir: 1, group: ''}};
@@ -855,6 +856,102 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
       await c.send('Page.navigate', {url: URL});
       await c.waitFor(BOOTED, 25000, 'назад в приложение');
     }
+
+    /* =====================  M5: экспорт  ===================== */
+    // Скачивание ловится на URL.createObjectURL; перехват держим, пока файл не появится:
+    // выгрузка асинхронная (ленивый чанк), и кнопка возвращает управление раньше.
+    const grab = trigger => c.eval(`(async () => {
+      let got = null; const orig = URL.createObjectURL;
+      URL.createObjectURL = b => { got = b; return orig.call(URL, b); };
+      const a = HTMLAnchorElement.prototype.click, names = [];
+      HTMLAnchorElement.prototype.click = function () { names.push(this.download); };
+      try {
+        (async () => { ${trigger} })();
+        for (let i = 0; i < 400 && !got; i++) await new Promise(r => setTimeout(r, 50));
+        await new Promise(r => setTimeout(r, 100));
+      } finally { URL.createObjectURL = orig; HTMLAnchorElement.prototype.click = a; }
+      if (!got) return null;
+      const buf = new Uint8Array(await got.arrayBuffer());
+      let s = ''; for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+      return {type: got.type, name: names[names.length - 1], b64: btoa(s), size: buf.length};
+    })()`);
+    // Проверка просмотрщика уводила вкладку на file:// — открываем доску заново.
+    await c.eval(`(async () => { if (!P || P.id !== ${JSON.stringify(KYC_ID)}) await openProject(${JSON.stringify(KYC_ID)}); gotoPage('pg_kyc_rko'); return true; })()`);
+    await c.waitFor(`P && P.name === 'KYC/KYB — конструктор проверок' && FLOW.state().mounted && FLOW.state().rfNodes === 109`, 15000, 'доска KYC');
+    // С6: xlsx через окно «Экспорт и импорт» → группа «Конструктор»
+    await c.eval(`showExport()`);
+    await sleep(150);
+    const hasGroup = await c.eval(`!!document.querySelector('#mbox [data-x="fxlsx"]') && !!document.querySelector('#flExpProf')`);
+    check(hasGroup, 'в «Экспорте и импорте» на конструкторе — группа «Конструктор»');
+    const xl = await grab(`document.querySelector('#mbox [data-x="fxlsx"]').click();`);
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(Buffer.from(xl.b64, 'base64'));
+    const ws = wb.getWorksheet('Проверки');
+    const heads = ws.getRow(1).values.slice(1);
+    const stageRow = ws.getRow(2), gateRow = [...Array(ws.rowCount).keys()].map(i => ws.getRow(i + 1)).find(r => /^Гейт:/.test(String(r.getCell(1).value)));
+    check(ws.rowCount === 66, 'С6: лист «Проверки» — 66 строк (шапка + 7 этапов + 3 гейта + 55)', `${ws.rowCount} строк, файл «${xl.name}»`);
+    check(heads.join('|') === '#|Что проверяем|Как проверяем|Зачем проверяем|Источник|Статус согласования|Комментарий|Применимость|Вердикты|Коды факторов|Норматив|Исполнитель|Волна',
+      'С6: колонки — как в §10.1', heads.length + ' колонок');
+    check(String(stageRow.getCell(1).value) === '1. Проверка телефонного номера' && stageRow.getCell(1).isMerged && stageRow.font && stageRow.font.bold
+      && stageRow.getCell(1).fill.fgColor.argb === 'FFEEF1F8', 'строка этапа: объединена, жирная, заливка #eef1f8', String(stageRow.getCell(1).value));
+    check(gateRow && gateRow.font && gateRow.font.italic, 'гейт — строка курсивом', gateRow && String(gateRow.getCell(1).value).slice(0, 40));
+    check(ws.views[0].state === 'frozen' && ws.views[0].ySplit === 1 && !!ws.autoFilter && ws.columns.map(x => x.width).join('/') === '6/34/46/38/26/18/24/22/18/14/16/12/8',
+      'шапка закреплена, автофильтр, ширины 6/34/46/…/8');
+    const r315 = [...Array(ws.rowCount).keys()].map(i => ws.getRow(i + 1)).find(r => r.getCell(1).value === '3.15');
+    const r38 = [...Array(ws.rowCount).keys()].map(i => ws.getRow(i + 1)).find(r => r.getCell(1).value === '3.8');
+    check(/источник не определён/.test(r315.getCell(5).value) && r38.getCell(8).value === 'кроме: ИП, Свежерег < 180 дней',
+      'колонки «Источник» и «Применимость» — как в §10.1', r38.getCell(8).value);
+    check(['Источники', 'Профили', 'Поля'].every(n => wb.getWorksheet(n)), 'С6: листы «Источники», «Профили», «Поля»');
+    const wp = wb.getWorksheet('Профили');
+    const ipCol = wp.getRow(1).values.indexOf('P-ИП');
+    let ticks = 0; wp.eachRow((r, i) => { if (i > 1 && r.getCell(ipCol).value === '✓') ticks++; });
+    const totalRow = wp.getRow(wp.rowCount);
+    check(ticks === 45 && totalRow.getCell(ipCol).value === 45, 'лист «Профили» — 45 ✓ в колонке P-ИП и итог', `${ticks} ✓`);
+    check(wb.getWorksheet('Источники').rowCount === 25 && wb.getWorksheet('Поля').rowCount === 65, 'источники и поля — все 24 и 64');
+
+    // С7: JSON-контракт проходит схему
+    const js = await grab(`FLOW.call('exportFlow', 'json', {})`);
+    const contract = JSON.parse(Buffer.from(js.b64, 'base64').toString('utf8'));
+    const schemaJson = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, '../docs/kycflow.schema.json'), 'utf8'));
+    const schemaErr = require('./schema-lite.js').validate(schemaJson, contract);
+    const icount = {}; for (const i of contract.issues) icount[i.code] = (icount[i.code] || 0) + 1;
+    check(!schemaErr.length && contract.stages.map(s => s.num).join(' ') === '1 2 3a 3b 4 5 6',
+      'С7: JSON-контракт валиден по схеме, 7 этапов в порядке исполнения', schemaErr.slice(0, 2).join('; ') || js.name);
+    check(icount.INPUT_UNWIRED === 2 && icount.SOURCE_NO_ACCESS === 1 && icount.VERDICT_TBD === 15 && icount.SOURCE_PLANNED === 7 && !icount.VERDICT_UNROUTED,
+      'С7: issues совпадают с §10.2', JSON.stringify(icount));
+    // фильтр по профилю
+    await choose('#flowBar select[data-f="profile"]', 'pf_ip');
+    await sleep(200);
+    const jsIP = await grab(`FLOW.call('exportFlow', 'json', {byProfile: true})`);
+    const conIP = JSON.parse(Buffer.from(jsIP.b64, 'base64').toString('utf8'));
+    check(conIP.profileFilter && conIP.profileFilter.id === 'pf_ip' && conIP.stages.flatMap(s => s.checks).length === 45,
+      'фильтр выгрузки «только для профиля» — 45 проверок P-ИП');
+    await choose('#flowBar select[data-f="profile"]', '');
+
+    // Markdown-архив для Obsidian
+    const mdz = await grab(`FLOW.call('exportFlow', 'md', {})`);
+    const files = require('fflate').unzipSync(new Uint8Array(Buffer.from(mdz.b64, 'base64')));
+    const names = Object.keys(files);
+    const root = names[0].split('/')[0];
+    const chk311 = names.find(n => /\/Проверки\/3\.11 /.test(n));
+    const body311 = Buffer.from(files[chk311]).toString('utf8');
+    check(names.length === 1 + 55 + 24 && names.includes(`${root}/${root}.md`) && names.every(n => !/[:*?"<>|]/.test(n.split('/').pop())),
+      'Markdown-архив: индекс, 55 проверок и 24 источника, имена без запрещённых символов', `${names.length} файлов в «${root}»`);
+    check(/^---\ndate_created: \d{4}-\d{2}-\d{2}\ndate_updated: .*\ndomain: ДБО\nstatus: draft\ntype: spec\ncode: "3\.11"/.test(body311)
+      && /## Входы/.test(body311) && /\[\[ЦБ/.test(body311) && /## Вердикты → исходы/.test(body311), 'frontmatter хранилища и разделы проверки', chk311.split('/').pop());
+    const egrul = Buffer.from(files[names.find(n => /\/Источники\/ЕГРЮЛ ЕГРИП\.md$/.test(n))]).toString('utf8');
+    check(/## Используется в проверках/.test(egrul) && /\[\[2\.6 Дата регистрации\]\]/.test(egrul), 'источник ссылается на проверки, которые его читают');
+
+    // PNG и SVG
+    const png = await grab(`FLOW.call('exportFlow', 'png', {})`);
+    const pngHead = Buffer.from(png.b64, 'base64').subarray(0, 8).toString('hex');
+    check(pngHead === '89504e470d0a1a0a' && png.size > 50000, 'PNG схемы собирается', `${(png.size / 1024).toFixed(0)} КБ`);
+    const svg = await grab(`FLOW.call('exportFlow', 'svg', {})`);
+    const svgTxt = Buffer.from(svg.b64, 'base64').toString('utf8');
+    check(/^<svg/.test(svgTxt) && /foreignObject/.test(svgTxt) && /Проверка телефонного номера/.test(svgTxt), 'SVG схемы — с foreignObject и текстом нод', `${(svg.size / 1024).toFixed(0)} КБ`);
+    const noVisLimit = await c.eval(`document.querySelectorAll('#flowRoot .react-flow__node').length`);
+    check(noVisLimit === 109, 'после снимка видимость нод возвращается к обычной');
 
     if (c.errors.length) bad('исключения в консоли', c.errors.join(' | ').slice(0, 400));
     else ok('исключений в консоли нет');

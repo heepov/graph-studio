@@ -667,3 +667,142 @@ export function applyLayout(flow, plan, result) {
   }
   return moved;
 }
+
+/* ---------- контракт kycflow/1 (ТЗ §10.2) ----------
+   Единственный источник для всех выгрузок: xlsx, JSON и Markdown строятся из
+   него, поэтому расходиться им негде. Вход будущего rules engine и ТЗ для
+   разработки: этапы в порядке исполнения, у каждого входа — источники по
+   приоритету, у каждого вердикта — куда он ведёт. */
+export const CONTRACT_FORMAT = 'kycflow/1';
+export const ISSUE_LEVEL = {INPUT_UNWIRED: 'error', SOURCE_NO_ACCESS: 'error', SOURCE_PLANNED: 'warning',
+  VERDICT_TBD: 'warning', VERDICT_UNROUTED: 'warning', CHECK_NOT_IN_STAGE: 'warning'};
+
+// Время выгрузки — локальное, со смещением: «2026-10-08T12:00:00+03:00».
+export function isoLocal(d) {
+  const p = n => String(Math.abs(n)).padStart(2, '0'), off = -d.getTimezoneOffset();
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}` +
+    `${off >= 0 ? '+' : '-'}${p(Math.trunc(off / 60))}:${p(off % 60)}`;
+}
+
+// Порядок этапов: топологический по цепочке ▶ между рамками и гейтами (сквозь
+// reroute), начиная с рамки без входящего порядка; ничьи — по положению слева
+// направо. Перед этапом — гейт, из которого в него приходит порядок.
+export function stageOrder(flow) {
+  const N = new Map(flow.nodes.map(n => [n.id, n]));
+  const isSG = n => n && (n.k === 'stage' || n.k === 'gate');
+  const next = new Map(), prevGate = new Map();
+  const follow = (id, d = 0) => {   // куда ведёт выход, сквозь точки перегиба
+    const n = N.get(id);
+    if (!n || d > 16) return [];
+    if (n.k !== 'reroute') return [n];
+    return flow.edges.filter(e => e.s === id).flatMap(e => follow(e.t, d + 1));
+  };
+  for (const e of flow.edges) {
+    const s = N.get(e.s);
+    if (!isSG(s) || !/^exec/.test(e.sh)) continue;
+    for (const t of follow(e.t)) {
+      if (!isSG(t) || t.id === s.id) continue;
+      if (!next.has(s.id)) next.set(s.id, []);
+      next.get(s.id).push(t.id);
+      if (s.k === 'gate' && t.k === 'stage') { if (!prevGate.has(t.id)) prevGate.set(t.id, []); prevGate.get(t.id).push(s.id); }
+    }
+  }
+  const sg = flow.nodes.filter(isSG), indeg = new Map(sg.map(n => [n.id, 0]));
+  for (const [, ts] of next) for (const t of ts) indeg.set(t, (indeg.get(t) || 0) + 1);
+  const byX = (a, b) => ((+N.get(a).x || 0) - (+N.get(b).x || 0)) || ((+N.get(a).y || 0) - (+N.get(b).y || 0));
+  let ready = sg.filter(n => !indeg.get(n.id)).map(n => n.id).sort(byX);
+  const order = [];
+  while (ready.length) {
+    const id = ready.shift();
+    order.push(id);
+    for (const t of next.get(id) || []) { indeg.set(t, indeg.get(t) - 1); if (!indeg.get(t)) ready = ready.concat(t).sort(byX); }
+  }
+  for (const n of sg.slice().sort((a, b) => byX(a.id, b.id))) if (!order.includes(n.id)) order.push(n.id);   // цикл — в конец, по x
+  return {stages: order.filter(id => N.get(id).k === 'stage'), gateBefore: prevGate};
+}
+
+function appliesWhen(flow, lib, nodeId) {
+  const c = condOf(flow, lib, nodeId), all = Object.entries(c).map(([dimension, x]) => ({dimension, in: x.pos.slice(), notIn: x.neg.slice()}));
+  return all.length ? {all} : null;
+}
+
+export function toContract(doc, page, opts = {}) {
+  const flow = page.flow, lib = doc.flowLib || defaultLib();
+  const prof = opts.profile ? (flow.profiles || []).find(p => p.id === opts.profile) || null : null;
+  const sel = prof ? prof.sel : opts.sel || null;
+  const act = sel ? activity(flow, lib, sel) : null;
+  const N = new Map(flow.nodes.map(n => [n.id, n]));
+  const issues = [];
+  const issue = (code, ref, message) => issues.push({level: ISSUE_LEVEL[code], code, ref, message});
+  const {stages: order, gateBefore} = stageOrder(flow);
+  const verdictTarget = (nodeId, key, d = 0) => {
+    for (const e of flow.edges) {
+      if (e.s !== nodeId || e.sh !== (d ? 'out' : 'v:' + key)) continue;
+      const t = N.get(e.t);
+      if (t && t.k === 'outcome') return t.ref;
+      if (t && t.k === 'reroute' && d < 16) { const r = verdictTarget(t.id, key, d + 1); if (r) return r; }
+    }
+    return null;
+  };
+  const checkOut = n => {
+    const it = itemOf(lib, n);
+    const inputs = (it.inputs || []).map(inp => {
+      const h = 'in:' + inp.id, src = inputSources(flow, lib, n.id, h);
+      const wired = flow.edges.some(e => e.t === n.id && e.th === h);
+      if (!wired) issue('INPUT_UNWIRED', it.id + '.' + inp.id, `${it.code} «${it.name}»: у входа «${inp.name}» нет источника`);
+      return {id: inp.id, name: inp.name, type: inp.type || 'any',
+        sources: src.map(s => ({source: s.source, field: s.field, priority: s.priority})), missing: !wired};
+    });
+    const h = checkHoles(flow, lib, n);
+    const names = ids => ids.map(id => ((lib.sources || []).find(s => s.id === id) || {name: id}).name).join(', ');
+    if (h.noAccess.length) issue('SOURCE_NO_ACCESS', it.id, `${it.code} «${it.name}»: нет доступа к источнику — ${names(h.noAccess)}`);
+    if (h.planned.length) issue('SOURCE_PLANNED', it.id, `${it.code} «${it.name}»: источник ещё не подключён — ${names(h.planned)}`);
+    if (it.verdictTbd) issue('VERDICT_TBD', it.id, `${it.code} «${it.name}»: последствие проверки не определено`);
+    const verdicts = (it.verdicts || []).map(v => {
+      const outcome = verdictTarget(n.id, v);
+      if (!outcome && v !== 'info' && v !== 'ok') issue('VERDICT_UNROUTED', it.id + '.' + v, `${it.code} «${it.name}»: вердикт «${verdictOf(lib, v).name}» никуда не ведёт`);
+      return {verdict: v, outcome};
+    });
+    const after = flow.edges.filter(e => e.t === n.id && e.th === 'exec-in').map(e => N.get(e.s))
+      .filter(x => x && x.k === 'check' && x.parent && x.parent === n.parent).map(x => x.ref);
+    return {id: it.id, code: it.code || '', name: it.name || '', how: it.how || '', why: it.why || '', rule: it.rule || '', norm: it.norm || '',
+      factors: (it.factors || []).slice(), actor: it.actor || 'system', wave: it.wave == null ? 1 : +it.wave,
+      bank: {status: (it.bank || {}).status || 'none', comment: (it.bank || {}).comment || ''}, muted: !!n.muted,
+      appliesWhen: appliesWhen(flow, lib, n.id), after, inputs, verdicts, verdictTbd: !!it.verdictTbd};
+  };
+  const included = n => n.k === 'check' && itemOf(lib, n) && (!act || act.nodes.has(n.id));
+  const sortChecks = list => list.sort((a, b) => codeCompare(itemOf(lib, a), itemOf(lib, b)));
+  const stages = order.map((id, i) => {
+    const s = N.get(id), d = s.data || {}, g = (gateBefore.get(id) || []).map(gid => N.get(gid)).filter(Boolean);
+    return {id, order: i + 1, num: String(d.num || ''), name: d.name || '', point: d.point || '',
+      gateBefore: g.length ? {text: g.map(x => (x.data || {}).text || '').join('; ')} : null,
+      appliesWhen: appliesWhen(flow, lib, id), muted: !!s.muted,
+      checks: sortChecks(flow.nodes.filter(n => n.parent === id && included(n))).map(checkOut)};
+  });
+  const loose = sortChecks(flow.nodes.filter(n => included(n) && !(n.parent && N.get(n.parent) && N.get(n.parent).k === 'stage')));
+  if (loose.length) {
+    for (const n of loose) { const it = itemOf(lib, n); issue('CHECK_NOT_IN_STAGE', it.id, `${it.code} «${it.name}» не стоит ни в одном этапе`); }
+    stages.push({id: '__outside', order: stages.length + 1, num: '', name: 'Вне этапов', point: '', gateBefore: null,
+      appliesWhen: null, muted: false, checks: loose.map(checkOut)});
+  }
+  const lvl = {error: 0, warning: 1};
+  issues.sort((a, b) => lvl[a.level] - lvl[b.level]);
+  return {
+    format: CONTRACT_FORMAT, exported: isoLocal(opts.now || new Date()),
+    board: {id: String(opts.boardId || doc.id || ''), name: doc.name || ''},
+    pipeline: {id: page.id, name: page.name || ''},
+    profileFilter: prof ? {id: prof.id, name: prof.name, sel: prof.sel} : (sel ? {id: null, name: 'свой выбор', sel} : null),
+    dictionaries: {
+      dimensions: (lib.dims || []).map(x => ({id: x.id, code: x.code || '', name: x.name || '', desc: x.desc || '',
+        values: (x.values || []).map(v => ({id: v.id, code: v.code || '', name: v.name || '', desc: v.desc || '', wave: v.wave == null ? 1 : +v.wave}))})),
+      sources: (lib.sources || []).map(x => ({id: x.id, name: x.name || '', kind: x.kind || 'gov', access: x.access || 'api', mode: x.mode || 'sync',
+        status: x.status || 'unknown', providers: x.providers || '', url: x.url || '', cost: x.cost || '', note: x.note || '',
+        fields: (x.fields || []).map(f => ({id: f.id, name: f.name || '', type: f.type || 'any', desc: f.desc || ''}))})),
+      outcomes: (lib.outcomes || []).map(x => ({id: x.id, name: x.name || '', verdict: x.verdict || '', desc: x.desc || ''})),
+      verdicts: (lib.verdicts || []).map(v => ({key: v.key, name: v.name || '', color: v.color || ''})),
+      fieldTypes: TYPES.map(t => ({key: t.key, name: t.name, color: t.color})),
+    },
+    profiles: (flow.profiles || []).map(p => ({id: p.id, name: p.name || '', selection: p.sel || {}})),
+    stages, issues,
+  };
+}

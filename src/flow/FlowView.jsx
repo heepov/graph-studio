@@ -59,6 +59,16 @@ function writeVp(key, vp) {
   catch (e) { /* квота или приватный режим: камера просто не запомнится */ }
 }
 
+// Скачать готовый файл. Тексты приложение отдаёт через dl(), а здесь есть и
+// двоичные (xlsx, zip, png) — поэтому свой помощник на Blob.
+function download(name, blob) {
+  const u = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = u; a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(u); a.remove(); }, 500);
+}
+const fileSafe = s => String(s || '').replace(/[/\\:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+const dateStr = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+
 function savePanels(v) {
   try { localStorage.setItem('gs_flow_panels', JSON.stringify(v)); } catch (e) { /* не запомнится — не беда */ }
   return v;
@@ -287,6 +297,9 @@ function FlowView({ctx, pageId, rev, api}) {
   // Оверлей и видимость связей лежат в документе (ТЗ §6.2), но в режиме чтения
   // их тоже можно переключать — тогда только у себя, без записи.
   const [viewOv, setViewOv] = useState(null);
+  // На время снимка картинки рисуются ВСЕ ноды: onlyRenderVisibleElements
+  // выкинул бы из кадра всё, что за краем экрана.
+  const [exporting, setExporting] = useState(false);
 
   // Тема следует за body.dark. Наблюдатель, а не вызов из applyTheme(): так
   // приложению не нужно знать, что где-то есть React, а при размонтировании
@@ -961,6 +974,7 @@ function FlowView({ctx, pageId, rev, api}) {
     },
     resized,
     focusDone: () => setFocusReq(0),
+    showExport: () => ctx.showExport(),
     /* --- профиль, оверлей, видимость связей --- */
     setProfile(v) { if (v !== '__custom') setProf(v ? {id: v} : {sel: {}}); },
     pickValue(dim, val, on) {
@@ -1142,6 +1156,59 @@ function FlowView({ctx, pageId, rev, api}) {
         insp: (() => { const el = rootRef.current && rootRef.current.querySelector('.fl-insp'); return el ? el.getAttribute('data-insp') || 'empty' : null; })()};
     };
     api.pickLib = (sec, id) => { fx.pickLib(sec, id); return true; };
+    // Выгрузки (ТЗ §10): все строятся из контракта kycflow/1. «Только для профиля» —
+    // применимые к активному профилю проверки; профиль с несохранёнными галочками
+    // выгружается своим выбором.
+    api.contract = byProfile => {
+      const c = cur(), on = !!byProfile && Object.keys(sel).length > 0;
+      const savedSame = on && prof.id && (!prof.sel || JSON.stringify(prof.sel) === JSON.stringify((profObj || {}).sel));
+      return R.toContract(c.P, c.pg, {profile: savedSame ? prof.id : null, sel: on && !savedSame ? sel : null, boardId: ctx.boardId()});
+    };
+    api.exportFlow = async (fmt, opts = {}) => {
+      if (fmt === 'png' || fmt === 'svg') return api.exportImage(fmt);
+      const c = cur(), con = api.contract(opts.byProfile);
+      const base = fileSafe(`KYC — ${c.pg.name} — ${dateStr()}`);
+      try {
+        if (fmt === 'json') {
+          download(base + '.json', new Blob([JSON.stringify(con, null, 2)], {type: 'application/json'}));
+        } else if (fmt === 'xlsx') {
+          const {buildXlsx} = await import('./export/xlsx.js');
+          const buf = await buildXlsx(c.P, c.pg, con);
+          download(base + '.xlsx', new Blob([buf], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+        } else if (fmt === 'md') {
+          const {buildMdZip} = await import('./export/md.js');
+          download(base + '.zip', new Blob([buildMdZip(c.P, c.pg, con)], {type: 'application/zip'}));
+        } else return false;
+      } catch (e) {
+        ctx.toast((ctx.viewer ? 'В файле просмотрщика без сети эта выгрузка недоступна: ' : 'Выгрузка не удалась: ') + (e.message || e));
+        return false;
+      }
+      ctx.toast(`Выгружено: ${fmt === 'md' ? 'Markdown-архив' : fmt === 'json' ? 'JSON-контракт kycflow/1' : 'xlsx'}` +
+        (con.profileFilter ? ` · профиль «${con.profileFilter.name}»` : ''));
+      return true;
+    };
+    api.exportImage = async fmt => {
+      const c = cur(); if (!c.flow.nodes.length) { ctx.toast('Схема пустая — выгружать нечего'); return false; }
+      setExporting(true);
+      try {
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const b = rf.getNodesBounds(rf.getNodes()), pad = 40;
+        const box = {width: Math.ceil(b.width + pad * 2), height: Math.ceil(b.height + pad * 2), x: -b.x + pad, y: -b.y + pad, zoom: 1};
+        const {snapshot} = await import('./export/image.js');
+        const el = rootRef.current.querySelector('.react-flow__viewport');
+        const bg = getComputedStyle(rootRef.current.querySelector('.react-flow')).backgroundColor || '#ffffff';
+        const url = await snapshot(el, fmt, box, bg);
+        const blob = fmt === 'svg'
+          ? new Blob([decodeURIComponent(url.slice(url.indexOf(',') + 1))], {type: 'image/svg+xml'})
+          : await (await fetch(url)).blob();
+        download(fileSafe(`KYC — ${c.pg.name} — ${dateStr()}`) + '.' + fmt, blob);
+        ctx.toast(fmt === 'svg' ? 'SVG выгружен (ноды внутри — HTML в foreignObject)' : 'PNG выгружен');
+        return true;
+      } catch (e) {
+        ctx.toast('Картинка не собралась: ' + (e.message || e));
+        return false;
+      } finally { setExporting(false); }
+    };
     // Сводка активного профиля — те же числа, что в полосе (FLOW.active()).
     api.active = () => ({profile: prof, sel, checks: stats.checks, sources: stats.sources, outcomes: stats.outcomes,
       holes: stats.holes.length, nodes: [...act.nodes], edges: act.edges.size,
@@ -1241,7 +1308,7 @@ function FlowView({ctx, pageId, rev, api}) {
             selectionOnDrag={!COARSE} panOnDrag={COARSE ? true : [1]} multiSelectionKeyCode={MULTI_KEYS}
             deleteKeyCode={null} elevateNodesOnSelect={false}
             nodesDraggable={!ro} nodesConnectable={!ro} elementsSelectable
-            onlyRenderVisibleElements
+            onlyRenderVisibleElements={!exporting}
             attributionPosition="top-right"
           >
             <Background gap={22} size={1.2}/>

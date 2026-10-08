@@ -273,6 +273,45 @@ const ROOT = path.join(__dirname, '..');
   check(!ar1.nodes.has('c') && !ar1.edges.has('e2') && ar2.nodes.has('c') && ar2.nodes.has('r'), '«кроме» через точку перегиба работает так же');
   check(ar2.nodes.has('s') && !ar1.nodes.has('s'), 'источник с «Когда» активен только при своём значении и при активной проверке');
 
+  /* ---------- M5: контракт kycflow/1 ---------- */
+  const {validate} = require('./schema-lite.js');
+  const schema = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/kycflow.schema.json'), 'utf8'));
+  const seedDoc = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/flow/seed-kyc-rko.json'), 'utf8'));
+  seedDoc.flowLib = M.normalizeLib(seedDoc.flowLib);
+  const con = R.toContract(seedDoc, seedDoc.pages[0], {boardId: 'b1', now: new Date(2026, 9, 8, 12, 0, 0)});
+  const errs = validate(schema, con);
+  check(!errs.length, 'С7: контракт seed проходит docs/kycflow.schema.json', errs.slice(0, 3).join('; ') || 'без ошибок');
+  // Валидатор обязан ловить ошибки, иначе проверка выше ничего не стоит.
+  const broken = JSON.parse(JSON.stringify(con)); broken.stages[0].checks[0].actor = 'robot'; delete broken.issues;
+  check(validate(schema, broken).length === 2, 'валидатор схемы ловит неверное значение и пропущенное поле', validate(schema, broken).join('; '));
+  check(con.format === 'kycflow/1' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/.test(con.exported), 'формат и время выгрузки со смещением', con.exported);
+  check(con.stages.length === 7 && con.stages.map(s => s.num).join(' ') === '1 2 3a 3b 4 5 6' && con.stages.every((s, i) => s.order === i + 1),
+    'С7: 7 этапов в порядке исполнения', con.stages.map(s => s.num).join(' → '));
+  check(['3a', '4', '5'].every(n => con.stages.find(s => s.num === n).gateBefore) && !con.stages.find(s => s.num === '3b').gateBefore,
+    'гейты стоят перед 3a, 4 и 5', con.stages.find(s => s.num === '3a').gateBefore.text);
+  const s2 = con.stages.find(s => s.num === '2').checks.map(x => x.code);
+  check(s2.join(',') === '2.1,2.2,2.3,2.4,2.5,2.6,2.7,2.8,2.9,2.10,2.11', 'проверки этапа — по натуральной сортировке кода (2.9 < 2.10)', s2.join(','));
+  const allChecks = con.stages.flatMap(s => s.checks);
+  check(allChecks.length === 55 && allChecks.every(c => c.inputs.every(i => i.missing === !i.sources.length)), '55 проверок, у каждого входа — источники или пометка missing');
+  const lic = allChecks.find(x => x.code === '3.11').inputs.find(i => i.id === 'lic');
+  check(lic.sources.map(s => s.source + ':' + s.priority).join(' ') === 'src_cbr_lic:1 src_focus_lic:2 src_egrul:3', 'С7: у входа — источники по приоритету', JSON.stringify(lic.sources));
+  const c38 = allChecks.find(x => x.code === '3.8');
+  check(JSON.stringify(c38.appliesWhen) === '{"all":[{"dimension":"dim_ctype","in":[],"notIn":["v_ip"]},{"dimension":"dim_age","in":[],"notIn":["v_new"]}]}',
+    'применимость в контракте — как в примере ТЗ', JSON.stringify(c38.appliesWhen));
+  const icnt = {};
+  for (const i of con.issues) icnt[i.code] = (icnt[i.code] || 0) + 1;
+  check(icnt.INPUT_UNWIRED === 2 && icnt.SOURCE_NO_ACCESS === 1 && icnt.VERDICT_TBD === 15 && icnt.SOURCE_PLANNED === 7 && !icnt.VERDICT_UNROUTED && !icnt.CHECK_NOT_IN_STAGE,
+    'issues §10.2: 2 INPUT_UNWIRED, 1 SOURCE_NO_ACCESS, 15 VERDICT_TBD, 7 SOURCE_PLANNED, 0 VERDICT_UNROUTED', JSON.stringify(icnt));
+  const planned = con.issues.filter(i => i.code === 'SOURCE_PLANNED').map(i => allChecks.find(x => x.id === i.ref).code).sort((a, b) => a.localeCompare(b, 'ru', {numeric: true}));
+  check(planned.join(' ') === '1.2 1.3 1.4 1.5 3.18 4.8 6.2', 'SOURCE_PLANNED — ровно 1.2–1.5, 3.18, 4.8, 6.2', planned.join(' '));
+  check(con.issues.filter(i => i.code === 'INPUT_UNWIRED').map(i => i.ref).join() === 'chk_3_15.sanc,chk_3_19.court'
+    && con.issues.every(i => i.level === (['INPUT_UNWIRED', 'SOURCE_NO_ACCESS'].includes(i.code) ? 'error' : 'warning')), 'уровни: дыры источников — error, остальное — warning');
+  const conIP = R.toContract(seedDoc, seedDoc.pages[0], {profile: 'pf_ip'});
+  check(conIP.stages.flatMap(s => s.checks).length === 45 && conIP.profileFilter.id === 'pf_ip' && !validate(schema, conIP).length,
+    'фильтр по профилю: в контракте только 45 применимых к P-ИП', conIP.profileFilter.name);
+  const v26 = allChecks.find(x => x.code === '2.6').verdicts;
+  check(v26.length === 1 && v26[0].verdict === 'risk' && v26[0].outcome === 'out_risk', 'вердикт ведёт в свой исход', JSON.stringify(v26));
+
   /* ---------- копия правил для сервера ---------- */
   // Образ API собирается с контекстом ./server и src/ не видит, поэтому получает
   // копию rules.js. Разъехавшаяся копия дала бы Claude и человеку разные ответы.

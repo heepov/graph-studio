@@ -63,6 +63,7 @@ export default function ProfileBar({fx, flow, lib, prof, stats, overlay, show, r
       <span className="fl-sp"/>
       <button className={'btn sm' + (panels.lib ? ' act' : '')} onClick={() => fx.panel('lib', !panels.lib)}>Библиотека</button>
       <button className="btn sm" data-a="table" onClick={() => fx.openTable('checks')}>Таблица</button>
+      <button className="btn sm" data-a="export" title="xlsx, JSON-контракт, Markdown-архив, PNG, SVG" onClick={() => fx.showExport()}>Экспорт</button>
       <button className={'btn sm' + (panels.insp ? ' act' : '')} onClick={() => fx.panel('insp', !panels.insp)}>Инспектор</button>
       {pop === 'edit' ? <Pop onClose={close} cls="fl-pop-edit"><ProfileEdit fx={fx} flow={flow} lib={lib} prof={prof} ro={ro}/></Pop> : null}
       {pop === 'find' ? <Pop onClose={close} cls="fl-pop-find"><Search fx={fx} onDone={close}/></Pop> : null}
