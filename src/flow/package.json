@@ -1,0 +1,4 @@
+{
+  "//": "Модули конструктора — ESM. Пометка нужна node: test/flow-rules.js грузит rules.js и model.js напрямую, а корневой package.json без type:module (тесты на CommonJS)",
+  "type": "module"
+}

@@ -3,6 +3,8 @@ import { icon } from './icons.js';
 import * as cloud from './cloud.js';
 import * as home from './home.js';
 import * as live from './live.js';
+import { mountFlow, updateFlow, unmountFlow, flowMounted, flowExportImage, FLOW } from './flow/index.jsx';
+import { normalizeFlow, normalizeLib, needsLib } from './flow/model.js';
 /* ==========================================================================
    HEEPOV BOARD — редактор графов зависимостей, роадмапов и схем
    Один файл. Проекты в IndexedDB. Экспорт/импорт JSON, CSV, Markdown, viewer.
@@ -891,9 +893,14 @@ function matchFilter(n, flt) {
 //   isGraphCv — «холст графа»: там, где смысл именно в узлах и зависимостях
 //               (диспетчер отрисовки, экспорт картинки, клавиша N).
 //   isJam     — свободная доска: свои объекты, свои инструменты.
+//
+// Конструктор (flow) — четвёртый, и он НЕ входит ни в isSpatial, ни в isGraphCv:
+// камерой, мышью и клавишами там управляет React Flow (src/flow). Ни onDown,
+// ни wireCanvas, ни миникарта приложения на этой странице не работают.
 const isSpatial = pg => !!pg && (pg.kind === 'canvas' || pg.kind === 'space' || pg.kind === 'jam');
 const isJam = pg => !!pg && pg.kind === 'jam';
 const isGraphCv = pg => !!pg && (pg.kind === 'canvas' || pg.kind === 'space');
+const isFlow = pg => !!pg && pg.kind === 'flow';
 function pageNodes(pg) {
   // на свободной схеме присутствие узла = наличие его позиции для этой страницы.
   // Иначе на неё вываливались бы все узлы проекта кучей, чего от доски никто не ждёт.
@@ -1316,6 +1323,29 @@ function renderJam(pg) {
   wireJam();
   paintEmptyHint(pg, nodes);
   wireCanvasShell(pg, cfg);
+}
+// Нодовый конструктор. Рисует его React-модуль (src/flow), приложение только
+// даёт контейнер и свои функции. Контейнер создаётся ОДИН раз на страницу:
+// повторная отрисовка той же страницы идёт через updateFlow() без пересоздания,
+// иначе каждая правка сбрасывала бы камеру и выделение.
+function renderFlow(pg) {
+  const root = $('flowRoot');
+  if (root && flowMounted(pg.id, P.id)) { updateFlow(pg); return; }
+  unmountFlow();
+  $('view').innerHTML = '<div id="flowRoot"></div>';
+  mountFlow($('flowRoot'), flowCtx(), pg);
+}
+// Что модуль конструктора знает о приложении — ровно этот набор. P отдаётся
+// функцией, а не значением: отмена и чужая правка заменяют объект целиком.
+function flowCtx() {
+  return {
+    P: () => P, ro: () => ro(), viewer: VIEWER,
+    save, snapNow, snapshot, toast, modal, closeModal, confirmBox, promptBox,
+    uid, esc, icon, dl, viewKey,
+    isDark: () => document.body.classList.contains('dark'),
+    bar: () => $('flowBar'),
+    gotoPage, kindName, applyInspW, saveInspW,
+  };
 }
 /* ---------- инструменты доски ---------- */
 // Инструмент одноразовый: поставил объект — вернулся к стрелке. Так работают
@@ -3523,6 +3553,8 @@ document.addEventListener('keydown', e => {
     }
     if (home.homeOpen() && P) {home.hideAll(); return;}
     if (!started) return;
+    // На конструкторе Esc закрывает его собственные меню и снимает выделение там же.
+    if (isFlow(curPage())) return;
     setSel([]); closeInsp(); return;
   }
   // До открытия проекта половина обработчиков читает P.pages / curPage() и падает
@@ -3541,6 +3573,14 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (VIEWER) return;
+  // Конструктор ловит клавиши сам, на своём контейнере (src/flow): M, H, Del и буквы
+  // значат там другое, и ветки доски и холста ниже их перехватили бы. Отсюда ему
+  // достаются только Esc, Ctrl+K, Ctrl+Z и Ctrl+S выше — и Ctrl+B: панель приложения
+  // сворачивается на любой странице.
+  if (isFlow(curPage())) {
+    if (mod && isKey(e, 'KeyB', 'b')) {e.preventDefault(); toggleSideRail();}
+    return;
+  }
   // Буквы-инструменты доски. Раскладка взята у Miro (её знает больше людей),
   // сверка — по e.code, иначе в русской раскладке не работает ни одна.
   if (!mod && isJam(curPage())) {
@@ -3689,6 +3729,7 @@ const KIND = {
   canvas: {n: 'Холст', i: icon('diagram', 'i-sm'), d: 'колонка = глубина зависимости'},
   space: {n: 'Схема', i: icon('layout', 'i-sm'), d: 'свободная схема: кладёшь что хочешь и куда хочешь'},
   jam: {n: 'Доска', i: icon('board', 'i-sm'), d: 'стикеры, фигуры, стрелки и рисунки на бесконечном холсте'},
+  flow: {n: 'Конструктор (ноды)', i: icon('nodes', 'i-sm'), d: 'блоки с сокетами: источники, проверки, исходы, профили клиента'},
   table: {n: 'Таблица', i: icon('table', 'i-sm'), d: 'строки, колонки, правка в ячейках'},
   board: {n: 'Канбан', i: icon('kanban', 'i-sm'), d: 'карточки по колонкам, drag&drop'},
   dash: {n: 'Дашборд', i: icon('dashboard', 'i-sm'), d: 'плитки и сводка из данных'},
@@ -3724,20 +3765,33 @@ function gotoPage(id) {
   // Инструмент — состояние руки на КОНКРЕТНОЙ доске. Утёкший на холст-граф «ластик»
   // означал бы, что ветка инструмента в onDown перехватывает нажатия там, где её не ждут.
   JAM.tool = 'sel'; JAM.sticky = false;
+  // Уходя с конструктора, снимаем React целиком: его корень держит камеру,
+  // выделение и подписки, которым на другой странице делать нечего.
+  if (id !== UI.page && isFlow(curPage())) unmountFlow();
   UI.page = id; UI.sel.clear(); UI.selNotes.clear(); UI.selFrames.clear(); UI.selItems.clear(); UI.selLink = null; closeInsp();
   renderPages(); renderPage();
 }
 function renderPage() {
   const pg = curPage(); if (!pg) return;
   UI.page = pg.id;
+  // Конструктор размонтируется ДО того, как чужой рендерер перепишет #view
+  // и #pagebar: иначе React остался бы с корнем в вынесенном из DOM контейнере.
+  // Сюда приходят не только из gotoPage — ещё отмена, чужая правка, другая доска.
+  if (!isFlow(pg)) unmountFlow();
   $('pgTitle').textContent = pg.name;
-  const ns = pageNodes(pg);
-  // «из 32 узлов», а не «из 32 узла»: после предлога «из» нужен родительный падеж,
-  // а nOf() даёт форму, согласованную с числительным в именительном
-  $('pgSub').textContent = `${kindName(pg.kind)} · ${ns.length} из ${P.nodes.length} узлов`;
+  if (isFlow(pg)) {
+    const f = pg.flow || {};
+    $('pgSub').textContent = `${kindName(pg.kind)} · ${nOf((f.nodes || []).length, ['блок', 'блока', 'блоков'])}, ${nOf((f.edges || []).length, LINKS)}`;
+  } else {
+    const ns = pageNodes(pg);
+    // «из 32 узлов», а не «из 32 узла»: после предлога «из» нужен родительный падеж,
+    // а nOf() даёт форму, согласованную с числительным в именительном
+    $('pgSub').textContent = `${kindName(pg.kind)} · ${ns.length} из ${P.nodes.length} узлов`;
+  }
   renderPageBar(pg);
   const old = $('bulk'); if (old) old.remove();
   if (isJam(pg)) renderJam(pg);
+  else if (isFlow(pg)) renderFlow(pg);
   else if (isGraphCv(pg)) renderCanvas(pg);
   else if (pg.kind === 'table') renderTable(pg);
   else if (pg.kind === 'board') renderBoard(pg);
@@ -3749,6 +3803,13 @@ function renderPage() {
 /* ---------- панель страницы ---------- */
 function renderPageBar(pg) {
   const bar = $('pagebar');
+  // Полосу конструктора (профиль, оверлей, видимость связей) рисует сам модуль:
+  // её состояние живёт в React, и пересборка строкой на каждую отрисовку теряла бы
+  // открытые меню. Здесь только контейнер; фильтр узлов пула конструктору не нужен.
+  if (isFlow(pg)) {
+    if (!$('flowBar')) bar.innerHTML = '<div id="flowBar"></div>';
+    return;
+  }
   const flt = pg.filter = pg.filter || {q: '', cats: [], statuses: [], types: [], f: {}};
   let h = `<input type="text" id="fq" placeholder="Фильтр по тексту…" value="${esc(flt.q || '')}" style="width:190px">`;
   h += `<div class="menu" id="mFilter"><button class="btn${activeFilterCount(flt) ? ' act' : ''}">Фильтр${activeFilterCount(flt) ? ' · ' + activeFilterCount(flt) : ''} ${icon('chevron-down', 'i-sm')}</button><div class="mlist left" style="min-width:270px;max-height:60vh;overflow:auto"></div></div>`;
@@ -4627,6 +4688,8 @@ function newPage() {
       if (kind === 'canvas') pg.canvas = {layout: 'free', lanes: ['блокировки', 'этап 1', 'этап 2', 'этап 3', 'этап 4', 'этап 5']};
       if (kind === 'space') pg.space = {};
       if (kind === 'jam') pg.jam = {items: [], bg: 'dots'};
+      // Первая страница-конструктор заводит и библиотеку доски — общую для всех конвейеров.
+      if (kind === 'flow') { pg.flow = normalizeFlow(null); P.flowLib = normalizeLib(P.flowLib); }
       if (kind === 'table') pg.table = {cols: ['name', 'cat', 'status', 'step', 'weight', 'checks'], sort: 'name', dir: 1, group: ''};
       if (kind === 'board') pg.board = {groupBy: 'status'};
       P.pages.push(pg); seedFreePositions(pg); save(); closeModal(); gotoPage(pg.id);
@@ -5457,7 +5520,14 @@ function normalize(pr) {
       p.jam = p.jam || {};
       p.jam.items = Array.isArray(p.jam.items) ? p.jam.items.filter(it => it && it.kind && it.id) : [];
       p.jam.bg = p.jam.bg || 'dots';
-    }});
+    }
+    // Конструктор: умолчания описаны в src/flow/model.js, но досыпаются тоже здесь.
+    if (p.kind === 'flow') p.flow = normalizeFlow(p.flow);
+  });
+  // Библиотека конструктора — общая для доски, поэтому в корне документа. Заводится
+  // только вместе с первой страницей-конструктором: документ без них обязан
+  // сохраняться байт-в-байт как в 2.8.0, без пустого flowLib «на всякий случай».
+  if (needsLib(pr)) pr.flowLib = normalizeLib(pr.flowLib);
   return pr;
 }
 // Восстановление бэкап-бандла. Общая точка для «Импорт → JSON» и для «Открыть файл»:
@@ -6160,7 +6230,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, COL_MIN, DBNAME, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KBCOL_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, elFromHTML, emptyBlock, endPtr, ensureCanvasShell, ensureColgroup, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, icon, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamBase, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamRest, jamSnapshot, jamToolDown, jumpToNode, kbDropTo, kbIndexAt, kbInsMark, kbScroll, kbSort, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeJamDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, moveTableCol, nBlockers, nOf, newPage, nextColor, nodeById, nodeHTML, normalize, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, patchList, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireColOrder, wireColResize, wireEdit, wireJam, wireKbResize, wrapLines, zoomAt});
+Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, COL_MIN, DBNAME, FLOW, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KBCOL_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, elFromHTML, emptyBlock, endPtr, ensureCanvasShell, ensureColgroup, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flowCtx, flowExportImage, flowMounted, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, icon, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isFlow, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamBase, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamRest, jamSnapshot, jamToolDown, jumpToNode, kbDropTo, kbIndexAt, kbInsMark, kbScroll, kbSort, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeJamDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, mountFlow, moveTableCol, nBlockers, nOf, needsLib, newPage, nextColor, nodeById, nodeHTML, normalize, normalizeFlow, normalizeLib, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, patchList, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderFlow, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, unmountFlow, updateFlow, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireColOrder, wireColResize, wireEdit, wireJam, wireKbResize, wrapLines, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, 'RO', {get: () => RO, set: v => {RO = v;}, configurable: true});

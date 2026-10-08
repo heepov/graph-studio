@@ -12,6 +12,16 @@
     "prod": "node test/prod.js"
   },
   "devDependencies": {
-    "vite": "^7.1.5"
+    "@vitejs/plugin-react": "6.1.1",
+    "vite": "^8.3.3"
+  },
+  "dependencies": {
+    "@xyflow/react": "12.11.6",
+    "elkjs": "0.12.0",
+    "exceljs": "4.4.0",
+    "fflate": "0.8.3",
+    "html-to-image": "1.11.11",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   }
 }

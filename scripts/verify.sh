@@ -51,6 +51,12 @@ node test/touch.js
 echo "── свободная доска"
 node test/jam.js
 
+echo "── конструктор: правила (без браузера)"
+node test/flow-rules.js
+
+echo "── конструктор: страница в браузере"
+node test/flow.js
+
 echo "── коннектор для Claude: OAuth и MCP"
 node test/mcp.js
 

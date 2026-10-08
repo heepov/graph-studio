@@ -1,0 +1,53 @@
+/* Нодовый конструктор (страница kind:'flow').
+   Только классы с префиксом .fl- — имена вроде .pill и .nd в приложении заняты
+   (грабли SPEC §8 п. 1). Цвета — через переменные :root приложения, поэтому
+   тёмная тема приезжает сама; константы — только у сокетов и вердиктов (ТЗ §3),
+   они одинаковы в обеих темах. */
+
+.fl-root{position:absolute;inset:0;display:flex;outline:none;background:var(--surf);color:var(--ink);
+  font-size:var(--t-body)}
+.fl-pane{position:relative;flex:1;min-width:0;height:100%}
+.fl-missing{align-items:center;justify-content:center;color:var(--muted)}
+
+/* React Flow берёт цвета из своих переменных; задаём их токенами приложения,
+   чтобы холст конструктора не отличался от соседних страниц. */
+.fl-root .react-flow{
+  --xy-background-color:var(--surf);
+  --xy-background-pattern-color:var(--line);
+  --xy-node-color:var(--ink);
+  --xy-node-background-color:var(--card);
+  --xy-node-border-radius:var(--r-m);
+  --xy-edge-stroke:#9aa1b2;
+  --xy-edge-stroke-selected:var(--accent);
+  --xy-connectionline-stroke:var(--ink2);
+  --xy-minimap-background-color:var(--card);
+  --xy-minimap-mask-background-color:rgba(var(--accent-rgb),.07);
+  --xy-minimap-mask-stroke-color:var(--accent);
+  --xy-minimap-mask-stroke-width:2;
+  --xy-minimap-node-background-color:var(--line-str);
+  --xy-controls-button-background-color:var(--card);
+  --xy-controls-button-background-color-hover:var(--hov);
+  --xy-controls-button-color:var(--ink2);
+  --xy-controls-button-color-hover:var(--ink);
+  --xy-controls-button-border-color:var(--line);
+  --xy-controls-box-shadow:var(--shf);
+  font-family:inherit}
+body.dark .fl-root .react-flow{--xy-background-color:#0d1017;--xy-background-pattern-color:#2a3140}
+.fl-root .react-flow__controls{border-radius:var(--r-l);overflow:hidden;border:1px solid var(--line)}
+.fl-root .react-flow__controls-button{width:28px;height:28px}
+.fl-root .react-flow__minimap.fl-mini{border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;
+  box-shadow:var(--shf);width:190px;height:126px}
+.fl-root .react-flow__minimap.fl-mini svg{width:100%;height:100%;display:block}
+
+/* пустая схема: та же плашка, что у пустого холста и доски */
+.fl-empty{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);z-index:5;
+  max-width:420px;text-align:center;pointer-events:none;
+  background:rgba(255,255,255,.82);border:1px solid var(--line);border-radius:var(--r-l);
+  padding:18px 22px;box-shadow:var(--sh1);backdrop-filter:blur(2px)}
+body.dark .fl-empty{background:rgba(30,35,46,.86)}
+.fl-empty .ttl{font-size:var(--t-ui);font-weight:750;color:var(--ink);margin-bottom:6px}
+.fl-empty .txt{font-size:var(--t-meta);color:var(--ink2);line-height:1.6}
+.fl-empty b{color:var(--ink)}
+
+/* полоса конструктора в панели страницы приложения (#pagebar) */
+#flowBar{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;min-height:28px;flex:1;min-width:0}
