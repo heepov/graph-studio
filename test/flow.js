@@ -92,6 +92,13 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     check(made.icon, 'у страницы свой значок в списке');
     const PID = made.id;
 
+    // --- меню страницы «⋯» в списке страниц: клик по иконке открывает меню, а не страницу
+    await c.eval(`(() => { const el = document.querySelector('#pageList .pgi.on [data-mo] svg'); el.dispatchEvent(new MouseEvent('click', {bubbles: true, clientX: 100, clientY: 100})); return true; })()`);
+    await sleep(150);
+    const pgMenu = await c.eval(`({open: document.getElementById('ctx').classList.contains('open'), items: [...document.querySelectorAll('#ctx .mi')].map(m => m.textContent)})`);
+    await c.eval(`hideCtx()`);
+    check(pgMenu.open && pgMenu.items.some(t => /Дублировать/.test(t)), 'меню страницы «⋯» открывается кликом по иконке', pgMenu.items.slice(0, 3).join(' / '));
+
     // --- 2.10: экран по умолчанию — схема на всю ширину ---------------------
     const ux0 = await c.eval(`({lib: !!document.querySelector('.fl-lib'), insp: !!document.querySelector('.fl-insp'),
       rails: document.querySelectorAll('.fl-rail').length, show: curPage().flow.show,
@@ -731,12 +738,14 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     await c.eval(`FLOW.call('select', [])`);
     await c.eval(`FLOW.call('setViewport', {x: 200, y: 120, k: 0.22})`);
     await sleep(300);
-    const far = await c.eval(`({far: document.querySelector('.fl-root').classList.contains('fl-far'), labels: [...document.querySelectorAll('.fl-farlbl b')].map(x => x.textContent)})`);
+    const far = await c.eval(`({far: document.querySelector('.fl-root').classList.contains('fl-far'), labels: [...document.querySelectorAll('.fl-farlbl b')].map(x => x.textContent),
+      ttl: [...document.querySelectorAll('.react-flow__node-check .fl-ttl')].slice(0, 5).map(x => getComputedStyle(x).visibility)})`);
     await c.eval(`FLOW.call('setViewport', {x: 0, y: 0, k: 1})`);
     await sleep(250);
     const near = await c.eval(`({far: document.querySelector('.fl-root').classList.contains('fl-far'), labels: document.querySelectorAll('.fl-farlbl').length})`);
     check(far.far && far.labels.length === 7 && far.labels.includes('3b. Углублённая проверка по ИНН/ОГРН') && !near.far && near.labels === 0,
       'издалека этапы подписаны крупно, вблизи — обычный вид', far.labels.slice(0, 3).join(' | '));
+    check(far.ttl.length > 0 && far.ttl.every(v => v === 'visible'), 'издалека содержимое нод не прячется (2.10.1)', far.ttl.join(','));
     const docBefore = await c.eval(`JSON.stringify(pageById(${JSON.stringify(SEED_PG)}).flow.profiles) + pageById(${JSON.stringify(SEED_PG)}).flow.profile`);
     // С2: P-ИП — 45 из 55, погашены ровно десять
     await choose('#flowBar select[data-f="profile"]', 'pf_ip');

@@ -131,13 +131,9 @@ body.dark .fl-who{color:#a995ff}
 .fl-muted.fl-node{border-style:dashed}
 .fl-off{opacity:.18}
 
-/* Издалека (масштаб < 0.5): мелкие подписи прячутся, коды проверок растут
-   обратно масштабу — схема читается как карта этапов, а не как рябь. */
-.fl-far .fl-row .fl-lbl,.fl-far .fl-body,.fl-far .fl-bdg,.fl-far .fl-ttl,.fl-far .fl-st-sub,
-.fl-far .fl-st-hd .fl-st-name,.fl-far .fl-st-hd .fl-st-num,.fl-far .fl-st-cnt,.fl-far .fl-note-t{visibility:hidden}
-.fl-far .fl-code{font-size:min(calc(11px / var(--fl-z,1)),40px);line-height:1.15;padding:1px 6px}
-.fl-far .fl-hd{overflow:visible}
-.fl-far .react-flow__handle.fl-sock{opacity:0}
+/* Издалека содержимое нод НЕ прячется: на ретине мелкий текст читается, а пустые
+   карточки на месте названий оказались неудобными (2.10.1). Издалека добавляются
+   только крупные подписи этапов — над рамками, см. .fl-farlbl. */
 
 /* сокеты: ▶ порядок, ◆ применимость, ● данные, ■ вердикт */
 .fl-root .react-flow__handle.fl-sock{width:9px;height:9px;min-width:0;min-height:0;border:2px solid var(--card);
@@ -176,6 +172,7 @@ body.dark .fl-st-hd{color:#8da2ff}
 body.dark .fl-st-when{color:#a995ff}
 .fl-st-point{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fl-farlbl{position:absolute;left:0;top:0;z-index:1000;pointer-events:none;box-sizing:border-box;display:flex;flex-direction:column;gap:.15em;
+  margin-top:calc(-8px / var(--fl-z,1));
   padding:.35em .5em .45em;border-radius:calc(12px / var(--fl-z,1));font-size:calc(13px / var(--fl-z,1));line-height:1.12;
   color:#2c45b0;background:color-mix(in srgb,var(--card) 90%,transparent);border:calc(1.5px / var(--fl-z,1)) solid rgba(51,85,209,.35);
   box-shadow:0 calc(2px / var(--fl-z,1)) calc(10px / var(--fl-z,1)) rgba(16,24,40,.12)}
@@ -183,8 +180,6 @@ body.dark .fl-st-when{color:#a995ff}
 .fl-farlbl span{font-size:.72em;color:#5b6cb8;font-weight:650}
 body.dark .fl-farlbl{color:#8da2ff}
 .fl-exporting .fl-farlbl{display:none}
-.fl-far .fl-hd{border-bottom-color:transparent}
-.fl-far .fl-body{border-top-color:transparent}
 .fl-rsz{border-color:var(--accent)!important}
 .fl-rszh{background:var(--card)!important;border:1.5px solid var(--accent)!important;width:9px!important;height:9px!important;border-radius:2px!important}
 

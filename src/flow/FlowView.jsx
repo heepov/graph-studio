@@ -270,10 +270,10 @@ function deriveEdges(c, prev, opt) {
 
 /* ---------- компонент ---------- */
 
-// Масштаб — в CSS-переменную --fl-z и класс fl-far корня, без перерисовки нод:
-// издалека мелкие подписи прячутся, а коды проверок и подписи этапов растут
-// обратно масштабу и остаются читаемыми.
-const FAR_K = 0.5;
+// Масштаб — в CSS-переменную --fl-z и класс fl-far корня, без перерисовки нод.
+// Совсем издалека (< 0.3) над рамками появляются крупные подписи этапов, размер
+// которых растёт обратно масштабу. Содержимое нод при этом не прячется.
+const FAR_K = 0.3;
 function ZoomVar({rootRef}) {
   const z = useStore(st => st.transform[2]);
   useLayoutEffect(() => {
@@ -284,9 +284,9 @@ function ZoomVar({rootRef}) {
   return null;
 }
 
-// Издалека этапы подписаны крупно — отдельным слоем поверх нод (ViewportPortal),
-// иначе проверки внутри рамки закрывали бы подпись. Размер шрифта растёт
-// обратно масштабу (--fl-z), поэтому на экране он остаётся читаемым.
+// Издалека этапы подписаны крупно — отдельным слоем (ViewportPortal) НАД рамкой:
+// поверх рамки подпись закрывала бы первые проверки. Размер шрифта растёт обратно
+// масштабу (--fl-z), поэтому на экране он остаётся читаемым.
 const STAGE_WORD = n => (n % 10 === 1 && n % 100 !== 11 ? 'проверка' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'проверки' : 'проверок');
 function FarLabels({nodes}) {
   const far = useStore(st => st.transform[2] < FAR_K);
@@ -307,7 +307,7 @@ function FarLabels({nodes}) {
   return (
     <ViewportPortal>
       {st.map(n => (
-        <div key={n.id} className="fl-farlbl" lang="ru" style={{transform: `translate(${n.position.x}px, ${n.position.y}px)`, width: widthOf(n)}}>
+        <div key={n.id} className="fl-farlbl" lang="ru" style={{transform: `translate(${n.position.x}px, ${n.position.y}px) translateY(-100%)`, width: widthOf(n)}}>
           <b>{n.data.code ? n.data.code + '. ' : ''}{n.data.title || 'Этап'}</b>
           <span>{n.data.count || 0} {STAGE_WORD(n.data.count || 0)}</span>
         </div>))}

@@ -519,14 +519,19 @@ function wireMain() {
   const m = $('hmain');
   m.querySelectorAll('[data-a=new]').forEach(el => el.onclick = newBoard);
   m.querySelectorAll('[data-t]').forEach(el => el.onclick = () => H.createFromTemplate(el.dataset.t));
+  // Кнопку ищем вверх от места клика: в ней иконка, и клик приходится в svg/use,
+  // у которых data-атрибутов нет. Проверка e.target.dataset открывала доску
+  // вместо меню с тех пор, как «⋯» стал иконкой.
   m.querySelectorAll('[data-b]').forEach(el => el.onclick = e => {
-    if (e.target.dataset.menu) { e.stopPropagation(); return cardMenu(e, el.dataset.b); }
+    const mb = e.target.closest('[data-menu]');
+    if (mb && el.contains(mb)) { e.stopPropagation(); return cardMenu(mb, el.dataset.b); }
     H.openBoard(el.dataset.b);
   });
   m.querySelectorAll('[data-a=upall]').forEach(el => el.onclick = () => H.uploadAllLocal());
   m.querySelectorAll('[data-loc]').forEach(el => el.onclick = e => {
-    if (e.target.dataset.up) { e.stopPropagation(); return H.uploadLocal(e.target.dataset.up); }
-    if (e.target.dataset.drop) { e.stopPropagation(); return H.purgeLocal(e.target.dataset.drop); }
+    const up = e.target.closest('[data-up]'), drop = e.target.closest('[data-drop]');
+    if (up && el.contains(up)) { e.stopPropagation(); return H.uploadLocal(up.dataset.up); }
+    if (drop && el.contains(drop)) { e.stopPropagation(); return H.purgeLocal(drop.dataset.drop); }
     // Перенесённый проект открывается серверной доской: локальная копия здесь —
     // уже история, и правки в ней никуда бы не поехали.
     if (el.dataset.moved) return H.openBoard(el.dataset.moved);
@@ -545,11 +550,11 @@ function wireMain() {
   });
 }
 
-function cardMenu(e, id) {
+function cardMenu(btn, id) {
   const all = [...(HOME.boards.mine || []), ...(HOME.boards.shared || [])];
   const b = all.find(x => x.id === id); if (!b) return;
   const own = b.role === 'owner';
-  const r = e.target.getBoundingClientRect();
+  const r = btn.getBoundingClientRect();
   const items = [['Открыть', () => H.openBoard(id)]];
   if (own) items.push(
     ['Поделиться…', () => H.cloud.showShare(id, b.name)],

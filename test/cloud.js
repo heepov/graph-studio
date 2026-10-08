@@ -189,12 +189,15 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       };
       const out = {};
 
-      document.querySelector('#hmain .bcard [data-menu]').click();
+      // Клик — по ИКОНКЕ внутри кнопки, как попадает человек: .click() по самой
+      // кнопке не ловил баг, когда обработчик смотрел только на e.target.
+      document.querySelector('#hmain .bcard [data-menu] svg').dispatchEvent(new MouseEvent('click', {bubbles: true}));
       await new Promise(r => setTimeout(r, 150));
       const ctx = document.getElementById('ctx');
       out.cardOpen = ctx.classList.contains('open');
       out.cardVisible = out.cardOpen && seen(ctx.querySelector('.mlist'));
       out.cardItems = [...ctx.querySelectorAll('.mi')].map(m => m.textContent);
+      out.stillHome = document.body.classList.contains('onhome');
       hideCtx();
 
       document.getElementById('hAvatar').click();
@@ -205,7 +208,7 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       hideCtx();
       return out;
     })()`);
-    (menus.cardVisible && menus.cardItems.some(t => /корзин/i.test(t)))
+    (menus.cardVisible && menus.cardItems.some(t => /корзин/i.test(t)) && menus.stillHome)
       ? ok('меню карточки доски открывается и видно', menus.cardItems.join(' / '))
       : bad('меню карточки не работает', JSON.stringify(menus));
     (menus.accVisible && menus.accItems.some(t => /Выйти/.test(t)))

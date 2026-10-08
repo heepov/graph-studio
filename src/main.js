@@ -3849,7 +3849,8 @@ function renderPages() {
       <span class="ic">${KIND[p.kind] ? KIND[p.kind].i : '•'}</span><span class="nm">${esc(p.name)}</span>
       <span class="mo noview" data-mo="${p.id}">${icon('more', 'i-sm')}</span></div>`);
   qsa('#pageList .pgi').forEach(el => {
-    el.onclick = e => {if (e.target.dataset.mo) {pageMenu(e, e.target.dataset.mo); return;} gotoPage(el.dataset.p);};
+    // Кнопку «⋯» ищем вверх от места клика: в ней иконка, и клик приходится в svg/use.
+    el.onclick = e => {const mo = e.target.closest('[data-mo]'); if (mo) {pageMenu(e, mo.dataset.mo); return;} gotoPage(el.dataset.p);};
     // Правая кнопка — второй вход в меню страницы. В узком режиме панели «⋯» скрыт,
     // и без этого переименовать, продублировать или удалить страницу было бы нельзя.
     el.oncontextmenu = e => {if (VIEWER) return; e.preventDefault(); pageMenu(e, el.dataset.p);};

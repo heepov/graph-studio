@@ -1,6 +1,6 @@
 // Легенда оверлея: что значит цвет рамки проверки и сколько проверок каждого
 // цвета. У «Покрытия источниками» — ещё и список дыр с переходом к ноде.
-import {OVERLAYS} from './ProfileBar.jsx';
+import {OVERLAY_TITLE} from './ProfileBar.jsx';
 
 export const OV = {
   bank: {accepted: ['#2e9d58', 'принято'], accepted_comments: ['#8fbf3a', 'принято с комментариями'],
@@ -15,7 +15,7 @@ export const OV = {
 
 export default function Legend({fx, overlay, counts, holes}) {
   if (!overlay || !OV[overlay]) return null;
-  const title = (OVERLAYS.find(o => o[0] === overlay) || [])[1];
+  const title = OVERLAY_TITLE[overlay];
   return (
     <div className="fl-legend fl-nowheel" data-overlay={overlay}>
       <div className="fl-lg-h">{title}<button className="fl-ib" title="Выключить оверлей" onClick={() => fx.setOverlay('')}>×</button></div>
