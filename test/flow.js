@@ -400,10 +400,258 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     check(e1 === e0 && roCls.conn === 0, 'в режиме чтения сокеты не соединяются');
     await c.eval(`(() => { setReadonly(false); renderPage(); })()`);
 
+    /* =====================  M2: библиотека  ===================== */
+    const MOD = process.platform === 'darwin' ? 4 : 2;
+    // Элемент панели может быть ниже видимой части — человек сначала прокрутил бы к нему.
+    const center = sel => c.eval(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) return null;
+      // Прокручиваем только контейнер панели: scrollIntoView сдвинул бы и саму страницу.
+      const sc = el.closest('.fl-ibody, .fl-ll, .fl-tw');
+      if (sc) { const r0 = el.getBoundingClientRect(), rs = sc.getBoundingClientRect();
+        if (r0.top < rs.top || r0.bottom > rs.bottom) sc.scrollTop += (r0.top - rs.top) - rs.height / 2;
+        if (r0.left < rs.left || r0.right > rs.right) sc.scrollLeft += (r0.left - rs.left) - rs.width / 3; }
+      const r = el.getBoundingClientRect(); return {x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}; })()`);
+    const clickEl = async sel => { const p = await center(sel); if (!p) throw new Error('нет элемента ' + sel); await click(p); return p; };
+    const typeText = async text => { await c.send('Input.insertText', {text}); await sleep(150); };
+    const selectAll = async () => {
+      await c.send('Input.dispatchKeyEvent', {type: 'keyDown', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: MOD, commands: ['selectAll']});
+      await c.send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: MOD});
+    };
+    const fill = async (sel, text) => { await clickEl(sel); await selectAll(); await typeText(text); };
+    // Нативный список <select> в headless не раскрывается — выбор значения
+    // отправляем тем же событием change, что и человек.
+    const choose = (sel, value) => c.eval(`(() => { const s = document.querySelector(${JSON.stringify(sel)}); if (!s) return null;
+      s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change', {bubbles: true})); return s.value; })()`);
+    const paneAt = (fx, fy) => c.eval(`(() => { const r = document.querySelector('#flowRoot .fl-pane').getBoundingClientRect();
+      return {x: Math.round(r.left + ${fx}), y: Math.round(r.top + ${fy})}; })()`);
+    const menuPick = async (pt, label) => {
+      await c.mouse('mouseMoved', pt.x, pt.y);
+      await click(pt);
+      await key(c, 'KeyA', 'A', 8, 65);
+      await sleep(200);
+      await typeText(label);
+      await key(c, 'Enter', 'Enter', 0, 13);
+      await sleep(350);
+    };
+    const lastNode = k => c.eval(`(() => { const f = curPage().flow; const l = f.nodes.filter(n => n.k === ${JSON.stringify(k)}); return l.length ? l[l.length - 1].id : null; })()`);
+
+    // --- С11: с нуля на пустой доске, только мышью и клавиатурой -----------------
+    await c.eval(`createFromTemplate('blank')`);
+    await c.waitFor(`P && P.name === 'Новый проект'` + EDITOR_SHOWN, 15000, 'пустая доска');
+    await c.eval(`newPage()`);
+    await c.waitFor(`!!document.querySelector('input[name=npk][value=flow]')`, 5000, 'диалог');
+    await clickEl('input[name=npk][value=flow]');
+    await fill('#npn', 'Кредит — ИП');
+    await clickEl('#mbox [data-a=ok]');
+    await c.waitFor(`curPage().kind === 'flow' && !!document.querySelector('.fl-lib')`, 8000, 'пустой конструктор с библиотекой');
+    const emptyLib = await c.eval(`({d: P.flowLib.dims.length, s: P.flowLib.sources.length, c: P.flowLib.checks.length, o: P.flowLib.outcomes.length})`);
+    check(emptyLib.d + emptyLib.s + emptyLib.c + emptyLib.o === 0, 'С11: доска и библиотека пустые');
+
+    // измерение из библиотеки: «+ Новое», название, два значения, перетащить на холст
+    await clickEl('.fl-tab[title="Измерения"]');
+    await clickEl('.fl-lf .btn');
+    await sleep(250);
+    await typeText('Тип клиента');
+    await fill('.fl-insp [data-row] input[data-f="value-name"]', 'ЮЛ');
+    await clickEl('.fl-insp .fl-add1');
+    await sleep(200);
+    await fill('.fl-insp [data-row]:nth-child(2) input[data-f="value-name"]', 'ИП');
+    const dimId = await c.eval(`P.flowLib.dims[0].id`);
+    await drag(await center(`[data-lib="dims:${dimId}"]`), await paneAt(150, 70));
+    // источник через Shift+A
+    await menuPick(await paneAt(150, 330), 'Новый источник');
+    await typeText('Бюро кредитных историй');
+    await clickEl('.fl-insp .fl-add1');
+    await sleep(150);
+    await clickEl('.fl-insp .fl-add1');
+    await sleep(150);
+    await fill('.fl-insp [data-row]:nth-child(1) input[data-f="field-name"]', 'Кредитный рейтинг');
+    await choose('.fl-insp [data-row]:nth-child(1) select[data-f="field-type"]', 'number');
+    await fill('.fl-insp [data-row]:nth-child(2) input[data-f="field-name"]', 'Просрочки');
+    await choose('.fl-insp [data-row]:nth-child(2) select[data-f="field-type"]', 'bool');
+    await sleep(200);
+    const srcN = await lastNode('source');
+    // проверка через Shift+A; входы — бросить поле источника на тело проверки
+    await menuPick(await paneAt(480, 250), 'Новая проверка');
+    await typeText('Долговая нагрузка');
+    const chkN = await lastNode('check');
+    const fids = await c.eval(`P.flowLib.sources[0].fields.map(f => f.id)`);
+    const body = async () => { const r = await c.eval(`FLOW.call('nodeXY', ${JSON.stringify(chkN)})`); return {x: r.x + r.w / 2, y: r.y + r.h - 20}; };
+    await drag(await H(srcN, 'out:' + fids[0]), await body());
+    await drag(await H(srcN, 'out:' + fids[1]), await body());
+    // новый вердикт в библиотеке и исход с ним
+    await clickEl('.fl-tab[title="Исходы"]');
+    await clickEl('.fl-vh .fl-ib');
+    await sleep(200);
+    await fill('.fl-vd .fl-vr:last-child input[type=text]', 'Снижение лимита');
+    const vkey = await c.eval(`P.flowLib.verdicts[P.flowLib.verdicts.length - 1].key`);
+    await click(await nodeHead(chkN));
+    await sleep(150);
+    await clickEl(`.fl-insp [data-verdict="${vkey}"] input`);
+    await menuPick(await paneAt(470, 560), 'Новый исход');
+    await typeText('Лимит снижен');
+    await choose('.fl-insp select[data-f="verdict"]', vkey);
+    const outN = await lastNode('outcome');
+    await drag(await H(chkN, 'v:' + vkey), await H(outN, 'vin'));
+    // применимость: значение «ЮЛ» → «Когда» проверки
+    const dimN = await lastNode('dim');
+    const vUL = await c.eval(`P.flowLib.dims[0].values.find(v => v.name === 'ЮЛ').id`);
+    await drag(await H(dimN, 'val:' + vUL), await H(chkN, 'cond-in'));
+    // этап вокруг проверки
+    await click(await nodeHead(chkN));
+    await key(c, 'KeyJ', 'j', 2, 74);
+    await sleep(300);
+    const c11 = await c.eval(`(() => {
+      const L = P.flowLib, f = curPage().flow;
+      const d = L.dims[0], s = L.sources[0], ch = L.checks[0], o = L.outcomes[0], v = L.verdicts.find(x => x.key === ${JSON.stringify(vkey)});
+      const ck = f.nodes.find(n => n.k === 'check');
+      const st = ck && f.nodes.find(n => n.id === ck.parent);
+      const kinds = f.edges.map(e => e.sh.split(':')[0] + '>' + e.th.split(':')[0]).sort();
+      const types = f.edges.filter(e => e.sh.startsWith('out:')).map(e => {
+        const fl = s.fields.find(x => 'out:' + x.id === e.sh), inp = ch.inputs.find(x => 'in:' + x.id === e.th);
+        return fl.type + '→' + inp.type; }).sort();
+      return {dim: d && d.name + ':' + d.values.map(x => x.name).join('/'), src: s && s.name + ':' + s.fields.map(x => x.name + '/' + x.type).join(','),
+        chk: ch && ch.name + ':' + ch.inputs.map(x => x.name + '/' + x.type).join(','), out: o && o.name + ':' + (o.verdict === (v && v.key)),
+        verdict: v && v.name, onCanvas: f.nodes.map(n => n.k).sort().join(','), stage: !!st && st.k, kinds, types};
+    })()`);
+    check(c11.dim === 'Тип клиента:ЮЛ/ИП' && c11.src === 'Бюро кредитных историй:Кредитный рейтинг/number,Просрочки/bool'
+      && c11.chk === 'Долговая нагрузка:Кредитный рейтинг/number,Просрочки/bool' && c11.out === 'Лимит снижен:true'
+      && c11.verdict === 'Снижение лимита', 'С11: все блоки заведены в библиотеке руками', JSON.stringify(c11));
+    check(c11.onCanvas === 'check,dim,outcome,source,stage' && c11.stage === 'stage', 'С11: и стоят на холсте, проверка — в этапе', c11.onCanvas);
+    check(c11.types.join(',') === 'bool→bool,number→number' && c11.kinds.join(',') === 'out>in,out>in,v>vin,val>cond-in',
+      'С11: связи типизированы — данные, вердикт, применимость', c11.kinds.join(' '));
+
+    // --- правка входа: связи с исчезнувшим сокетом уходят в той же операции отмены
+    await click(await nodeHead(chkN));
+    await sleep(150);
+    const edgesBefore = await c.eval(`curPage().flow.edges.length`);
+    await clickEl('.fl-insp [data-row]:nth-child(1) .fl-x');
+    await sleep(150);
+    const confirmTxt = await c.eval(`(document.querySelector('#modal.open .kv') || {}).textContent || ''`);
+    await clickEl('#mbox [data-a=ok]');
+    await sleep(250);
+    const afterDrop = await c.eval(`({inputs: P.flowLib.checks[0].inputs.length, edges: curPage().flow.edges.length})`);
+    check(/1 связь/.test(confirmTxt) && afterDrop.inputs === 1 && afterDrop.edges === edgesBefore - 1,
+      'удаление входа со связью — подтверждение со счётчиком, связь уходит вместе с ним', confirmTxt.slice(0, 70));
+    await click(await paneAt(40, 40));
+    await key(c, 'KeyZ', 'z', 2, 90);
+    await sleep(300);
+    const undoDrop = await c.eval(`({inputs: P.flowLib.checks[0].inputs.length, edges: curPage().flow.edges.length})`);
+    check(undoDrop.inputs === 2 && undoDrop.edges === edgesBefore, 'один Ctrl+Z возвращает и вход, и его связь', JSON.stringify(undoDrop));
+
+    // --- переименование на месте -----------------------------------------------
+    const hd = await nodeHead(chkN);
+    await c.mouse('mousePressed', hd.x, hd.y, {clickCount: 1}); await c.mouse('mouseReleased', hd.x, hd.y, {buttons: 0, clickCount: 1});
+    await c.mouse('mousePressed', hd.x, hd.y, {clickCount: 2}); await c.mouse('mouseReleased', hd.x, hd.y, {buttons: 0, clickCount: 2});
+    await sleep(200);
+    const inl = await c.eval(`!!document.querySelector('.react-flow__node input.fl-inl')`);
+    await selectAll();
+    await typeText('Долговая нагрузка (DSCR)');
+    await key(c, 'Enter', 'Enter', 0, 13);
+    await sleep(250);
+    const renamed = await c.eval(`P.flowLib.checks[0].name`);
+    check(inl && renamed === 'Долговая нагрузка (DSCR)', 'двойной клик по шапке — переименование прямо на ноде', renamed);
+
+    // --- библиотека: дубликат, удаление со счётчиками, фильтр «не на схеме» ------
+    await clickEl('.fl-tab[title="Проверки"]');
+    await clickEl(`[data-lib="checks:${await c.eval(`P.flowLib.checks[0].id`)}"]`);
+    await sleep(150);
+    await c.eval(`[...document.querySelectorAll('.fl-insp .fl-acts .btn')].find(b => /Дубликат/.test(b.textContent)).click()`);
+    await sleep(250);
+    const dupName = await c.eval(`P.flowLib.checks.map(x => x.name)`);
+    check(dupName.length === 2 && /\(копия\)$/.test(dupName[1]), 'дубликат блока — с новым id и пометкой «(копия)»', dupName[1]);
+    await clickEl('.fl-lq .fl-chk input');
+    await sleep(150);
+    const freeList = await c.eval(`[...document.querySelectorAll('.fl-ll .fl-li .fl-lname')].map(x => x.textContent)`);
+    check(freeList.length === 1 && /копия/.test(freeList[0]), 'фильтр «не на схеме» оставляет неразмещённые блоки', freeList.join(' | '));
+    await clickEl('.fl-lq .fl-chk input');
+    // удалить блок, который стоит на схеме: диалог со счётчиками
+    await clickEl(`[data-lib="checks:${await c.eval(`P.flowLib.checks[0].id`)}"]`);
+    await sleep(150);
+    await c.eval(`[...document.querySelectorAll('.fl-insp .fl-acts .btn')].find(b => /Удалить из библиотеки/.test(b.textContent)).click()`);
+    await sleep(200);
+    const delTxt = await c.eval(`(document.querySelector('#modal.open .kv') || {}).textContent || ''`);
+    check(/стоит на 1 схеме/.test(delTxt) && /1 нодой/.test(delTxt) && /связ/.test(delTxt), 'удаление блока со схемы — «стоит на N схемах, удалить вместе с нодами и K связями?»', delTxt.slice(0, 90));
+    await clickEl('#mbox [data-a=c]');
+
+    // --- С4 и С5 на seed --------------------------------------------------------
+    const seedDoc = require('fs').readFileSync(require('path').join(__dirname, '../src/flow/seed-kyc-rko.json'), 'utf8');
+    await c.eval(`(() => { const d = normalize(JSON.parse(${JSON.stringify(seedDoc)}));
+      P.flowLib = d.flowLib; P.pages.push(d.pages[0]); save(1); gotoPage(d.pages[0].id); return true; })()`);
+    await c.waitFor(`FLOW.state().rfNodes === 109`, 10000, 'seed на странице');
+    // С4: Shift+A → «Новая проверка» → название → поле «Сайт» из «Анкеты клиента» на тело проверки
+    // камера: «Анкета клиента» в левом верхнем углу холста (человек подвёл бы её колесом)
+    await c.eval(`(() => { const n = curPage().flow.nodes.find(x => x.id === 'n_src_form');
+      FLOW.call('setViewport', {x: 40 - n.x, y: 60 - n.y, k: 1}); })()`);
+    await sleep(250);
+    const formXY = await c.eval(`FLOW.call('nodeXY', 'n_src_form')`);
+    await menuPick({x: formXY.x + formXY.w + 260, y: formXY.y + 60}, 'Новая проверка');
+    await typeText('Сайт в реестре РКН');
+    const newChk = await lastNode('check');
+    const nb = await c.eval(`FLOW.call('nodeXY', ${JSON.stringify(newChk)})`);
+    await drag(await H('n_src_form', 'out:f_site'), {x: nb.x + nb.w / 2, y: nb.y + nb.h - 16});
+    const c4 = await c.eval(`(() => { const f = curPage().flow, n = f.nodes.find(x => x.id === ${JSON.stringify(newChk)}), it = P.flowLib.checks.find(x => x.id === n.ref);
+      const e = f.edges.find(x => x.t === n.id && x.s === 'n_src_form');
+      return {name: it.name, inLib: P.flowLib.checks.includes(it), inputs: it.inputs.map(i => i.name + '/' + i.type), edge: e ? e.sh + '>' + e.th : null}; })()`);
+    check(c4.inLib && c4.name === 'Сайт в реестре РКН', 'С4: новая проверка — в библиотеке и на схеме', c4.name);
+    check(c4.inputs.join() === 'Сайт/text' && c4.edge && c4.edge.startsWith('out:f_site>in:'), 'С4: связь text → text создаётся вместе со входом', JSON.stringify(c4));
+    // date → money отклоняется с подсказкой
+    await c.eval(`FLOW.call('select', ['n_src_egrul', 'n_chk_3_4'])`);
+    await key(c, 'KeyF', 'f', 0, 70);
+    await sleep(250);
+    let tip4 = null;
+    await drag(await H('n_src_egrul', 'out:f_regdate'), await H('n_chk_3_4', 'in:debt'), async () => {
+      tip4 = await c.eval(`document.querySelector('.fl-ctip').textContent`);
+    });
+    const e34 = await c.eval(`curPage().flow.edges.some(e => e.s === 'n_src_egrul' && e.t === 'n_chk_3_4' && e.th === 'in:debt' && e.sh === 'out:f_regdate')`);
+    check(!e34 && tip4 === 'date → money: типы не совпадают', 'С4: date → money отклоняется с подсказкой', tip4);
+
+    // С5: «Как проверяем» у 3.11 — общий блок, меняется на всех схемах
+    await c.eval(`(() => { const c2 = duplicatePage(curPage()); P.pages.push(c2); save(1); return true; })()`);
+    await c.eval(`FLOW.call('select', ['n_chk_3_11'])`);
+    await sleep(250);
+    await fill('.fl-insp textarea[data-f="how"]', 'Новая формулировка: лицензия по ИНН в трёх слоях');
+    await sleep(300);
+    const other = await c.eval(`P.pages.filter(p => p.kind === 'flow' && p.flow.nodes.some(n => n.ref === 'chk_3_11')).map(p => p.id)`);
+    await c.eval(`gotoPage(${JSON.stringify(other[other.length - 1])})`);
+    await c.waitFor(`!!document.querySelector('.react-flow__node[data-id="n_chk_3_11"]') || FLOW.state().rfNodes > 100`, 8000, 'вторая схема');
+    await c.eval(`FLOW.call('select', ['n_chk_3_11'])`);
+    await key(c, 'KeyF', 'f', 0, 70);
+    await sleep(300);
+    const c5 = await c.eval(`({lib: P.flowLib.checks.find(x => x.code === '3.11').how, pages: ${JSON.stringify(other)}.length,
+      dom: (document.querySelector('.react-flow__node[data-id="n_chk_3_11"] .fl-body') || {}).textContent || '',
+      uses: [...document.querySelectorAll('.fl-insp .fl-use')].length})`);
+    check(c5.pages === 2 && c5.lib === 'Новая формулировка: лицензия по ИНН в трёх слоях' && /Новая формулировка/.test(c5.dom),
+      'С5: «Как проверяем» у 3.11 изменилось на всех схемах доски', `${c5.pages} схемы`);
+    check(c5.uses === 2, 'подвал инспектора: «Используется» на обеих схемах', String(c5.uses));
+
+    // --- перетаскивание из библиотеки: проверку, уже стоящую здесь, не дублирует
+    await clickEl('.fl-tab[title="Проверки"]');
+    const n311 = await c.eval(`curPage().flow.nodes.filter(n => n.ref === 'chk_3_11').length`);
+    await drag(await center('[data-lib="checks:chk_3_11"]'), await paneAt(300, 300));
+    const n311b = await c.eval(`({n: curPage().flow.nodes.filter(n => n.ref === 'chk_3_11').length, sel: FLOW.state().selected})`);
+    check(n311 === 1 && n311b.n === 1 && n311b.sel.includes('n_chk_3_11'), 'проверку, уже стоящую на схеме, библиотека не дублирует — подсвечивает её');
+    const srcBefore = await c.eval(`curPage().flow.nodes.filter(n => n.ref === 'src_kad').length`);
+    await clickEl('.fl-tab[title="Источники"]');
+    await drag(await center('[data-lib="sources:src_kad"]'), await paneAt(300, 300));
+    const srcAfter = await c.eval(`curPage().flow.nodes.filter(n => n.ref === 'src_kad').length`);
+    check(srcAfter === srcBefore + 1, 'источник из библиотеки ставится ещё раз — для разгрузки связей', `${srcBefore} → ${srcAfter}`);
+
+    // --- табличный редактор ------------------------------------------------------
+    await clickEl('.fl-bar .btn:nth-child(2)');
+    await sleep(300);
+    const tbl = await c.eval(`({rows: document.querySelectorAll('#mbox table.fl-lt tbody tr').length,
+      heads: [...document.querySelectorAll('#mbox table.fl-lt thead tr:first-child th')].map(t => t.textContent.replace(/[▲▼]/g, '').trim())})`);
+    check(tbl.rows === 56 && tbl.heads.includes('Как проверяем') && tbl.heads.includes('Этап на этой схеме'),
+      'табличный редактор: проверки и колонки листа xlsx', `${tbl.rows} строк, ${tbl.heads.length} колонок`);
+    await fill('#mbox tr[data-id="chk_2_6"] input[data-k="norm"]', 'ФЗ-115');
+    await clickEl('#mbox [data-a=c]');
+    const norm = await c.eval(`P.flowLib.checks.find(x => x.id === 'chk_2_6').norm`);
+    check(norm === 'ФЗ-115', 'правка в ячейке меняет блок библиотеки', norm);
+
     if (c.errors.length) bad('исключения в консоли', c.errors.join(' | ').slice(0, 400));
     else ok('исключений в консоли нет');
   } catch (e) {
-    bad('ПРОГОН УПАЛ', (e && e.message) || String(e));
+    bad('ПРОГОН УПАЛ', (e && (process.env.FLOW_STACK ? e.stack : e.message)) || String(e));
   } finally {
     try { chrome.kill(); } catch {}
   }

@@ -1,7 +1,8 @@
 // Данные конструктора: нормализация, идентификаторы, операции над библиотекой.
 // В отличие от rules.js, модуль знает про документ доски целиком (страницы,
 // P.flowLib), но по-прежнему без DOM и React — его зовёт и normalize() приложения.
-import {defaultFlow, defaultLib, DEFAULT_VERDICTS, LIB_KINDS, canConnect, socketOf, nodeSize, fitStage, absPos, itemOf} from './rules.js';
+import {defaultFlow, defaultLib, DEFAULT_VERDICTS, LIB_KINDS, canConnect, socketOf, nodeSize, fitStage, absPos, itemOf,
+  inputSources as inputSourcesOf} from './rules.js';
 
 const arr = v => (Array.isArray(v) ? v : []);
 const obj = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
@@ -257,4 +258,145 @@ export function pasteClip(doc, flow, clip, at) {
     flow.edges.push(c);
   }
   return {added: added.map(c => c.id), skipped};
+}
+
+/* ---------- библиотека ----------
+   Блок библиотеки общий для всех конвейеров доски: правка в инспекторе меняет
+   его на каждой схеме сразу. Поэтому всё, что рвёт связи (удаление входа,
+   смена типа поля), обходит ВСЕ страницы-конструкторы, а не только текущую. */
+
+export const flowPages = doc => (doc.pages || []).filter(p => p.kind === 'flow' && p.flow);
+const SEC_KIND = {dims: 'dim', sources: 'source', checks: 'check', outcomes: 'outcome'};
+
+// Где стоит блок: страница, нода, этап (для подписи «РКО — онбординг (этап 3b)»).
+export function usages(doc, sec, id) {
+  const k = SEC_KIND[sec], out = [];
+  for (const pg of flowPages(doc)) {
+    for (const n of pg.flow.nodes) {
+      if (n.k !== k || n.ref !== id) continue;
+      const st = n.parent ? pg.flow.nodes.find(x => x.id === n.parent) : null;
+      out.push({page: pg.id, pageName: pg.name, node: n.id, stage: st ? (st.data || {}).num || (st.data || {}).name || '' : ''});
+    }
+  }
+  return out;
+}
+
+// Следующий свободный код проверки в этапе: этап «3b» → «3.20», если занято до 3.19.
+export function nextCheckCode(lib, stageNum) {
+  const major = String(stageNum || '').match(/^\d+/);
+  if (!major) return '';
+  let max = 0;
+  for (const c of lib.checks) {
+    const m = String(c.code || '').match(/^(\d+)\.(\d+)$/);
+    if (m && m[1] === major[0]) max = Math.max(max, +m[2]);
+  }
+  return major[0] + '.' + (max + 1);
+}
+
+const PALETTE = ['#3355d1', '#0f8f6a', '#8b46c9', '#d2740c', '#b3261e', '#136c33', '#2f6fed', '#8a5d00', '#0e7490', '#9d174d', '#6b7280', '#b08900', '#4338ca', '#c2410c', '#18a558'];
+export function createBlock(lib, sec, init) {
+  const taken = new Set((lib[sec] || []).map(x => x.id || x.key));
+  const i = init || {};
+  let it;
+  if (sec === 'dims') {
+    it = {id: newId('dim_', taken), code: '', name: i.name || 'Новое измерение', desc: '',
+      values: [{id: newId('v_'), code: '', name: 'Значение 1', desc: '', wave: 1}]};
+  } else if (sec === 'sources') {
+    it = {id: newId('src_', taken), name: i.name || 'Новый источник', kind: i.kind || 'gov', access: 'api', mode: 'sync',
+      status: 'unknown', providers: '', url: '', cost: '', note: '', fields: i.fields || []};
+  } else if (sec === 'checks') {
+    it = {id: newId('chk_', taken), code: i.code || '', name: i.name || 'Новая проверка', how: '', why: '', rule: '', norm: '',
+      factors: [], inputs: i.inputs || [], verdicts: i.verdicts || [], verdictTbd: 0, bank: {status: 'none', comment: ''},
+      wave: 1, actor: 'system', note: '', comment: '', srcText: '', tags: []};
+  } else if (sec === 'outcomes') {
+    it = {id: newId('out_', taken), verdict: i.verdict || (lib.verdicts[0] || {}).key || 'ok', name: i.name || 'Новый исход', desc: ''};
+  } else if (sec === 'verdicts') {
+    const used = new Set(lib.verdicts.map(v => v.color));
+    it = {key: newId('vd_', taken), name: i.name || 'Новый вердикт', color: i.color || PALETTE.find(c => !used.has(c)) || PALETTE[0]};
+  }
+  lib[sec].push(it);
+  return it;
+}
+
+export function duplicateBlock(lib, sec, id) {
+  const src = (lib[sec] || []).find(x => x.id === id);
+  if (!src) return null;
+  const c = JSON.parse(JSON.stringify(src));
+  c.id = newId(sec === 'dims' ? 'dim_' : sec === 'sources' ? 'src_' : sec === 'checks' ? 'chk_' : 'out_', new Set(lib[sec].map(x => x.id)));
+  c.name = (c.name || '') + ' (копия)';
+  lib[sec].splice(lib[sec].indexOf(src) + 1, 0, c);
+  return c;
+}
+
+// Удалить блок со всеми его нодами на всех схемах и их связями.
+export function deleteBlock(doc, sec, id) {
+  const lib = doc.flowLib, k = SEC_KIND[sec];
+  let nodes = 0, edges = 0;
+  for (const pg of flowPages(doc)) {
+    const ids = pg.flow.nodes.filter(n => n.k === k && n.ref === id).map(n => n.id);
+    if (!ids.length) continue;
+    const r = deleteNodes(pg.flow, ids);
+    nodes += r.nodes; edges += r.edges;
+  }
+  lib[sec] = lib[sec].filter(x => x.id !== id);
+  return {nodes, edges};
+}
+
+// Связи сокета блока на ВСЕХ схемах. side: 'in' — входящие в handle, 'out' — исходящие.
+export function socketEdges(doc, kind, ref, handle, side) {
+  const out = [];
+  for (const pg of flowPages(doc)) {
+    for (const n of pg.flow.nodes) {
+      if (n.k !== kind || n.ref !== ref) continue;
+      for (const e of pg.flow.edges) {
+        if (side === 'in' ? (e.t === n.id && e.th === handle) : (e.s === n.id && e.sh === handle)) out.push({page: pg, edge: e});
+      }
+    }
+  }
+  return out;
+}
+export function dropEdges(list) {
+  for (const {page, edge} of list) page.flow.edges = page.flow.edges.filter(e => e !== edge);
+  return list.length;
+}
+
+// Связи, которые станут несовместимыми, если сокет блока сменит тип: входы проверки
+// (side 'in') или поля источника (side 'out'). Проверка — теми же правилами rules.js.
+export function incompatibleAfter(doc, kind, ref, handle, side, mutate) {
+  const lib = doc.flowLib, out = [];
+  const list = socketEdges(doc, kind, ref, handle, side);
+  if (!list.length) return out;
+  const it = (lib[{dim: 'dims', source: 'sources', check: 'checks', outcome: 'outcomes'}[kind]] || []).find(x => x.id === ref);
+  if (!it) return out;
+  const backup = JSON.stringify(it);
+  mutate(it);
+  for (const x of list) {
+    const flow = {nodes: x.page.flow.nodes, edges: x.page.flow.edges.filter(e => e !== x.edge)};
+    const r = canConnect(flow, lib, {source: x.edge.s, sourceHandle: x.edge.sh, target: x.edge.t, targetHandle: x.edge.th});
+    if (!r.ok) out.push(x);
+  }
+  Object.assign(it, JSON.parse(backup));
+  return out;
+}
+
+// Какие проверки читают какое поле источника — подвал инспектора источника.
+export function fieldReaders(doc, sourceId) {
+  const lib = doc.flowLib, out = {};
+  for (const pg of flowPages(doc)) {
+    for (const n of pg.flow.nodes) {
+      if (n.k !== 'check') continue;
+      const it = itemOf(lib, n); if (!it) continue;
+      for (const inp of it.inputs || []) {
+        for (const s of inputSourcesOf(pg.flow, lib, n.id, 'in:' + inp.id)) {
+          if (s.source !== sourceId) continue;
+          (out[s.field] = out[s.field] || new Set()).add(it.code || it.name);
+        }
+      }
+    }
+  }
+  return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, [...v]]));
+}
+
+export function verdictUses(lib, key) {
+  return lib.checks.filter(c => (c.verdicts || []).includes(key)).length + lib.outcomes.filter(o => o.verdict === key).length;
 }

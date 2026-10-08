@@ -6,7 +6,7 @@ import {memo, useContext} from 'react';
 import {NodeResizer} from '@xyflow/react';
 import Socket from './Socket.jsx';
 import {FlowCtx} from '../ctx.js';
-import {cls} from './parts.jsx';
+import {cls, InlineEdit} from './parts.jsx';
 import {SIZE} from '../rules.js';
 
 export default memo(function StageNode({id, data, selected}) {
@@ -20,7 +20,8 @@ export default memo(function StageNode({id, data, selected}) {
       <div className="fl-st-hd" onDoubleClick={e => { if (fx && !data.ro) { e.stopPropagation(); fx.rename(id); } }}>
         {s.in ? <Socket nodeId={id} s={s.in} side="in" color={s.in.color} conn={s.in.conn}/> : null}
         <span className="fl-st-num">{data.code || '·'}</span>
-        <span className="fl-st-name" title={data.title}>{data.title || 'Этап'}</span>
+        {data.editing ? <InlineEdit id={id} value={data.title} cls="fl-st-ed"/>
+          : <span className="fl-st-name" title={data.title}>{data.title || 'Этап'}</span>}
         {(data.badges || []).map((b, i) => <span key={i} className={'fl-bdg ' + (b.c || '')} title={b.title}>{b.t}</span>)}
         {s.out ? <Socket nodeId={id} s={s.out} side="out" color={s.out.color} conn={s.out.conn}/> : null}
       </div>

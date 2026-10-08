@@ -162,3 +162,121 @@ body.dark .fl-note{background:#3a3320;border-color:#5a4f2a;color:#f0ead0}
 .fl-ai-l{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fl-ai-h{flex:0 0 auto;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--t-cap);color:var(--muted)}
 .fl-none{color:var(--muted);cursor:default}
+
+/* ============ панели: библиотека и инспектор ============ */
+.fl-lib,.fl-insp{flex:0 0 auto;display:flex;flex-direction:column;background:var(--card);min-height:0;height:100%;position:relative;z-index:6}
+.fl-lib{width:280px;border-right:1px solid var(--line)}
+.fl-insp{width:var(--insp-w);border-left:1px solid var(--line)}
+.fl-ph{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line2);min-height:38px}
+.fl-ph b{font-size:var(--t-cap);text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:800}
+.fl-ititle{display:flex;flex-direction:column;min-width:0}
+.fl-ititle b{font-size:var(--t-cap)}
+.fl-ititle span{font-size:var(--t-meta);color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fl-igrip{position:absolute;left:-3px;top:0;bottom:0;width:6px;cursor:col-resize;z-index:2}
+.fl-ib{border:none;background:transparent;color:var(--muted);width:24px;height:24px;border-radius:var(--r-s);cursor:pointer;
+  font-size:15px;line-height:1;flex:0 0 auto}
+.fl-ib:hover{background:var(--hov2);color:var(--ink)}
+.fl-ib.fl-x:hover{color:var(--red)}
+.fl-tabs{display:flex;gap:2px;padding:6px 8px 0}
+.fl-tab{flex:1;border:1px solid var(--line);background:var(--surf);color:var(--ink2);border-radius:var(--r-s);padding:4px 2px;
+  font-size:var(--t-meta);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px}
+.fl-tab.on{background:var(--accent-bg);border-color:var(--accent-br);color:var(--accent-ink);font-weight:650}
+.fl-cnt{font-size:var(--t-micro);color:var(--muted);font-variant-numeric:tabular-nums}
+.fl-lq{display:flex;flex-direction:column;gap:4px;padding:6px 8px}
+.fl-lq input[type=text]{height:var(--h-ctl);border:1px solid var(--line);border-radius:var(--r-s);padding:0 8px;background:var(--surf);color:var(--ink)}
+.fl-chk{display:flex;align-items:center;gap:6px;font-size:var(--t-meta);color:var(--ink2);cursor:pointer;user-select:none}
+.fl-ll{flex:1;min-height:0;overflow:auto;padding:0 6px 8px}
+.fl-li{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:var(--r-s);cursor:grab;font-size:var(--t-body);
+  touch-action:none;user-select:none}
+.fl-li:hover{background:var(--hov)}
+.fl-li.on{background:var(--accent-bg)}
+.fl-li i{width:8px;height:8px;border-radius:2px;flex:0 0 auto}
+.fl-li:not(.fl-placed) .fl-lname{color:var(--ink2)}
+.fl-li.fl-placed .fl-lname{font-weight:600}
+.fl-lcode{font-variant-numeric:tabular-nums;color:var(--muted);font-size:var(--t-meta);flex:0 0 auto}
+.fl-lname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-lmeta{flex:0 0 auto;font-size:var(--t-micro);color:var(--muted)}
+.fl-ldot{display:inline-block;flex:0 0 auto;width:10px;min-width:10px;height:10px;border-width:1.5px}
+.fl-lempty{padding:12px 8px;color:var(--muted);font-size:var(--t-meta)}
+.fl-lf{display:flex;align-items:center;gap:6px;padding:8px;border-top:1px solid var(--line2)}
+.fl-vd{margin-top:10px;border-top:1px solid var(--line2);padding-top:6px}
+.fl-vh{display:flex;align-items:center;padding:2px 6px;font-size:var(--t-cap);color:var(--muted);text-transform:uppercase}
+.fl-vr{display:flex;align-items:center;gap:6px;padding:2px 4px}
+.fl-vr input[type=color]{width:22px;height:22px;border:none;padding:0;background:none;flex:0 0 auto}
+.fl-vr input[type=text]{flex:1;min-width:0;height:24px;border:1px solid transparent;border-radius:var(--r-xs);background:transparent;color:var(--ink);padding:0 5px}
+.fl-vr input[type=text]:hover,.fl-vr input[type=text]:focus{border-color:var(--line);background:var(--surf)}
+.fl-rail{flex:0 0 auto;writing-mode:vertical-rl;border:none;border-right:1px solid var(--line);background:var(--surf);color:var(--ink2);
+  font-size:var(--t-meta);cursor:pointer;padding:12px 4px;z-index:6}
+.fl-rail-l{transform:rotate(180deg);border-right:none;border-left:1px solid var(--line)}
+.fl-rail:hover{color:var(--accent-ink);background:var(--hov)}
+.fl-ghost{position:fixed;z-index:300;pointer-events:none;background:var(--card);border:1px solid var(--accent);border-radius:var(--r-s);
+  padding:4px 8px;font-size:var(--t-meta);box-shadow:var(--sh3);max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.fl-ibody{flex:1;min-height:0;overflow:auto;padding:10px 12px 16px}
+.fl-iempty{padding:14px 12px;color:var(--ink2);font-size:var(--t-meta);line-height:1.6}
+.fl-f{display:flex;flex-direction:column;gap:3px;margin-bottom:8px;min-width:0}
+.fl-f>span{font-size:var(--t-cap);color:var(--muted);font-weight:650}
+.fl-f input,.fl-f textarea,.fl-f select,.fl-lr input[type=text],.fl-lr select{border:1px solid var(--line);border-radius:var(--r-s);
+  background:var(--surf);color:var(--ink);font-size:var(--t-body);padding:4px 8px;min-width:0}
+.fl-f input,.fl-f select{height:var(--h-ctl)}
+.fl-f textarea{resize:vertical;line-height:1.45}
+.fl-f input:focus,.fl-f textarea:focus,.fl-f select:focus,.fl-lr input:focus{outline:none;border-color:var(--accent);background:var(--card)}
+.fl-ro{font-size:var(--t-body);color:var(--ink2);background:var(--surf);border-radius:var(--r-s);padding:5px 8px;white-space:pre-wrap}
+.fl-row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fl-sec{margin:10px 0;padding-top:8px;border-top:1px solid var(--line2)}
+.fl-sh{display:flex;align-items:center;gap:6px;font-size:var(--t-cap);font-weight:800;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.4px;margin-bottom:6px}
+.fl-lr{display:flex;align-items:center;gap:5px;margin-bottom:4px}
+.fl-lr select{height:26px;width:auto;flex:0 0 auto;max-width:132px}
+.fl-lr input[type=text]{height:26px}
+.fl-lr.fl-drag{opacity:.45}
+.fl-lr.fl-dropat{box-shadow:0 -2px 0 var(--accent)}
+.fl-grip{cursor:grab;color:var(--muted);font-size:11px;letter-spacing:-2px;padding:0 2px;user-select:none;touch-action:none}
+.fl-grow{flex:1;min-width:0}
+/* У приложения глобальное input[type=text]{width:100%} — оно специфичнее класса,
+   поэтому правила строк списка держат ширину с селектором по тегу. */
+.fl-lr input[type=text].fl-grow{width:auto;flex:1 1 0}
+.fl-lr input[type=text].fl-code-in{width:58px;flex:0 0 58px}
+.fl-lr .fl-col2 input[type=text]{width:100%}
+.fl-row2>*{min-width:0}
+.fl-col2{display:flex;flex-direction:column;gap:2px}
+.fl-col2 small{font-size:var(--t-micro);color:var(--ink2)}
+.fl-code-in{width:58px;flex:0 0 auto}
+.fl-mut{color:var(--muted)!important}
+.fl-add1{margin-top:4px}
+.fl-chips{display:flex;flex-wrap:wrap;gap:4px;margin:-4px 0 8px}
+.fl-chip{font-size:var(--t-micro);padding:1px 6px;border-radius:var(--r-pill);background:var(--surf2);color:var(--ink2);border:1px solid var(--line)}
+.fl-verd{display:flex;flex-direction:column;gap:3px;margin-bottom:6px}
+.fl-vchk i{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+.fl-flags{display:flex;gap:14px}
+.fl-hint{font-size:var(--t-meta);color:var(--muted);line-height:1.5;margin:4px 0 8px}
+.fl-uses{display:flex;flex-direction:column;align-items:flex-start;gap:3px}
+.fl-use{border:none;background:transparent;color:var(--accent-ink);padding:2px 0;cursor:pointer;font-size:var(--t-body);text-align:left}
+.fl-use:hover{text-decoration:underline}
+.fl-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line2)}
+
+/* правка на месте */
+.fl-inl{flex:1;min-width:0;height:24px;border:1px solid var(--accent);border-radius:var(--r-xs);background:var(--card);color:var(--ink);
+  font:inherit;font-weight:600;padding:0 5px}
+textarea.fl-inl{height:100%;width:100%;resize:none;font-weight:400;padding:3px 5px}
+.fl-body-ed{display:block;padding:2px 4px}
+.fl-note .fl-note-ed{height:100%;width:100%;background:transparent;border-color:#d8b84a}
+.fl-st-ed{max-width:100%}
+
+/* полоса конструктора в #pagebar */
+.fl-bar{display:flex;align-items:center;gap:6px;flex:1;min-width:0}
+.fl-bar .hint{font-size:var(--t-meta);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* табличный редактор — полноэкранная модалка */
+#mbox.fl-full{max-width:none;width:96vw;height:90vh;max-height:none;display:flex;flex-direction:column;padding:18px 20px}
+.fl-tt{display:flex;align-items:center;gap:6px;margin:6px 0 10px}
+.fl-tw{flex:1;min-height:0}
+table.fl-lt td{vertical-align:top}
+table.fl-lt tr.fl-filt th{top:28px;padding:2px 4px;background:var(--surf)}
+table.fl-lt tr.fl-filt input{width:100%;font-size:11.5px;text-transform:none;font-weight:400;letter-spacing:0}
+
+/* узкий экран: панели выезжают поверх холста */
+@media (max-width:900px){
+  .fl-lib,.fl-insp{position:absolute;top:0;bottom:0;box-shadow:var(--sh3)}
+  .fl-lib{left:0}.fl-insp{right:0;max-width:92vw}
+}

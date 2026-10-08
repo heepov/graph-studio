@@ -1,0 +1,4951 @@
+{
+ "id": "kyc_flow_seed",
+ "name": "KYC/KYB — конструктор проверок",
+ "desc": "Нодовый конструктор KYC/KYB: измерения профиля, источники, проверки, исходы",
+ "schema": {
+  "nodeTypes": [
+   {
+    "key": "stage",
+    "name": "Узел",
+    "shape": "rect"
+   }
+  ],
+  "statuses": [
+   {
+    "key": "na",
+    "name": "без статуса",
+    "color": "#a8aebd"
+   }
+  ],
+  "categories": [
+   {
+    "key": "gen",
+    "name": "Общее",
+    "color": "#3355d1"
+   }
+  ],
+  "linkTypes": [
+   {
+    "key": "hard",
+    "name": "Жёсткая",
+    "color": "#9aa1b2",
+    "style": "solid",
+    "blocking": 1
+   }
+  ],
+  "fields": []
+ },
+ "nodes": [],
+ "links": [],
+ "frames": [],
+ "notes": [],
+ "pages": [
+  {
+   "id": "pg_kyc_rko",
+   "name": "РКО — онбординг резидента (Волна 1)",
+   "kind": "flow",
+   "filter": {
+    "q": "",
+    "cats": [],
+    "statuses": [],
+    "types": [],
+    "f": {}
+   },
+   "flow": {
+    "nodes": [
+     {
+      "id": "n_dim_ctype",
+      "k": "dim",
+      "ref": "dim_ctype",
+      "x": 0,
+      "y": 0
+     },
+     {
+      "id": "n_dim_opf",
+      "k": "dim",
+      "ref": "dim_opf",
+      "x": 0,
+      "y": 174
+     },
+     {
+      "id": "n_dim_tax",
+      "k": "dim",
+      "ref": "dim_tax",
+      "x": 0,
+      "y": 436
+     },
+     {
+      "id": "n_dim_own",
+      "k": "dim",
+      "ref": "dim_own",
+      "x": 0,
+      "y": 676
+     },
+     {
+      "id": "n_dim_charter",
+      "k": "dim",
+      "ref": "dim_charter",
+      "x": 0,
+      "y": 894
+     },
+     {
+      "id": "n_dim_ind",
+      "k": "dim",
+      "ref": "dim_ind",
+      "x": 0,
+      "y": 1046
+     },
+     {
+      "id": "n_dim_age",
+      "k": "dim",
+      "ref": "dim_age",
+      "x": 0,
+      "y": 1264
+     },
+     {
+      "id": "n_dim_res",
+      "k": "dim",
+      "ref": "dim_res",
+      "x": 0,
+      "y": 1394
+     },
+     {
+      "id": "n_dim_prod",
+      "k": "dim",
+      "ref": "dim_prod",
+      "x": 0,
+      "y": 1524
+     },
+     {
+      "id": "n_src_sms",
+      "k": "source",
+      "ref": "src_sms",
+      "x": 340,
+      "y": 0
+     },
+     {
+      "id": "n_src_phone",
+      "k": "source",
+      "ref": "src_phone",
+      "x": 340,
+      "y": 120
+     },
+     {
+      "id": "n_src_egrul",
+      "k": "source",
+      "ref": "src_egrul",
+      "x": 340,
+      "y": 328
+     },
+     {
+      "id": "n_src_pb",
+      "k": "source",
+      "ref": "src_pb",
+      "x": 340,
+      "y": 712
+     },
+     {
+      "id": "n_src_disq",
+      "k": "source",
+      "ref": "src_disq",
+      "x": 340,
+      "y": 942
+     },
+     {
+      "id": "n_src_efrsb",
+      "k": "source",
+      "ref": "src_efrsb",
+      "x": 340,
+      "y": 1062
+     },
+     {
+      "id": "n_src_fssp",
+      "k": "source",
+      "ref": "src_fssp",
+      "x": 340,
+      "y": 1204
+     },
+     {
+      "id": "n_src_kad",
+      "k": "source",
+      "ref": "src_kad",
+      "x": 340,
+      "y": 1324
+     },
+     {
+      "id": "n_src_girbo",
+      "k": "source",
+      "ref": "src_girbo",
+      "x": 340,
+      "y": 1444
+     },
+     {
+      "id": "n_src_fns_block",
+      "k": "source",
+      "ref": "src_fns_block",
+      "x": 340,
+      "y": 1586
+     },
+     {
+      "id": "n_src_rfm",
+      "k": "source",
+      "ref": "src_rfm",
+      "x": 340,
+      "y": 1706
+     },
+     {
+      "id": "n_src_cbr_lic",
+      "k": "source",
+      "ref": "src_cbr_lic",
+      "x": 340,
+      "y": 1826
+     },
+     {
+      "id": "n_src_focus_lic",
+      "k": "source",
+      "ref": "src_focus_lic",
+      "x": 340,
+      "y": 1946
+     },
+     {
+      "id": "n_src_minjust",
+      "k": "source",
+      "ref": "src_minjust",
+      "x": 340,
+      "y": 2066
+     },
+     {
+      "id": "n_src_cbr_refuse",
+      "k": "source",
+      "ref": "src_cbr_refuse",
+      "x": 340,
+      "y": 2186
+     },
+     {
+      "id": "n_src_rkn",
+      "k": "source",
+      "ref": "src_rkn",
+      "x": 340,
+      "y": 2306
+     },
+     {
+      "id": "n_src_zsk",
+      "k": "source",
+      "ref": "src_zsk",
+      "x": 340,
+      "y": 2426
+     },
+     {
+      "id": "n_src_smev",
+      "k": "source",
+      "ref": "src_smev",
+      "x": 340,
+      "y": 2568
+     },
+     {
+      "id": "n_src_rkl",
+      "k": "source",
+      "ref": "src_rkl",
+      "x": 340,
+      "y": 2688
+     },
+     {
+      "id": "n_src_xc",
+      "k": "source",
+      "ref": "src_xc",
+      "x": 340,
+      "y": 2808
+     },
+     {
+      "id": "n_src_form",
+      "k": "source",
+      "ref": "src_form",
+      "x": 340,
+      "y": 2950
+     },
+     {
+      "id": "n_src_upload",
+      "k": "source",
+      "ref": "src_upload",
+      "x": 340,
+      "y": 3202
+     },
+     {
+      "id": "n_src_verifier",
+      "k": "source",
+      "ref": "src_verifier",
+      "x": 340,
+      "y": 3454
+     },
+     {
+      "id": "n_src_km",
+      "k": "source",
+      "ref": "src_km",
+      "x": 340,
+      "y": 3574
+     },
+     {
+      "id": "n_st_s1",
+      "k": "stage",
+      "x": 1000,
+      "y": 0,
+      "w": 360,
+      "h": 898,
+      "fit": 1,
+      "data": {
+       "num": "1",
+       "name": "Проверка телефонного номера",
+       "point": "До точки 1"
+      }
+     },
+     {
+      "id": "n_chk_1_1",
+      "k": "check",
+      "ref": "chk_1_1",
+      "x": 20,
+      "y": 56,
+      "parent": "n_st_s1"
+     },
+     {
+      "id": "n_chk_1_2",
+      "k": "check",
+      "ref": "chk_1_2",
+      "x": 20,
+      "y": 216,
+      "parent": "n_st_s1"
+     },
+     {
+      "id": "n_chk_1_3",
+      "k": "check",
+      "ref": "chk_1_3",
+      "x": 20,
+      "y": 376,
+      "parent": "n_st_s1"
+     },
+     {
+      "id": "n_chk_1_4",
+      "k": "check",
+      "ref": "chk_1_4",
+      "x": 20,
+      "y": 558,
+      "parent": "n_st_s1"
+     },
+     {
+      "id": "n_chk_1_5",
+      "k": "check",
+      "ref": "chk_1_5",
+      "x": 20,
+      "y": 718,
+      "parent": "n_st_s1"
+     },
+     {
+      "id": "n_st_s2",
+      "k": "stage",
+      "x": 1460,
+      "y": 0,
+      "w": 360,
+      "h": 1858,
+      "fit": 1,
+      "data": {
+       "num": "2",
+       "name": "Первичная проверка по ИНН/ОГРН",
+       "point": "Точка 1, синхронно ~3 с"
+      }
+     },
+     {
+      "id": "n_chk_2_1",
+      "k": "check",
+      "ref": "chk_2_1",
+      "x": 20,
+      "y": 56,
+      "parent": "n_st_s2"
+     },
+     {
+      "id": "n_chk_2_2",
+      "k": "check",
+      "ref": "chk_2_2",
+      "x": 20,
+      "y": 216,
+      "parent": "n_st_s2"
+     },
+     {
+      "id": "n_chk_2_3",
+      "k": "check",
+      "ref": "chk_2_3",
+      "x": 20,
+      "y": 376,
+      "parent": "n_st_s2"
+     },
+     {
+      "id": "n_chk_2_4",
+      "k": "check",
+      "ref": "chk_2_4",
+      "x": 20,
+      "y": 536,
+      "parent": "n_st_s2"
+     },
+     {
+      "id": "n_chk_2_5",
+      "k": "check",
+      "ref": "chk_2_5",
+      "x": 20,
+      "y": 696,
+      "parent": "n_st_s2"
+     },
+     {
+      "id": "n_chk_2_6",
+      "k": "check",
+      "ref": "chk_2_6",
+      "x": 20,
+      "y": 856,
+      "parent": "n_st_s2"
+     },
+     {
+      "id": "n_chk_2_7",
+      "k": "check",
+      "ref": "chk_2_7",
+      "x": 20,
+      "y": 1016,
+      "parent": "n_st_s2"
+     },
+     {
+      "id": "n_chk_2_8",
+      "k": "check",
+      "ref": "chk_2_8",
+      "x": 20,
+      "y": 1176,
+      "parent": "n_st_s2"
+     },
+     {
+      "id": "n_chk_2_9",
+      "k": "check",
+      "ref": "chk_2_9",
+      "x": 20,
+      "y": 1336,
+      "parent": "n_st_s2"
+     },
+     {
+      "id": "n_chk_2_10",
+      "k": "check",
+      "ref": "chk_2_10",
+      "x": 20,
+      "y": 1496,
+      "parent": "n_st_s2"
+     },
+     {
+      "id": "n_chk_2_11",
+      "k": "check",
+      "ref": "chk_2_11",
+      "x": 20,
+      "y": 1656,
+      "parent": "n_st_s2"
+     },
+     {
+      "id": "n_g_consent",
+      "k": "gate",
+      "x": 1920,
+      "y": 0,
+      "data": {
+       "text": "Согласие на ПДн и обращение во внешние источники получено"
+      }
+     },
+     {
+      "id": "n_st_s3a",
+      "k": "stage",
+      "x": 2160,
+      "y": 0,
+      "w": 360,
+      "h": 236,
+      "fit": 1,
+      "data": {
+       "num": "3a",
+       "name": "Императивный контур",
+       "point": "Точка 2. Исполняется первым, вне баллов"
+      }
+     },
+     {
+      "id": "n_chk_3_0",
+      "k": "check",
+      "ref": "chk_3_0",
+      "x": 20,
+      "y": 56,
+      "parent": "n_st_s3a"
+     },
+     {
+      "id": "n_st_s3b",
+      "k": "stage",
+      "x": 2620,
+      "y": 0,
+      "w": 360,
+      "h": 3336,
+      "fit": 1,
+      "data": {
+       "num": "3b",
+       "name": "Углублённая проверка по ИНН/ОГРН",
+       "point": "Точка 2, фоновые проверки параллельно"
+      }
+     },
+     {
+      "id": "n_chk_3_1",
+      "k": "check",
+      "ref": "chk_3_1",
+      "x": 20,
+      "y": 56,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_2",
+      "k": "check",
+      "ref": "chk_3_2",
+      "x": 20,
+      "y": 216,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_3",
+      "k": "check",
+      "ref": "chk_3_3",
+      "x": 20,
+      "y": 376,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_4",
+      "k": "check",
+      "ref": "chk_3_4",
+      "x": 20,
+      "y": 558,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_5",
+      "k": "check",
+      "ref": "chk_3_5",
+      "x": 20,
+      "y": 740,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_6",
+      "k": "check",
+      "ref": "chk_3_6",
+      "x": 20,
+      "y": 922,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_7",
+      "k": "check",
+      "ref": "chk_3_7",
+      "x": 20,
+      "y": 1082,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_8",
+      "k": "check",
+      "ref": "chk_3_8",
+      "x": 20,
+      "y": 1264,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_9",
+      "k": "check",
+      "ref": "chk_3_9",
+      "x": 20,
+      "y": 1446,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_10",
+      "k": "check",
+      "ref": "chk_3_10",
+      "x": 20,
+      "y": 1628,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_11",
+      "k": "check",
+      "ref": "chk_3_11",
+      "x": 20,
+      "y": 1788,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_12",
+      "k": "check",
+      "ref": "chk_3_12",
+      "x": 20,
+      "y": 1992,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_13",
+      "k": "check",
+      "ref": "chk_3_13",
+      "x": 20,
+      "y": 2152,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_14",
+      "k": "check",
+      "ref": "chk_3_14",
+      "x": 20,
+      "y": 2312,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_15",
+      "k": "check",
+      "ref": "chk_3_15",
+      "x": 20,
+      "y": 2472,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_16",
+      "k": "check",
+      "ref": "chk_3_16",
+      "x": 20,
+      "y": 2632,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_17",
+      "k": "check",
+      "ref": "chk_3_17",
+      "x": 20,
+      "y": 2792,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_18",
+      "k": "check",
+      "ref": "chk_3_18",
+      "x": 20,
+      "y": 2974,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_chk_3_19",
+      "k": "check",
+      "ref": "chk_3_19",
+      "x": 20,
+      "y": 3156,
+      "parent": "n_st_s3b"
+     },
+     {
+      "id": "n_g_docs",
+      "k": "gate",
+      "x": 3080,
+      "y": 0,
+      "data": {
+       "text": "Документы загружены, анкета заполнена"
+      }
+     },
+     {
+      "id": "n_st_s4",
+      "k": "stage",
+      "x": 3320,
+      "y": 0,
+      "w": 360,
+      "h": 1896,
+      "fit": 1,
+      "data": {
+       "num": "4",
+       "name": "Документы и полнота пакета",
+       "point": "Точка 3"
+      }
+     },
+     {
+      "id": "n_chk_4_1",
+      "k": "check",
+      "ref": "chk_4_1",
+      "x": 20,
+      "y": 56,
+      "parent": "n_st_s4"
+     },
+     {
+      "id": "n_chk_4_2",
+      "k": "check",
+      "ref": "chk_4_2",
+      "x": 20,
+      "y": 326,
+      "parent": "n_st_s4"
+     },
+     {
+      "id": "n_chk_4_3",
+      "k": "check",
+      "ref": "chk_4_3",
+      "x": 20,
+      "y": 486,
+      "parent": "n_st_s4"
+     },
+     {
+      "id": "n_chk_4_4",
+      "k": "check",
+      "ref": "chk_4_4",
+      "x": 20,
+      "y": 690,
+      "parent": "n_st_s4"
+     },
+     {
+      "id": "n_chk_4_5",
+      "k": "check",
+      "ref": "chk_4_5",
+      "x": 20,
+      "y": 850,
+      "parent": "n_st_s4"
+     },
+     {
+      "id": "n_chk_4_6",
+      "k": "check",
+      "ref": "chk_4_6",
+      "x": 20,
+      "y": 1032,
+      "parent": "n_st_s4"
+     },
+     {
+      "id": "n_chk_4_7",
+      "k": "check",
+      "ref": "chk_4_7",
+      "x": 20,
+      "y": 1192,
+      "parent": "n_st_s4"
+     },
+     {
+      "id": "n_chk_4_8",
+      "k": "check",
+      "ref": "chk_4_8",
+      "x": 20,
+      "y": 1374,
+      "parent": "n_st_s4"
+     },
+     {
+      "id": "n_chk_4_9",
+      "k": "check",
+      "ref": "chk_4_9",
+      "x": 20,
+      "y": 1556,
+      "parent": "n_st_s4"
+     },
+     {
+      "id": "n_chk_4_10",
+      "k": "check",
+      "ref": "chk_4_10",
+      "x": 20,
+      "y": 1716,
+      "parent": "n_st_s4"
+     },
+     {
+      "id": "n_g_meet",
+      "k": "gate",
+      "x": 3780,
+      "y": 0,
+      "data": {
+       "text": "Встреча с выездным КМ состоялась"
+      }
+     },
+     {
+      "id": "n_st_s5",
+      "k": "stage",
+      "x": 4020,
+      "y": 0,
+      "w": 360,
+      "h": 716,
+      "fit": 1,
+      "data": {
+       "num": "5",
+       "name": "Встреча с выездным КМ",
+       "point": "Точка 4"
+      }
+     },
+     {
+      "id": "n_chk_5_1",
+      "k": "check",
+      "ref": "chk_5_1",
+      "x": 20,
+      "y": 56,
+      "parent": "n_st_s5"
+     },
+     {
+      "id": "n_chk_5_2",
+      "k": "check",
+      "ref": "chk_5_2",
+      "x": 20,
+      "y": 216,
+      "parent": "n_st_s5"
+     },
+     {
+      "id": "n_chk_5_3",
+      "k": "check",
+      "ref": "chk_5_3",
+      "x": 20,
+      "y": 376,
+      "parent": "n_st_s5"
+     },
+     {
+      "id": "n_chk_5_4",
+      "k": "check",
+      "ref": "chk_5_4",
+      "x": 20,
+      "y": 536,
+      "parent": "n_st_s5"
+     },
+     {
+      "id": "n_st_s6",
+      "k": "stage",
+      "x": 4480,
+      "y": 0,
+      "w": 360,
+      "h": 876,
+      "fit": 1,
+      "data": {
+       "num": "6",
+       "name": "Финальные проверки и решение",
+       "point": "Точка 5"
+      }
+     },
+     {
+      "id": "n_chk_6_1",
+      "k": "check",
+      "ref": "chk_6_1",
+      "x": 20,
+      "y": 56,
+      "parent": "n_st_s6"
+     },
+     {
+      "id": "n_chk_6_2",
+      "k": "check",
+      "ref": "chk_6_2",
+      "x": 20,
+      "y": 216,
+      "parent": "n_st_s6"
+     },
+     {
+      "id": "n_chk_6_3",
+      "k": "check",
+      "ref": "chk_6_3",
+      "x": 20,
+      "y": 398,
+      "parent": "n_st_s6"
+     },
+     {
+      "id": "n_chk_6_4",
+      "k": "check",
+      "ref": "chk_6_4",
+      "x": 20,
+      "y": 536,
+      "parent": "n_st_s6"
+     },
+     {
+      "id": "n_chk_6_5",
+      "k": "check",
+      "ref": "chk_6_5",
+      "x": 20,
+      "y": 674,
+      "parent": "n_st_s6"
+     },
+     {
+      "id": "n_out_refuse_a",
+      "k": "outcome",
+      "ref": "out_refuse_a",
+      "x": 5000,
+      "y": 0
+     },
+     {
+      "id": "n_out_refuse_b",
+      "k": "outcome",
+      "ref": "out_refuse_b",
+      "x": 5000,
+      "y": 110
+     },
+     {
+      "id": "n_out_freeze",
+      "k": "outcome",
+      "ref": "out_freeze",
+      "x": 5000,
+      "y": 220
+     },
+     {
+      "id": "n_out_manual",
+      "k": "outcome",
+      "ref": "out_manual",
+      "x": 5000,
+      "y": 330
+     },
+     {
+      "id": "n_out_risk",
+      "k": "outcome",
+      "ref": "out_risk",
+      "x": 5000,
+      "y": 440
+     },
+     {
+      "id": "n_out_clarify",
+      "k": "outcome",
+      "ref": "out_clarify",
+      "x": 5000,
+      "y": 550
+     },
+     {
+      "id": "n_out_neutral",
+      "k": "outcome",
+      "ref": "out_neutral",
+      "x": 5000,
+      "y": 660
+     },
+     {
+      "id": "n_out_open",
+      "k": "outcome",
+      "ref": "out_open",
+      "x": 5000,
+      "y": 770
+     },
+     {
+      "id": "n_any_3_11_lic",
+      "k": "anyof",
+      "x": 2640,
+      "y": -200,
+      "data": {
+       "type": "list",
+       "label": "Один из (по порядку)",
+       "n": 3
+      }
+     },
+     {
+      "id": "n_any_4_6_pep",
+      "k": "anyof",
+      "x": 3340,
+      "y": -200,
+      "data": {
+       "type": "bool",
+       "label": "Один из (по порядку)",
+       "n": 2
+      }
+     },
+     {
+      "id": "n_note_legend",
+      "k": "note",
+      "x": 0,
+      "y": -260,
+      "w": 640,
+      "h": 170,
+      "data": {
+       "text": "Конвейер онбординга резидента, Волна 1. Этапы 1–5 — лист «Скоринг»; этап 6 — «Скоринг РКО — этапы проверок».\nВердикт «?» — последствие проверки в источнике не определено.\nВход без связи — источника нет (3.15, 3.19)."
+      }
+     }
+    ],
+    "edges": [
+     {
+      "id": "e1",
+      "s": "n_st_s1",
+      "sh": "exec-out",
+      "t": "n_st_s2",
+      "th": "exec-in"
+     },
+     {
+      "id": "e2",
+      "s": "n_st_s2",
+      "sh": "exec-out",
+      "t": "n_g_consent",
+      "th": "exec-in"
+     },
+     {
+      "id": "e3",
+      "s": "n_g_consent",
+      "sh": "exec-out",
+      "t": "n_st_s3a",
+      "th": "exec-in"
+     },
+     {
+      "id": "e4",
+      "s": "n_st_s3a",
+      "sh": "exec-out",
+      "t": "n_st_s3b",
+      "th": "exec-in"
+     },
+     {
+      "id": "e5",
+      "s": "n_st_s3b",
+      "sh": "exec-out",
+      "t": "n_g_docs",
+      "th": "exec-in"
+     },
+     {
+      "id": "e6",
+      "s": "n_g_docs",
+      "sh": "exec-out",
+      "t": "n_st_s4",
+      "th": "exec-in"
+     },
+     {
+      "id": "e7",
+      "s": "n_st_s4",
+      "sh": "exec-out",
+      "t": "n_g_meet",
+      "th": "exec-in"
+     },
+     {
+      "id": "e8",
+      "s": "n_g_meet",
+      "sh": "exec-out",
+      "t": "n_st_s5",
+      "th": "exec-in"
+     },
+     {
+      "id": "e9",
+      "s": "n_st_s5",
+      "sh": "exec-out",
+      "t": "n_st_s6",
+      "th": "exec-in"
+     },
+     {
+      "id": "e10",
+      "s": "n_src_sms",
+      "sh": "out:f_otp",
+      "t": "n_chk_1_1",
+      "th": "in:otp"
+     },
+     {
+      "id": "e11",
+      "s": "n_chk_1_1",
+      "sh": "v:neutral",
+      "t": "n_out_neutral",
+      "th": "vin"
+     },
+     {
+      "id": "e12",
+      "s": "n_src_phone",
+      "sh": "out:f_ph_owner",
+      "t": "n_chk_1_2",
+      "th": "in:owner"
+     },
+     {
+      "id": "e13",
+      "s": "n_src_phone",
+      "sh": "out:f_sim_age",
+      "t": "n_chk_1_3",
+      "th": "in:age"
+     },
+     {
+      "id": "e14",
+      "s": "n_src_phone",
+      "sh": "out:f_sim_swap",
+      "t": "n_chk_1_3",
+      "th": "in:swap"
+     },
+     {
+      "id": "e15",
+      "s": "n_src_phone",
+      "sh": "out:f_fwd",
+      "t": "n_chk_1_4",
+      "th": "in:fwd"
+     },
+     {
+      "id": "e16",
+      "s": "n_src_phone",
+      "sh": "out:f_ph_neg",
+      "t": "n_chk_1_5",
+      "th": "in:neg"
+     },
+     {
+      "id": "e17",
+      "s": "n_src_egrul",
+      "sh": "out:f_found",
+      "t": "n_chk_2_1",
+      "th": "in:found"
+     },
+     {
+      "id": "e18",
+      "s": "n_chk_2_1",
+      "sh": "v:neutral",
+      "t": "n_out_neutral",
+      "th": "vin"
+     },
+     {
+      "id": "e19",
+      "s": "n_src_egrul",
+      "sh": "out:f_status",
+      "t": "n_chk_2_2",
+      "th": "in:status"
+     },
+     {
+      "id": "e20",
+      "s": "n_chk_2_2",
+      "sh": "v:stop_b",
+      "t": "n_out_refuse_b",
+      "th": "vin"
+     },
+     {
+      "id": "e21",
+      "s": "n_src_egrul",
+      "sh": "out:f_excl",
+      "t": "n_chk_2_3",
+      "th": "in:excl"
+     },
+     {
+      "id": "e22",
+      "s": "n_chk_2_3",
+      "sh": "v:stop_b",
+      "t": "n_out_refuse_b",
+      "th": "vin"
+     },
+     {
+      "id": "e23",
+      "s": "n_src_egrul",
+      "sh": "out:f_unrel_head",
+      "t": "n_chk_2_4",
+      "th": "in:unrel"
+     },
+     {
+      "id": "e24",
+      "s": "n_chk_2_4",
+      "sh": "v:stop_b",
+      "t": "n_out_refuse_b",
+      "th": "vin"
+     },
+     {
+      "id": "e25",
+      "s": "n_src_egrul",
+      "sh": "out:f_unrel_addr",
+      "t": "n_chk_2_5",
+      "th": "in:unrel"
+     },
+     {
+      "id": "e26",
+      "s": "n_chk_2_5",
+      "sh": "v:risk",
+      "t": "n_out_risk",
+      "th": "vin"
+     },
+     {
+      "id": "e27",
+      "s": "n_src_egrul",
+      "sh": "out:f_regdate",
+      "t": "n_chk_2_6",
+      "th": "in:reg"
+     },
+     {
+      "id": "e28",
+      "s": "n_chk_2_6",
+      "sh": "v:risk",
+      "t": "n_out_risk",
+      "th": "vin"
+     },
+     {
+      "id": "e29",
+      "s": "n_src_egrul",
+      "sh": "out:f_okved",
+      "t": "n_chk_2_7",
+      "th": "in:okved"
+     },
+     {
+      "id": "e30",
+      "s": "n_src_egrul",
+      "sh": "out:f_tpl",
+      "t": "n_chk_2_8",
+      "th": "in:tpl"
+     },
+     {
+      "id": "e31",
+      "s": "n_dim_ctype",
+      "sh": "val:v_ul",
+      "t": "n_chk_2_8",
+      "th": "cond-in"
+     },
+     {
+      "id": "e32",
+      "s": "n_src_egrul",
+      "sh": "out:f_capital",
+      "t": "n_chk_2_9",
+      "th": "in:cap"
+     },
+     {
+      "id": "e33",
+      "s": "n_dim_ctype",
+      "sh": "val:v_ul",
+      "t": "n_chk_2_9",
+      "th": "cond-in"
+     },
+     {
+      "id": "e34",
+      "s": "n_src_egrul",
+      "sh": "out:f_members",
+      "t": "n_chk_2_10",
+      "th": "in:mem"
+     },
+     {
+      "id": "e35",
+      "s": "n_dim_ctype",
+      "sh": "val:v_ul",
+      "t": "n_chk_2_10",
+      "th": "cond-in"
+     },
+     {
+      "id": "e36",
+      "s": "n_src_egrul",
+      "sh": "out:f_members",
+      "t": "n_chk_2_11",
+      "th": "in:mem"
+     },
+     {
+      "id": "e37",
+      "s": "n_src_egrul",
+      "sh": "out:f_head",
+      "t": "n_chk_2_11",
+      "th": "in:head"
+     },
+     {
+      "id": "e38",
+      "s": "n_dim_ctype",
+      "sh": "val:v_ul",
+      "t": "n_chk_2_11",
+      "th": "cond-in"
+     },
+     {
+      "id": "e39",
+      "s": "n_src_rfm",
+      "sh": "out:f_rfm",
+      "t": "n_chk_3_0",
+      "th": "in:rfm"
+     },
+     {
+      "id": "e40",
+      "s": "n_chk_3_0",
+      "sh": "v:freeze",
+      "t": "n_out_freeze",
+      "th": "vin"
+     },
+     {
+      "id": "e41",
+      "s": "n_src_pb",
+      "sh": "out:f_mass_addr",
+      "t": "n_chk_3_1",
+      "th": "in:mass"
+     },
+     {
+      "id": "e42",
+      "s": "n_chk_3_1",
+      "sh": "v:stop_b",
+      "t": "n_out_refuse_b",
+      "th": "vin"
+     },
+     {
+      "id": "e43",
+      "s": "n_chk_3_1",
+      "sh": "v:risk",
+      "t": "n_out_risk",
+      "th": "vin"
+     },
+     {
+      "id": "e44",
+      "s": "n_src_pb",
+      "sh": "out:f_multi",
+      "t": "n_chk_3_2",
+      "th": "in:multi"
+     },
+     {
+      "id": "e45",
+      "s": "n_chk_3_2",
+      "sh": "v:risk",
+      "t": "n_out_risk",
+      "th": "vin"
+     },
+     {
+      "id": "e46",
+      "s": "n_src_disq",
+      "sh": "out:f_disq",
+      "t": "n_chk_3_3",
+      "th": "in:disq"
+     },
+     {
+      "id": "e47",
+      "s": "n_src_egrul",
+      "sh": "out:f_head",
+      "t": "n_chk_3_3",
+      "th": "in:head"
+     },
+     {
+      "id": "e48",
+      "s": "n_chk_3_3",
+      "sh": "v:stop_b",
+      "t": "n_out_refuse_b",
+      "th": "vin"
+     },
+     {
+      "id": "e49",
+      "s": "n_src_pb",
+      "sh": "out:f_tax_debt",
+      "t": "n_chk_3_4",
+      "th": "in:debt"
+     },
+     {
+      "id": "e50",
+      "s": "n_src_pb",
+      "sh": "out:f_no_report",
+      "t": "n_chk_3_4",
+      "th": "in:norep"
+     },
+     {
+      "id": "e51",
+      "s": "n_chk_3_4",
+      "sh": "v:risk",
+      "t": "n_out_risk",
+      "th": "vin"
+     },
+     {
+      "id": "e52",
+      "s": "n_src_pb",
+      "sh": "out:f_staff",
+      "t": "n_chk_3_5",
+      "th": "in:staff"
+     },
+     {
+      "id": "e53",
+      "s": "n_src_form",
+      "sh": "out:f_payouts",
+      "t": "n_chk_3_5",
+      "th": "in:pay"
+     },
+     {
+      "id": "e54",
+      "s": "n_src_efrsb",
+      "sh": "out:f_bnk_org",
+      "t": "n_chk_3_6",
+      "th": "in:bnk"
+     },
+     {
+      "id": "e55",
+      "s": "n_chk_3_6",
+      "sh": "v:stop_b",
+      "t": "n_out_refuse_b",
+      "th": "vin"
+     },
+     {
+      "id": "e56",
+      "s": "n_src_efrsb",
+      "sh": "out:f_bnk_person",
+      "t": "n_chk_3_7",
+      "th": "in:bnk"
+     },
+     {
+      "id": "e57",
+      "s": "n_src_egrul",
+      "sh": "out:f_head",
+      "t": "n_chk_3_7",
+      "th": "in:head"
+     },
+     {
+      "id": "e58",
+      "s": "n_chk_3_7",
+      "sh": "v:stop_b",
+      "t": "n_out_refuse_b",
+      "th": "vin"
+     },
+     {
+      "id": "e59",
+      "s": "n_src_fssp",
+      "sh": "out:f_fssp",
+      "t": "n_chk_3_8",
+      "th": "in:fssp"
+     },
+     {
+      "id": "e60",
+      "s": "n_src_girbo",
+      "sh": "out:f_revenue",
+      "t": "n_chk_3_8",
+      "th": "in:rev"
+     },
+     {
+      "id": "e61",
+      "s": "n_dim_ctype",
+      "sh": "val:v_ip",
+      "t": "n_chk_3_8",
+      "th": "cond-in",
+      "neg": 1
+     },
+     {
+      "id": "e62",
+      "s": "n_dim_age",
+      "sh": "val:v_new",
+      "t": "n_chk_3_8",
+      "th": "cond-in",
+      "neg": 1
+     },
+     {
+      "id": "e63",
+      "s": "n_src_kad",
+      "sh": "out:f_claims",
+      "t": "n_chk_3_9",
+      "th": "in:claims"
+     },
+     {
+      "id": "e64",
+      "s": "n_src_girbo",
+      "sh": "out:f_revenue",
+      "t": "n_chk_3_9",
+      "th": "in:rev"
+     },
+     {
+      "id": "e65",
+      "s": "n_dim_ctype",
+      "sh": "val:v_ip",
+      "t": "n_chk_3_9",
+      "th": "cond-in",
+      "neg": 1
+     },
+     {
+      "id": "e66",
+      "s": "n_dim_age",
+      "sh": "val:v_new",
+      "t": "n_chk_3_9",
+      "th": "cond-in",
+      "neg": 1
+     },
+     {
+      "id": "e67",
+      "s": "n_src_fns_block",
+      "sh": "out:f_block",
+      "t": "n_chk_3_10",
+      "th": "in:block"
+     },
+     {
+      "id": "e68",
+      "s": "n_src_egrul",
+      "sh": "out:f_okved",
+      "t": "n_chk_3_11",
+      "th": "in:okved"
+     },
+     {
+      "id": "e69",
+      "s": "n_src_cbr_lic",
+      "sh": "out:f_lic_cbr",
+      "t": "n_any_3_11_lic",
+      "th": "in:0"
+     },
+     {
+      "id": "e70",
+      "s": "n_src_focus_lic",
+      "sh": "out:f_lic_focus",
+      "t": "n_any_3_11_lic",
+      "th": "in:1"
+     },
+     {
+      "id": "e71",
+      "s": "n_src_egrul",
+      "sh": "out:f_lic_egrul",
+      "t": "n_any_3_11_lic",
+      "th": "in:2"
+     },
+     {
+      "id": "e72",
+      "s": "n_any_3_11_lic",
+      "sh": "out",
+      "t": "n_chk_3_11",
+      "th": "in:lic"
+     },
+     {
+      "id": "e73",
+      "s": "n_src_form",
+      "sh": "out:f_lic_self",
+      "t": "n_chk_3_11",
+      "th": "in:self"
+     },
+     {
+      "id": "e74",
+      "s": "n_src_minjust",
+      "sh": "out:f_fagent",
+      "t": "n_chk_3_12",
+      "th": "in:fa"
+     },
+     {
+      "id": "e75",
+      "s": "n_src_girbo",
+      "sh": "out:f_fin",
+      "t": "n_chk_3_13",
+      "th": "in:fin"
+     },
+     {
+      "id": "e76",
+      "s": "n_chk_3_13",
+      "sh": "v:risk",
+      "t": "n_out_risk",
+      "th": "vin"
+     },
+     {
+      "id": "e77",
+      "s": "n_src_form",
+      "sh": "out:f_pep_self",
+      "t": "n_chk_3_14",
+      "th": "in:pep"
+     },
+     {
+      "id": "e78",
+      "s": "n_src_cbr_refuse",
+      "sh": "out:f_refused",
+      "t": "n_chk_3_16",
+      "th": "in:ref"
+     },
+     {
+      "id": "e79",
+      "s": "n_chk_3_16",
+      "sh": "v:risk",
+      "t": "n_out_risk",
+      "th": "vin"
+     },
+     {
+      "id": "e80",
+      "s": "n_src_form",
+      "sh": "out:f_site",
+      "t": "n_chk_3_17",
+      "th": "in:site"
+     },
+     {
+      "id": "e81",
+      "s": "n_src_rkn",
+      "sh": "out:f_domain_banned",
+      "t": "n_chk_3_17",
+      "th": "in:ban"
+     },
+     {
+      "id": "e82",
+      "s": "n_chk_3_17",
+      "sh": "v:stop_a",
+      "t": "n_out_refuse_a",
+      "th": "vin"
+     },
+     {
+      "id": "e83",
+      "s": "n_src_zsk",
+      "sh": "out:f_zsk_level",
+      "t": "n_chk_3_18",
+      "th": "in:lvl"
+     },
+     {
+      "id": "e84",
+      "s": "n_src_zsk",
+      "sh": "out:f_zsk_codes",
+      "t": "n_chk_3_18",
+      "th": "in:codes"
+     },
+     {
+      "id": "e85",
+      "s": "n_chk_3_18",
+      "sh": "v:stop_b",
+      "t": "n_out_refuse_b",
+      "th": "vin"
+     },
+     {
+      "id": "e86",
+      "s": "n_chk_3_18",
+      "sh": "v:manual",
+      "t": "n_out_manual",
+      "th": "vin"
+     },
+     {
+      "id": "e87",
+      "s": "n_chk_3_19",
+      "sh": "v:stop_b",
+      "t": "n_out_refuse_b",
+      "th": "vin"
+     },
+     {
+      "id": "e88",
+      "s": "n_src_upload",
+      "sh": "out:f_up_passport",
+      "t": "n_chk_4_1",
+      "th": "in:pass"
+     },
+     {
+      "id": "e89",
+      "s": "n_src_upload",
+      "sh": "out:f_up_charter",
+      "t": "n_chk_4_1",
+      "th": "in:charter"
+     },
+     {
+      "id": "e90",
+      "s": "n_src_upload",
+      "sh": "out:f_up_decision",
+      "t": "n_chk_4_1",
+      "th": "in:dec"
+     },
+     {
+      "id": "e91",
+      "s": "n_src_upload",
+      "sh": "out:f_up_members",
+      "t": "n_chk_4_1",
+      "th": "in:mem"
+     },
+     {
+      "id": "e92",
+      "s": "n_src_upload",
+      "sh": "out:f_up_bo",
+      "t": "n_chk_4_1",
+      "th": "in:bo"
+     },
+     {
+      "id": "e93",
+      "s": "n_src_upload",
+      "sh": "out:f_up_consents",
+      "t": "n_chk_4_1",
+      "th": "in:cons"
+     },
+     {
+      "id": "e94",
+      "s": "n_chk_4_1",
+      "sh": "v:stop_a",
+      "t": "n_out_refuse_a",
+      "th": "vin"
+     },
+     {
+      "id": "e95",
+      "s": "n_src_upload",
+      "sh": "out:f_up_container",
+      "t": "n_chk_4_2",
+      "th": "in:cont"
+     },
+     {
+      "id": "e96",
+      "s": "n_dim_ctype",
+      "sh": "val:v_ul",
+      "t": "n_chk_4_2",
+      "th": "cond-in"
+     },
+     {
+      "id": "e97",
+      "s": "n_dim_charter",
+      "sh": "val:v_g2",
+      "t": "n_chk_4_2",
+      "th": "cond-in"
+     },
+     {
+      "id": "e98",
+      "s": "n_src_egrul",
+      "sh": "out:f_tpl",
+      "t": "n_chk_4_3",
+      "th": "in:tpl"
+     },
+     {
+      "id": "e99",
+      "s": "n_src_upload",
+      "sh": "out:f_up_container",
+      "t": "n_chk_4_3",
+      "th": "in:cont"
+     },
+     {
+      "id": "e100",
+      "s": "n_src_upload",
+      "sh": "out:f_up_charter",
+      "t": "n_chk_4_3",
+      "th": "in:scan"
+     },
+     {
+      "id": "e101",
+      "s": "n_dim_ctype",
+      "sh": "val:v_ul",
+      "t": "n_chk_4_3",
+      "th": "cond-in"
+     },
+     {
+      "id": "e102",
+      "s": "n_src_smev",
+      "sh": "out:f_passport_ok",
+      "t": "n_chk_4_4",
+      "th": "in:pass"
+     },
+     {
+      "id": "e103",
+      "s": "n_chk_4_4",
+      "sh": "v:stop_a",
+      "t": "n_out_refuse_a",
+      "th": "vin"
+     },
+     {
+      "id": "e104",
+      "s": "n_src_efrsb",
+      "sh": "out:f_bnk_person",
+      "t": "n_chk_4_5",
+      "th": "in:bnk"
+     },
+     {
+      "id": "e105",
+      "s": "n_src_form",
+      "sh": "out:f_bo",
+      "t": "n_chk_4_5",
+      "th": "in:bo"
+     },
+     {
+      "id": "e106",
+      "s": "n_dim_ctype",
+      "sh": "val:v_ul",
+      "t": "n_chk_4_5",
+      "th": "cond-in"
+     },
+     {
+      "id": "e107",
+      "s": "n_dim_own",
+      "sh": "val:v_d_sep",
+      "t": "n_chk_4_5",
+      "th": "cond-in"
+     },
+     {
+      "id": "e108",
+      "s": "n_dim_own",
+      "sh": "val:v_d_multi",
+      "t": "n_chk_4_5",
+      "th": "cond-in"
+     },
+     {
+      "id": "e109",
+      "s": "n_chk_4_5",
+      "sh": "v:stop_b",
+      "t": "n_out_refuse_b",
+      "th": "vin"
+     },
+     {
+      "id": "e110",
+      "s": "n_src_form",
+      "sh": "out:f_pep_self",
+      "t": "n_any_4_6_pep",
+      "th": "in:0"
+     },
+     {
+      "id": "e111",
+      "s": "n_src_xc",
+      "sh": "out:f_pep_db",
+      "t": "n_any_4_6_pep",
+      "th": "in:1"
+     },
+     {
+      "id": "e112",
+      "s": "n_any_4_6_pep",
+      "sh": "out",
+      "t": "n_chk_4_6",
+      "th": "in:pep"
+     },
+     {
+      "id": "e113",
+      "s": "n_chk_4_6",
+      "sh": "v:manual",
+      "t": "n_out_manual",
+      "th": "vin"
+     },
+     {
+      "id": "e114",
+      "s": "n_src_form",
+      "sh": "out:f_fact_addr",
+      "t": "n_chk_4_7",
+      "th": "in:fact"
+     },
+     {
+      "id": "e115",
+      "s": "n_src_egrul",
+      "sh": "out:f_addr",
+      "t": "n_chk_4_7",
+      "th": "in:jur"
+     },
+     {
+      "id": "e116",
+      "s": "n_chk_4_7",
+      "sh": "v:clarify",
+      "t": "n_out_clarify",
+      "th": "vin"
+     },
+     {
+      "id": "e117",
+      "s": "n_src_form",
+      "sh": "out:f_foreign",
+      "t": "n_chk_4_8",
+      "th": "in:frg"
+     },
+     {
+      "id": "e118",
+      "s": "n_src_rkl",
+      "sh": "out:f_rkl",
+      "t": "n_chk_4_8",
+      "th": "in:rkl"
+     },
+     {
+      "id": "e119",
+      "s": "n_src_verifier",
+      "sh": "out:f_ver_ok",
+      "t": "n_chk_4_9",
+      "th": "in:ver"
+     },
+     {
+      "id": "e120",
+      "s": "n_chk_4_9",
+      "sh": "v:risk",
+      "t": "n_out_risk",
+      "th": "vin"
+     },
+     {
+      "id": "e121",
+      "s": "n_src_upload",
+      "sh": "out:f_up_consents",
+      "t": "n_chk_4_10",
+      "th": "in:cons"
+     },
+     {
+      "id": "e122",
+      "s": "n_src_km",
+      "sh": "out:f_km_passport",
+      "t": "n_chk_5_1",
+      "th": "in:orig"
+     },
+     {
+      "id": "e123",
+      "s": "n_chk_5_1",
+      "sh": "v:stop_a",
+      "t": "n_out_refuse_a",
+      "th": "vin"
+     },
+     {
+      "id": "e124",
+      "s": "n_src_km",
+      "sh": "out:f_km_signed",
+      "t": "n_chk_5_2",
+      "th": "in:doc"
+     },
+     {
+      "id": "e125",
+      "s": "n_src_km",
+      "sh": "out:f_km_charter",
+      "t": "n_chk_5_3",
+      "th": "in:cop"
+     },
+     {
+      "id": "e126",
+      "s": "n_dim_ctype",
+      "sh": "val:v_ul",
+      "t": "n_chk_5_3",
+      "th": "cond-in"
+     },
+     {
+      "id": "e127",
+      "s": "n_dim_charter",
+      "sh": "val:v_g3",
+      "t": "n_chk_5_3",
+      "th": "cond-in"
+     },
+     {
+      "id": "e128",
+      "s": "n_src_km",
+      "sh": "out:f_km_photos",
+      "t": "n_chk_5_4",
+      "th": "in:ph"
+     },
+     {
+      "id": "e129",
+      "s": "n_src_rfm",
+      "sh": "out:f_rfm",
+      "t": "n_chk_6_1",
+      "th": "in:rfm"
+     },
+     {
+      "id": "e130",
+      "s": "n_chk_6_1",
+      "sh": "v:freeze",
+      "t": "n_out_freeze",
+      "th": "vin"
+     },
+     {
+      "id": "e131",
+      "s": "n_src_zsk",
+      "sh": "out:f_zsk_level",
+      "t": "n_chk_6_2",
+      "th": "in:lvl"
+     },
+     {
+      "id": "e132",
+      "s": "n_src_zsk",
+      "sh": "out:f_zsk_codes",
+      "t": "n_chk_6_2",
+      "th": "in:codes"
+     },
+     {
+      "id": "e133",
+      "s": "n_chk_6_2",
+      "sh": "v:stop_b",
+      "t": "n_out_refuse_b",
+      "th": "vin"
+     },
+     {
+      "id": "e134",
+      "s": "n_chk_6_2",
+      "sh": "v:manual",
+      "t": "n_out_manual",
+      "th": "vin"
+     },
+     {
+      "id": "e135",
+      "s": "n_chk_6_5",
+      "sh": "v:ok",
+      "t": "n_out_open",
+      "th": "vin"
+     },
+     {
+      "id": "e136",
+      "s": "n_chk_6_5",
+      "sh": "v:manual",
+      "t": "n_out_manual",
+      "th": "vin"
+     },
+     {
+      "id": "e137",
+      "s": "n_chk_6_5",
+      "sh": "v:stop_b",
+      "t": "n_out_refuse_b",
+      "th": "vin"
+     }
+    ],
+    "profiles": [
+     {
+      "id": "pf_ip",
+      "name": "P-ИП",
+      "sel": {
+       "dim_ctype": [
+        "v_ip"
+       ],
+       "dim_opf": [
+        "v_opf_ip"
+       ]
+      }
+     },
+     {
+      "id": "pf_ooo1",
+      "name": "P-ООО-простое",
+      "sel": {
+       "dim_ctype": [
+        "v_ul"
+       ],
+       "dim_opf": [
+        "v_opf_ooo"
+       ],
+       "dim_own": [
+        "v_d_single"
+       ]
+      }
+     },
+     {
+      "id": "pf_ooo2",
+      "name": "P-ООО-разделённое",
+      "sel": {
+       "dim_ctype": [
+        "v_ul"
+       ],
+       "dim_opf": [
+        "v_opf_ooo"
+       ],
+       "dim_own": [
+        "v_d_sep",
+        "v_d_multi"
+       ]
+      }
+     },
+     {
+      "id": "pf_ao",
+      "name": "P-АО (Волна 2)",
+      "sel": {
+       "dim_ctype": [
+        "v_ul"
+       ],
+       "dim_opf": [
+        "v_opf_ao"
+       ]
+      }
+     }
+    ],
+    "profile": null,
+    "show": {
+     "exec": 1,
+     "data": 1,
+     "cond": 1,
+     "verdict": 1
+    },
+    "overlay": ""
+   }
+  }
+ ],
+ "flowLib": {
+  "v": 1,
+  "dims": [
+   {
+    "id": "dim_ctype",
+    "code": "",
+    "name": "Тип клиента",
+    "desc": "Кем клиент является по ГК РФ",
+    "values": [
+     {
+      "id": "v_ul",
+      "code": "",
+      "name": "ЮЛ",
+      "desc": "",
+      "wave": 1
+     },
+     {
+      "id": "v_ip",
+      "code": "",
+      "name": "ИП",
+      "desc": "Включая ИП на НПД",
+      "wave": 1
+     },
+     {
+      "id": "v_fl",
+      "code": "",
+      "name": "ФЛ",
+      "desc": "Для кредитных продуктов",
+      "wave": 0
+     },
+     {
+      "id": "v_sz",
+      "code": "A-21",
+      "name": "Самозанятый",
+      "desc": "Не клиент РКО. ИНН 12 знаков, как у ИП; отличается отсутствием записи в ЕГРИП",
+      "wave": 0
+     }
+    ]
+   },
+   {
+    "id": "dim_opf",
+    "code": "A",
+    "name": "ОПФ (ось A)",
+    "desc": "Организационно-правовая форма",
+    "values": [
+     {
+      "id": "v_opf_ip",
+      "code": "A-01",
+      "name": "ИП",
+      "desc": "",
+      "wave": 1
+     },
+     {
+      "id": "v_opf_ooo",
+      "code": "A-06",
+      "name": "ООО",
+      "desc": "",
+      "wave": 1
+     },
+     {
+      "id": "v_opf_ao",
+      "code": "A-07…A-08",
+      "name": "АО",
+      "desc": "Волна 2",
+      "wave": 2
+     },
+     {
+      "id": "v_opf_nko",
+      "code": "A-16…A-19",
+      "name": "НКО",
+      "desc": "Вне скоупа Волны 1",
+      "wave": 0
+     },
+     {
+      "id": "v_opf_priv",
+      "code": "A-03…A-05, A-20",
+      "name": "Частная практика",
+      "desc": "Вне скоупа Волны 1",
+      "wave": 0
+     },
+     {
+      "id": "v_opf_gov",
+      "code": "A-12…A-15",
+      "name": "Госсектор",
+      "desc": "Вне скоупа Волны 1",
+      "wave": 0
+     },
+     {
+      "id": "v_opf_oth",
+      "code": "A-02, A-09…A-11",
+      "name": "Прочие коммерческие",
+      "desc": "Вне скоупа Волны 1",
+      "wave": 0
+     },
+     {
+      "id": "v_opf_reg",
+      "code": "A-22…A-27",
+      "name": "Особый регуляторный контур",
+      "desc": "Филиалы, платёжные агенты, ломбарды/МФО/КПК и др. Вне скоупа",
+      "wave": 0
+     }
+    ]
+   },
+   {
+    "id": "dim_tax",
+    "code": "",
+    "name": "Режим налогообложения",
+    "desc": "Влияет на источники подтверждения оборота",
+    "values": [
+     {
+      "id": "v_tx_osn",
+      "code": "",
+      "name": "ОСН",
+      "desc": "",
+      "wave": 0
+     },
+     {
+      "id": "v_tx_usn6",
+      "code": "",
+      "name": "УСН «доходы»",
+      "desc": "",
+      "wave": 0
+     },
+     {
+      "id": "v_tx_usn15",
+      "code": "",
+      "name": "УСН «доходы минус расходы»",
+      "desc": "",
+      "wave": 0
+     },
+     {
+      "id": "v_tx_ausn",
+      "code": "",
+      "name": "АУСН",
+      "desc": "",
+      "wave": 0
+     },
+     {
+      "id": "v_tx_psn",
+      "code": "",
+      "name": "ПСН (патент)",
+      "desc": "Только ИП. В анкете банка варианта нет",
+      "wave": 0
+     },
+     {
+      "id": "v_tx_eshn",
+      "code": "",
+      "name": "ЕСХН",
+      "desc": "",
+      "wave": 0
+     },
+     {
+      "id": "v_tx_npd",
+      "code": "",
+      "name": "НПД",
+      "desc": "ИП на НПД — валидный клиент РКО. В анкете банка варианта нет",
+      "wave": 0
+     }
+    ]
+   },
+   {
+    "id": "dim_own",
+    "code": "D",
+    "name": "Структура владения (ось D)",
+    "desc": "Участники и бенефициарные владельцы",
+    "values": [
+     {
+      "id": "v_d_single",
+      "code": "D-02",
+      "name": "Единственный участник = ЕИО",
+      "desc": "Профиль P-ООО-простое",
+      "wave": 1
+     },
+     {
+      "id": "v_d_sep",
+      "code": "",
+      "name": "Единственный участник ≠ ЕИО",
+      "desc": "Профиль P-ООО-разделённое",
+      "wave": 1
+     },
+     {
+      "id": "v_d_multi",
+      "code": "",
+      "name": "Несколько участников-ФЛ",
+      "desc": "Профиль P-ООО-разделённое",
+      "wave": 1
+     },
+     {
+      "id": "v_d_legal",
+      "code": "D-07",
+      "name": "Участник — ЮЛ",
+      "desc": "Волна 2",
+      "wave": 2
+     },
+     {
+      "id": "v_d_low",
+      "code": "D-06",
+      "name": "Все доли ≤ 25 %",
+      "desc": "Вне скоупа Волны 1",
+      "wave": 0
+     },
+     {
+      "id": "v_d_chain",
+      "code": "D-08",
+      "name": "Многоуровневая цепочка",
+      "desc": "Волна 3",
+      "wave": 3
+     }
+    ]
+   },
+   {
+    "id": "dim_charter",
+    "code": "G",
+    "name": "Учредительные документы (ось G)",
+    "desc": "Форма устава",
+    "values": [
+     {
+      "id": "v_g1",
+      "code": "G-1",
+      "name": "Типовой устав",
+      "desc": "Ничего не загружаем, номер из выписки",
+      "wave": 1
+     },
+     {
+      "id": "v_g2",
+      "code": "G-2",
+      "name": "Контейнер ФНС",
+      "desc": "Устав с УКЭП налоговой",
+      "wave": 1
+     },
+     {
+      "id": "v_g3",
+      "code": "G-3",
+      "name": "Бумажный устав",
+      "desc": "Старые ЮЛ",
+      "wave": 1
+     }
+    ]
+   },
+   {
+    "id": "dim_ind",
+    "code": "H",
+    "name": "Отраслевой профиль (ось H)",
+    "desc": "ОКВЭД + партнёрский канал",
+    "values": [
+     {
+      "id": "v_h1",
+      "code": "H-01",
+      "name": "Таксопарк, мобилити",
+      "desc": "",
+      "wave": 1
+     },
+     {
+      "id": "v_h2",
+      "code": "H-02",
+      "name": "Аутсорсер массовых выплат",
+      "desc": "",
+      "wave": 1
+     },
+     {
+      "id": "v_h3",
+      "code": "H-03",
+      "name": "Селлер на маркетплейсе",
+      "desc": "",
+      "wave": 1
+     },
+     {
+      "id": "v_h4",
+      "code": "H-04",
+      "name": "HoReCa-франчайзи",
+      "desc": "",
+      "wave": 1
+     },
+     {
+      "id": "v_h5",
+      "code": "H-05",
+      "name": "Импорт / логистика",
+      "desc": "",
+      "wave": 1
+     },
+     {
+      "id": "v_h6",
+      "code": "H-06",
+      "name": "Профиль не определён",
+      "desc": "Базовая шкала",
+      "wave": 1
+     }
+    ]
+   },
+   {
+    "id": "dim_age",
+    "code": "",
+    "name": "Возраст компании",
+    "desc": "От даты регистрации до даты заявки",
+    "values": [
+     {
+      "id": "v_new",
+      "code": "S16",
+      "name": "Свежерег < 180 дней",
+      "desc": "",
+      "wave": 1
+     },
+     {
+      "id": "v_old",
+      "code": "",
+      "name": "≥ 180 дней",
+      "desc": "",
+      "wave": 1
+     }
+    ]
+   },
+   {
+    "id": "dim_res",
+    "code": "",
+    "name": "Резидентство",
+    "desc": "",
+    "values": [
+     {
+      "id": "v_res",
+      "code": "",
+      "name": "Резидент",
+      "desc": "",
+      "wave": 1
+     },
+     {
+      "id": "v_nonres",
+      "code": "",
+      "name": "Нерезидент",
+      "desc": "Вне Волны 1",
+      "wave": 0
+     }
+    ]
+   },
+   {
+    "id": "dim_prod",
+    "code": "",
+    "name": "Продукт",
+    "desc": "Для какого продукта собран конвейер",
+    "values": [
+     {
+      "id": "v_p_rko",
+      "code": "",
+      "name": "РКО",
+      "desc": "",
+      "wave": 1
+     },
+     {
+      "id": "v_p_credit",
+      "code": "",
+      "name": "Кредит",
+      "desc": "",
+      "wave": 0
+     },
+     {
+      "id": "v_p_factoring",
+      "code": "",
+      "name": "Факторинг",
+      "desc": "",
+      "wave": 0
+     }
+    ]
+   }
+  ],
+  "sources": [
+   {
+    "id": "src_sms",
+    "name": "SMS/flash-канал",
+    "kind": "internal",
+    "access": "api",
+    "mode": "sync",
+    "status": "unknown",
+    "providers": "",
+    "note": "Свой канал",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_otp",
+      "name": "OTP подтверждён",
+      "type": "bool",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_phone",
+    "name": "Телефонный антифрод",
+    "kind": "commercial",
+    "access": "api",
+    "mode": "async",
+    "status": "planned",
+    "providers": "Операторские данные, Mobile ID",
+    "note": "Вендора выбираем сами, банк не нужен",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_ph_owner",
+      "name": "Номер принадлежит заявителю / ЕИО",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_sim_age",
+      "name": "Возраст SIM, дней",
+      "type": "number",
+      "desc": ""
+     },
+     {
+      "id": "f_sim_swap",
+      "name": "Недавняя замена / переоформление SIM",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_fwd",
+      "name": "Переадресация / виртуальный номер",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_ph_neg",
+      "name": "Негативные метки",
+      "type": "list",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_egrul",
+    "name": "ЕГРЮЛ / ЕГРИП",
+    "kind": "gov",
+    "access": "api",
+    "mode": "sync",
+    "status": "live",
+    "providers": "Дадата → Контур.Фокус",
+    "note": "Синхронно 0,3–2 с, точка 1",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_found",
+      "name": "Запись найдена",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_status",
+      "name": "Статус (действует / ликвидация)",
+      "type": "text",
+      "desc": ""
+     },
+     {
+      "id": "f_excl",
+      "name": "Решение о предстоящем исключении",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_unrel_head",
+      "name": "Недостоверность: руководитель / участник",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_unrel_addr",
+      "name": "Недостоверность: адрес",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_regdate",
+      "name": "Дата регистрации",
+      "type": "date",
+      "desc": ""
+     },
+     {
+      "id": "f_okved",
+      "name": "Основной ОКВЭД",
+      "type": "text",
+      "desc": ""
+     },
+     {
+      "id": "f_tpl",
+      "name": "№ типового устава",
+      "type": "text",
+      "desc": ""
+     },
+     {
+      "id": "f_capital",
+      "name": "Уставный капитал",
+      "type": "money",
+      "desc": ""
+     },
+     {
+      "id": "f_members",
+      "name": "Участники и доли",
+      "type": "list",
+      "desc": ""
+     },
+     {
+      "id": "f_head",
+      "name": "ЕИО",
+      "type": "person",
+      "desc": ""
+     },
+     {
+      "id": "f_addr",
+      "name": "Юридический адрес",
+      "type": "text",
+      "desc": ""
+     },
+     {
+      "id": "f_lic_egrul",
+      "name": "Лицензии (СвЛицензия)",
+      "type": "list",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_pb",
+    "name": "«Прозрачный бизнес» ФНС",
+    "kind": "gov",
+    "access": "bulk",
+    "mode": "daily",
+    "status": "unknown",
+    "providers": "",
+    "note": "",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_mass_addr",
+      "name": "Адрес массовой регистрации",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_multi",
+      "name": "Число ЮЛ, где ФЛ участник / ЕИО",
+      "type": "number",
+      "desc": ""
+     },
+     {
+      "id": "f_tax_debt",
+      "name": "Налоговая задолженность",
+      "type": "money",
+      "desc": ""
+     },
+     {
+      "id": "f_no_report",
+      "name": "Непредставление отчётности > 1 года",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_staff",
+      "name": "Среднесписочная численность",
+      "type": "number",
+      "desc": ""
+     },
+     {
+      "id": "f_taxmode",
+      "name": "Спецрежим налогообложения",
+      "type": "text",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_disq",
+    "name": "Реестр дисквалифицированных лиц ФНС",
+    "kind": "gov",
+    "access": "bulk",
+    "mode": "daily",
+    "status": "unknown",
+    "providers": "",
+    "note": "Ежедневная выгрузка",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_disq",
+      "name": "ЕИО дисквалифицирован",
+      "type": "bool",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_efrsb",
+    "name": "ЕФРСБ",
+    "kind": "gov",
+    "access": "api",
+    "mode": "async",
+    "status": "unknown",
+    "providers": "",
+    "note": "Официальный REST API",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_bnk_org",
+      "name": "Банкротство ЮЛ / ИП",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_bnk_person",
+      "name": "Банкротство физлица (ЕИО / БВ / участник)",
+      "type": "bool",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_fssp",
+    "name": "ФССП",
+    "kind": "gov",
+    "access": "api",
+    "mode": "async",
+    "status": "unknown",
+    "providers": "",
+    "note": "Публичный API",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_fssp",
+      "name": "Сумма исполнительных производств",
+      "type": "money",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_kad",
+    "name": "Картотека арбитражных дел",
+    "kind": "gov",
+    "access": "api",
+    "mode": "async",
+    "status": "unknown",
+    "providers": "",
+    "note": "",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_claims",
+      "name": "Сумма исков к ответчику",
+      "type": "money",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_girbo",
+    "name": "ГИРБО",
+    "kind": "gov",
+    "access": "api",
+    "mode": "async",
+    "status": "unknown",
+    "providers": "",
+    "note": "У ИП отчётности нет никогда",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_fin",
+      "name": "Бухгалтерская отчётность",
+      "type": "file",
+      "desc": ""
+     },
+     {
+      "id": "f_revenue",
+      "name": "Выручка",
+      "type": "money",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_fns_block",
+    "name": "ФНС — приостановления операций по счетам",
+    "kind": "gov",
+    "access": "api",
+    "mode": "async",
+    "status": "unknown",
+    "providers": "",
+    "note": "",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_block",
+      "name": "Операции по счетам приостановлены",
+      "type": "bool",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_rfm",
+    "name": "Перечни Росфинмониторинга",
+    "kind": "gov",
+    "access": "cabinet",
+    "mode": "sync",
+    "status": "unknown",
+    "providers": "ЛК Росфинмониторинга + fedsfm.ru",
+    "note": "Fallback запрещён",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_rfm",
+      "name": "Совпадение с перечнями РФМ / ООН / МВК",
+      "type": "bool",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_cbr_lic",
+    "name": "ЦБ — FinOrg.asmx (GetFullInfoByINN)",
+    "kind": "gov",
+    "access": "api",
+    "mode": "sync",
+    "status": "unknown",
+    "providers": "",
+    "note": "SOAP, бесплатно, без ключа. Все финансовые организации",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_lic_cbr",
+      "name": "Лицензии финансовых организаций",
+      "type": "list",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_focus_lic",
+    "name": "Контур.Фокус — licences",
+    "kind": "commercial",
+    "access": "api",
+    "mode": "sync",
+    "status": "unknown",
+    "providers": "",
+    "note": "9 ведомств",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_lic_focus",
+      "name": "Лицензии",
+      "type": "list",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_minjust",
+    "name": "Минюст — реестр иноагентов",
+    "kind": "gov",
+    "access": "bulk",
+    "mode": "daily",
+    "status": "unknown",
+    "providers": "",
+    "note": "Машиночитаемая выгрузка, суточный кэш",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_fagent",
+      "name": "Статус иноагента",
+      "type": "bool",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_cbr_refuse",
+    "name": "ЦБ — рассылка об отказах",
+    "kind": "gov",
+    "access": "bulk",
+    "mode": "daily",
+    "status": "unknown",
+    "providers": "",
+    "note": "",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_refused",
+      "name": "Прошлый отказ / расторжение",
+      "type": "bool",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_rkn",
+    "name": "ЕАИС РКН — запрещённые домены",
+    "kind": "gov",
+    "access": "none",
+    "mode": "sync",
+    "status": "no_access",
+    "providers": "",
+    "note": "Доступа нет — блокер",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_domain_banned",
+      "name": "Домен в реестре",
+      "type": "bool",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_zsk",
+    "name": "Платформа ЗСК — модуль АБС «Банк 21 Век»",
+    "kind": "bank",
+    "access": "api",
+    "mode": "daily",
+    "status": "planned",
+    "providers": "",
+    "note": "Уровень риска — атрибут ID=685, коды — ID=686. По не-клиентам — таблица ZSK_RISK без интерфейса",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_zsk_level",
+      "name": "Уровень риска 0 / 1 / 2",
+      "type": "number",
+      "desc": ""
+     },
+     {
+      "id": "f_zsk_codes",
+      "name": "Коды оснований",
+      "type": "list",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_smev",
+    "name": "СМЭВ",
+    "kind": "gov",
+    "access": "api",
+    "mode": "async",
+    "status": "unknown",
+    "providers": "",
+    "note": "",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_passport_ok",
+      "name": "Паспорт действителен",
+      "type": "bool",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_rkl",
+    "name": "РКЛ МВД",
+    "kind": "gov",
+    "access": "api",
+    "mode": "async",
+    "status": "planned",
+    "providers": "",
+    "note": "Волна 2",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_rkl",
+      "name": "В реестре контролируемых лиц",
+      "type": "bool",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_xc",
+    "name": "X-Compliance (AML-агрегатор банка)",
+    "kind": "bank",
+    "access": "api",
+    "mode": "sync",
+    "status": "unknown",
+    "providers": "",
+    "note": "Покрытие модулей ПДЛ и санкций лицензией — не подтверждено",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_pep_db",
+      "name": "Совпадение с базой ПДЛ",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_sanctions",
+      "name": "Совпадение с санкционными списками",
+      "type": "bool",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_form",
+    "name": "Анкета клиента",
+    "kind": "client",
+    "access": "manual",
+    "mode": "sync",
+    "status": "live",
+    "providers": "",
+    "note": "",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_pep_self",
+      "name": "Самодекларация ПДЛ",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_lic_self",
+      "name": "Самодекларация: лицензия",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_fact_addr",
+      "name": "Фактический адрес",
+      "type": "text",
+      "desc": ""
+     },
+     {
+      "id": "f_payouts",
+      "name": "Заявлены выплаты физлицам",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_bo",
+      "name": "Бенефициарные владельцы",
+      "type": "list",
+      "desc": ""
+     },
+     {
+      "id": "f_foreign",
+      "name": "Иностранный ЕИО / БВ",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_site",
+      "name": "Сайт",
+      "type": "text",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_upload",
+    "name": "Загрузка клиента",
+    "kind": "client",
+    "access": "manual",
+    "mode": "sync",
+    "status": "live",
+    "providers": "",
+    "note": "",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_up_passport",
+      "name": "Паспорт ЕИО",
+      "type": "file",
+      "desc": ""
+     },
+     {
+      "id": "f_up_container",
+      "name": "Контейнер ФНС (.zip)",
+      "type": "file",
+      "desc": ""
+     },
+     {
+      "id": "f_up_charter",
+      "name": "Устав (скан)",
+      "type": "file",
+      "desc": ""
+     },
+     {
+      "id": "f_up_decision",
+      "name": "Решение о назначении ЕИО",
+      "type": "file",
+      "desc": ""
+     },
+     {
+      "id": "f_up_members",
+      "name": "Список участников",
+      "type": "file",
+      "desc": ""
+     },
+     {
+      "id": "f_up_bo",
+      "name": "Паспорт и анкета участника-БВ",
+      "type": "file",
+      "desc": ""
+     },
+     {
+      "id": "f_up_consents",
+      "name": "Согласия: ПДн и внешние источники",
+      "type": "file",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_verifier",
+    "name": "Верификатор",
+    "kind": "staff",
+    "access": "manual",
+    "mode": "sync",
+    "status": "live",
+    "providers": "",
+    "note": "Человек, суждение не автоматизируется",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_ver_ok",
+      "name": "Качество и достоверность пакета",
+      "type": "bool",
+      "desc": ""
+     }
+    ]
+   },
+   {
+    "id": "src_km",
+    "name": "Выездной КМ",
+    "kind": "staff",
+    "access": "manual",
+    "mode": "sync",
+    "status": "live",
+    "providers": "",
+    "note": "Де-юре сотрудник банка",
+    "url": "",
+    "cost": "",
+    "fields": [
+     {
+      "id": "f_km_passport",
+      "name": "Оригинал паспорта сверен",
+      "type": "bool",
+      "desc": ""
+     },
+     {
+      "id": "f_km_signed",
+      "name": "Подписанный объединённый документ",
+      "type": "file",
+      "desc": ""
+     },
+     {
+      "id": "f_km_charter",
+      "name": "Заверенная копия устава",
+      "type": "file",
+      "desc": ""
+     },
+     {
+      "id": "f_km_photos",
+      "name": "Фото паспорта и документа",
+      "type": "file",
+      "desc": ""
+     }
+    ]
+   }
+  ],
+  "checks": [
+   {
+    "id": "chk_1_1",
+    "code": "1.1",
+    "name": "Владение номером",
+    "how": "OTP-код на ввод",
+    "why": "Базовая привязка заявки к человеку",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "otp",
+      "name": "OTP",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "neutral"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Свой SMS/flash-канал",
+    "tags": []
+   },
+   {
+    "id": "chk_1_2",
+    "code": "1.2",
+    "name": "Номер принадлежит заявителю или ЕИО",
+    "how": "Запрос к вендору по номеру, асинхронно",
+    "why": "Заявка с чужого номера",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "owner",
+      "name": "Владелец номера",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 1,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Коммерческий сервис (операторские данные, Mobile ID)",
+    "tags": []
+   },
+   {
+    "id": "chk_1_3",
+    "code": "1.3",
+    "name": "Возраст SIM, факт недавней замены или переоформления",
+    "how": "Скоринг SIM у вендора",
+    "why": "Свежая SIM + свежерег ЮЛ = связка, которую видно только здесь",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "age",
+      "name": "Возраст SIM",
+      "type": "number"
+     },
+     {
+      "id": "swap",
+      "name": "Замена SIM",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 1,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Коммерческий сервис (операторские данные, Mobile ID)",
+    "tags": []
+   },
+   {
+    "id": "chk_1_4",
+    "code": "1.4",
+    "name": "Переадресация, виртуальный номер",
+    "how": "Скоринг SIM",
+    "why": "Перехват OTP и обход подтверждения",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "fwd",
+      "name": "Переадресация",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 1,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Коммерческий сервис (операторские данные, Mobile ID)",
+    "tags": []
+   },
+   {
+    "id": "chk_1_5",
+    "code": "1.5",
+    "name": "Негативные метки",
+    "how": "Сверка с антифрод-базами вендора",
+    "why": "Номера, засвеченные в мошеннических схемах",
+    "rule": "",
+    "norm": "",
+    "factors": [
+     "E-48"
+    ],
+    "inputs": [
+     {
+      "id": "neg",
+      "name": "Метки",
+      "type": "list"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 1,
+    "bank": {
+     "status": "accepted_comments",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Коммерческий сервис (операторские данные, Mobile ID)",
+    "tags": []
+   },
+   {
+    "id": "chk_2_1",
+    "code": "2.1",
+    "name": "Наличие записи в ЕГРЮЛ или ЕГРИП",
+    "how": "Записи нет ни в одном → стоп",
+    "why": "Единственная защита пропускной способности на входе",
+    "rule": "",
+    "norm": "",
+    "factors": [
+     "S26"
+    ],
+    "inputs": [
+     {
+      "id": "found",
+      "name": "Запись",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "neutral"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Дадата или Контур",
+    "tags": []
+   },
+   {
+    "id": "chk_2_2",
+    "code": "2.2",
+    "name": "Статус: ликвидация, в процессе ликвидации",
+    "how": "Наличие",
+    "why": "",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "status",
+      "name": "Статус",
+      "type": "text"
+     }
+    ],
+    "verdicts": [
+     "stop_b"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Дадата или Контур",
+    "tags": []
+   },
+   {
+    "id": "chk_2_3",
+    "code": "2.3",
+    "name": "Решение о предстоящем исключении",
+    "how": "«Вестник госрегистрации»→ стоп",
+    "why": "",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "excl",
+      "name": "Исключение",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "stop_b"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Дадата или Контур",
+    "tags": []
+   },
+   {
+    "id": "chk_2_4",
+    "code": "2.4",
+    "name": "Запись о недостоверности сведений о руководителе / участнике",
+    "how": "Наличие",
+    "why": "Прямой фактор отказа ПВК",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "unrel",
+      "name": "Недостоверность",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "stop_b"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Дадата или Контур",
+    "tags": []
+   },
+   {
+    "id": "chk_2_5",
+    "code": "2.5",
+    "name": "Запись о недостоверности сведений об адресе",
+    "how": "Наличие",
+    "why": "Не блокирует. Это критерий средней степени риска",
+    "rule": "",
+    "norm": "",
+    "factors": [
+     "E-10"
+    ],
+    "inputs": [
+     {
+      "id": "unrel",
+      "name": "Недостоверность",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "risk"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "accepted_comments",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Дадата или Контур",
+    "tags": []
+   },
+   {
+    "id": "chk_2_6",
+    "code": "2.6",
+    "name": "Дата регистрации",
+    "how": "Разница с датой заявки < 180 дней",
+    "why": "Свежерег — риск компенсируемый, не стоп",
+    "rule": "",
+    "norm": "",
+    "factors": [
+     "E-09",
+     "S16"
+    ],
+    "inputs": [
+     {
+      "id": "reg",
+      "name": "Дата регистрации",
+      "type": "date"
+     }
+    ],
+    "verdicts": [
+     "risk"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Дадата или Контур",
+    "tags": []
+   },
+   {
+    "id": "chk_2_7",
+    "code": "2.7",
+    "name": "Основной ОКВЭД",
+    "how": "Код",
+    "why": "Вид деятельности → степень риска, ось H",
+    "rule": "",
+    "norm": "",
+    "factors": [
+     "ось H"
+    ],
+    "inputs": [
+     {
+      "id": "okved",
+      "name": "ОКВЭД",
+      "type": "text"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Дадата или Контур",
+    "tags": []
+   },
+   {
+    "id": "chk_2_8",
+    "code": "2.8",
+    "name": "Отметка «типовой устав № N»",
+    "how": "Номер из выписки",
+    "why": "",
+    "rule": "",
+    "norm": "",
+    "factors": [
+     "G-1"
+    ],
+    "inputs": [
+     {
+      "id": "tpl",
+      "name": "№ устава",
+      "type": "text"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Дадата или Контур",
+    "tags": []
+   },
+   {
+    "id": "chk_2_9",
+    "code": "2.9",
+    "name": "Уставный капитал",
+    "how": "≤ 10 000 ₽",
+    "why": "",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "cap",
+      "name": "УК",
+      "type": "money"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Дадата или Контур",
+    "tags": []
+   },
+   {
+    "id": "chk_2_10",
+    "code": "2.10",
+    "name": "Список участников и доли",
+    "how": "Набор",
+    "why": "Определяет профиль и состав БВ",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "mem",
+      "name": "Участники",
+      "type": "list"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "Оборддинг АО пока переносим во 2 волну",
+    "srcText": "Дадата или Контур",
+    "tags": []
+   },
+   {
+    "id": "chk_2_11",
+    "code": "2.11",
+    "name": "Единственный участник = руководитель",
+    "how": "Из состава участников",
+    "why": "",
+    "rule": "",
+    "norm": "",
+    "factors": [
+     "D-02"
+    ],
+    "inputs": [
+     {
+      "id": "mem",
+      "name": "Участники",
+      "type": "list"
+     },
+     {
+      "id": "head",
+      "name": "ЕИО",
+      "type": "person"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Дадата или Контур",
+    "tags": []
+   },
+   {
+    "id": "chk_3_0",
+    "code": "3.0",
+    "name": "Перечень РФМ (терроризм/экстремизм), перечни ООН, решения МВК",
+    "how": "Сверка до запуска скоринга. Таймаута нет",
+    "why": "Совпадение: замораживание + ФЭС не позднее следующего рабочего дня",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "rfm",
+      "name": "Совпадение",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "freeze"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "ЛК Росфинмониторинга + fedsfm.ru",
+    "tags": []
+   },
+   {
+    "id": "chk_3_1",
+    "code": "3.1",
+    "name": "Массовый адрес",
+    "how": "Адрес в наборе адресов массовой регистрации ФНС. Норма даёт «≥ 2 иных ЮЛ»",
+    "why": "Фактор отказа ПВК + критерий средней степени",
+    "rule": "",
+    "norm": "",
+    "factors": [
+     "E-11"
+    ],
+    "inputs": [
+     {
+      "id": "mass",
+      "name": "Массовый адрес",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "stop_b",
+     "risk"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "«Прозрачный бизнес» ФНС",
+    "tags": []
+   },
+   {
+    "id": "chk_3_2",
+    "code": "3.2",
+    "name": "Множественное участие физлица",
+    "how": "Счётчик по ИНН ФЛ. Для таксопарков и франчайзи 3–10 ЮЛ норма",
+    "why": "Номинальные директора и «фабрики» ЮЛ",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "multi",
+      "name": "Число ЮЛ",
+      "type": "number"
+     }
+    ],
+    "verdicts": [
+     "risk"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "«Прозрачный бизнес»",
+    "tags": []
+   },
+   {
+    "id": "chk_3_3",
+    "code": "3.3",
+    "name": "Дисквалификация ЕИО",
+    "how": "ФИО + ИНН → совпадение",
+    "why": "Дисквалифицированный не вправе руководить",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "disq",
+      "name": "Дисквалификация",
+      "type": "bool"
+     },
+     {
+      "id": "head",
+      "name": "ЕИО",
+      "type": "person"
+     }
+    ],
+    "verdicts": [
+     "stop_b"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Реестр дисквалифицированных ФНС, ежедневная выгрузка",
+    "tags": []
+   },
+   {
+    "id": "chk_3_4",
+    "code": "3.4",
+    "name": "Налоговая задолженность, непредставление отчётности > года",
+    "how": "Наличие",
+    "why": "Проверяемый признак нерабочей компании",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "debt",
+      "name": "Задолженность",
+      "type": "money"
+     },
+     {
+      "id": "norep",
+      "name": "Нет отчётности",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "risk"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "«Прозрачный бизнес»",
+    "tags": []
+   },
+   {
+    "id": "chk_3_5",
+    "code": "3.5",
+    "name": "Среднесписочная численность",
+    "how": "0 при заявленных выплатах физлицам",
+    "why": "Прямое противоречие заявленного и проверяемого",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "staff",
+      "name": "Численность",
+      "type": "number"
+     },
+     {
+      "id": "pay",
+      "name": "Выплаты ФЛ",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 1,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "«Прозрачный бизнес» + анкета",
+    "tags": []
+   },
+   {
+    "id": "chk_3_6",
+    "code": "3.6",
+    "name": "Банкротство ЮЛ или ИП",
+    "how": "Наличие сообщения",
+    "why": "Основание отказа",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "bnk",
+      "name": "Банкротство",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "stop_b"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "ЕФРСБ, официальный REST API",
+    "tags": []
+   },
+   {
+    "id": "chk_3_7",
+    "code": "3.7",
+    "name": "Банкротство ЕИО как физлица",
+    "how": "Поиск по ФЛ; данные о ЕИО берём из ЕГРЮЛ",
+    "why": "Основание отказа",
+    "rule": "",
+    "norm": "",
+    "factors": [
+     "E-49"
+    ],
+    "inputs": [
+     {
+      "id": "bnk",
+      "name": "Банкротство ФЛ",
+      "type": "bool"
+     },
+     {
+      "id": "head",
+      "name": "ЕИО",
+      "type": "person"
+     }
+    ],
+    "verdicts": [
+     "stop_b"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "ЕФРСБ",
+    "tags": []
+   },
+   {
+    "id": "chk_3_8",
+    "code": "3.8",
+    "name": "Исполнительные производства",
+    "how": "> 10 % среднеквартальной выручки. Невычислим у ИП и свежерегов",
+    "why": "Долговая нагрузка",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "fssp",
+      "name": "Сумма ИП",
+      "type": "money"
+     },
+     {
+      "id": "rev",
+      "name": "Выручка",
+      "type": "money"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 1,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "ФССП, публичный API",
+    "tags": []
+   },
+   {
+    "id": "chk_3_9",
+    "code": "3.9",
+    "name": "Иски как к ответчику",
+    "how": "> 15 % среднеквартальной выручки. Невычислим у ИП и свежерегов",
+    "why": "Судебная нагрузка",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "claims",
+      "name": "Сумма исков",
+      "type": "money"
+     },
+     {
+      "id": "rev",
+      "name": "Выручка",
+      "type": "money"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 1,
+    "bank": {
+     "status": "discussion",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Картотека арбитражных дел",
+    "tags": []
+   },
+   {
+    "id": "chk_3_10",
+    "code": "3.10",
+    "name": "Приостановка операций по счетам",
+    "how": "Наличие",
+    "why": "Счёт в другом банке уже заблокирован ФНС",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "block",
+      "name": "Приостановка",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 1,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Информация ФНС",
+    "tags": []
+   },
+   {
+    "id": "chk_3_11",
+    "code": "3.11",
+    "name": "Лицензия при лицензируемом ОКВЭД",
+    "how": "Лицензируемый ОКВЭД ∧ действующей лицензии нет. Справочника «лицензируемый ОКВЭД» не существует. Механизм: самодекларация в анкете",
+    "why": "Фактор 860-П «деятельность без лицензии»",
+    "rule": "",
+    "norm": "",
+    "factors": [
+     "E-15"
+    ],
+    "inputs": [
+     {
+      "id": "okved",
+      "name": "ОКВЭД",
+      "type": "text"
+     },
+     {
+      "id": "lic",
+      "name": "Лицензии",
+      "type": "list"
+     },
+     {
+      "id": "self",
+      "name": "Самодекларация",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 1,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "Источник исправлен: ЕРУЛ (erul.gov.ru) — каталог видов разрешительной деятельности без ИНН и API, не реестр лицензиатов. Проверка лицензии по ИНН — три слоя: SOAP ЦБ → Контур.Фокус licences → ЕГРЮЛ (СвЛицензия, часто пуст). Справочник лицензируемых ОКВЭД — «Скоринг РКО — лицензируемые ОКВЭД.md»",
+    "comment": "",
+    "srcText": "ЕРУЛ erul.gov.ru",
+    "tags": []
+   },
+   {
+    "id": "chk_3_12",
+    "code": "3.12",
+    "name": "Статус иноагента",
+    "how": "Сверка с суточным кэшем",
+    "why": "Фактор 860-П",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "fa",
+      "name": "Иноагент",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 1,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Машиночитаемая выгрузка Минюста",
+    "tags": []
+   },
+   {
+    "id": "chk_3_13",
+    "code": "3.13",
+    "name": "Финансовое положение",
+    "how": "Наличие отчётности. У ИП никогда, у свежерега — по определению.",
+    "why": "Критерий средней степени «нет информации о ФХД».",
+    "rule": "",
+    "norm": "",
+    "factors": [
+     "E-43"
+    ],
+    "inputs": [
+     {
+      "id": "fin",
+      "name": "Отчётность",
+      "type": "file"
+     }
+    ],
+    "verdicts": [
+     "risk"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "У ИП отчётности нет по природе клиента — порядок применения критерия открыт (OQ-SCR-08)",
+    "comment": "",
+    "srcText": "ГИРБО, замещение — «Прозрачный бизнес»",
+    "tags": []
+   },
+   {
+    "id": "chk_3_14",
+    "code": "3.14",
+    "name": "ПДЛ в любой роли",
+    "how": "Государственного реестра ПДЛ в России не существует. Механизм: самодекларация в анкете",
+    "why": "Ст. 7.3 обязывает выявлять, источника не даёт",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "pep",
+      "name": "ПДЛ",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 1,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "",
+    "tags": []
+   },
+   {
+    "id": "chk_3_15",
+    "code": "3.15",
+    "name": "Санкционные перечни",
+    "how": "🔴 Единого машиночитаемого госреестра нет",
+    "why": "Фактор 860-П",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "sanc",
+      "name": "Санкции",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 1,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "Кандидат в источники — X-Compliance, покрытие модуля санкций лицензией банка не подтверждено",
+    "comment": "",
+    "srcText": "",
+    "tags": []
+   },
+   {
+    "id": "chk_3_16",
+    "code": "3.16",
+    "name": "Прошлый отказ или расторжение",
+    "how": "Реестр отказников",
+    "why": "Фактор отказа ПВК ф. 7 и критерий средней степени",
+    "rule": "",
+    "norm": "",
+    "factors": [
+     "E-30"
+    ],
+    "inputs": [
+     {
+      "id": "ref",
+      "name": "Прошлый отказ",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "risk"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "accepted",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Рассылка ЦБ",
+    "tags": []
+   },
+   {
+    "id": "chk_3_17",
+    "code": "3.17",
+    "name": "Сайт в реестре запрещённых доменов",
+    "how": "",
+    "why": "ПВК п. 6.1.3 — обязательное основание отказа",
+    "rule": "",
+    "norm": "ПВК п. 6.1.3",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "site",
+      "name": "Сайт",
+      "type": "text"
+     },
+     {
+      "id": "ban",
+      "name": "Домен в реестре",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "stop_a"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "ЕАИС РКН",
+    "tags": []
+   },
+   {
+    "id": "chk_3_18",
+    "code": "3.18",
+    "name": "Группа риска ЗСК",
+    "how": "Высокий → отказ; средний + любые коды → отказ; средний без кодов → ручной разбор; нет записи → «фактор не проверен», hard stop на этапе 6",
+    "why": "Вспомогательная информация (ст. 7.6 п. 2)",
+    "rule": "",
+    "norm": "",
+    "factors": [
+     "E-36"
+    ],
+    "inputs": [
+     {
+      "id": "lvl",
+      "name": "Уровень",
+      "type": "number"
+     },
+     {
+      "id": "codes",
+      "name": "Коды",
+      "type": "list"
+     }
+    ],
+    "verdicts": [
+     "stop_b",
+     "manual"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "accepted",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "Полная проверка через модуль АБС «Взаимодействие с платформой ЗСК». Код 10.02 — признаки нелегальной деятельности на финрынке",
+    "comment": "",
+    "srcText": "Сервис ЦБ",
+    "tags": []
+   },
+   {
+    "id": "chk_3_19",
+    "code": "3.19",
+    "name": "Решение суда о приостановлении операций",
+    "how": "🔴 Источника не определн",
+    "why": "ПВК п. 6.1.2 фактор отказа",
+    "rule": "",
+    "norm": "ПВК п. 6.1.2",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "court",
+      "name": "Решение суда",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "stop_b"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "источник не определён",
+    "tags": []
+   },
+   {
+    "id": "chk_4_1",
+    "code": "4.1",
+    "name": "Комплектность пакета по профилю",
+    "how": "Сверка с матрицей документов × этапы. ИП: паспорт + 2 согласия. ООО-простое: + устав, список участников, решение о назначении ЕИО. ООО-разделённое: + паспорт и анкета участника-БВ",
+    "why": "Неполный пакет = «не представлены документы для идентификации»",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "pass",
+      "name": "Паспорт",
+      "type": "file"
+     },
+     {
+      "id": "charter",
+      "name": "Устав",
+      "type": "file"
+     },
+     {
+      "id": "dec",
+      "name": "Решение о назначении",
+      "type": "file"
+     },
+     {
+      "id": "mem",
+      "name": "Список участников",
+      "type": "file"
+     },
+     {
+      "id": "bo",
+      "name": "Документы БВ",
+      "type": "file"
+     },
+     {
+      "id": "cons",
+      "name": "Согласия",
+      "type": "file"
+     }
+    ],
+    "verdicts": [
+     "stop_a"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "Оборддинг АО пока переносим во 2 волну",
+    "srcText": "Загрузка клиента",
+    "tags": []
+   },
+   {
+    "id": "chk_4_2",
+    "code": "4.2",
+    "name": "Валидность УКЭП контейнера ФНС",
+    "how": "Проверка подписи налоговой. Бинарно: 0 или 1, без промежуточного «нечитаемый скан»",
+    "why": "Единственный документ в пакете, не порождающий цикл возврата.",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "cont",
+      "name": "Контейнер",
+      "type": "file"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 1,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Транспортный контейнер ФНС, загружает клиент",
+    "tags": []
+   },
+   {
+    "id": "chk_4_3",
+    "code": "4.3",
+    "name": "Ветка устава",
+    "how": "Типовой — не загружаем, номер из выписки · контейнер · бумага",
+    "why": "Ось G — главный рычаг сокращения пакета",
+    "rule": "",
+    "norm": "",
+    "factors": [
+     "ось G"
+    ],
+    "inputs": [
+     {
+      "id": "tpl",
+      "name": "№ устава",
+      "type": "text"
+     },
+     {
+      "id": "cont",
+      "name": "Контейнер",
+      "type": "file"
+     },
+     {
+      "id": "scan",
+      "name": "Скан устава",
+      "type": "file"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "ЕГРЮЛ + загрузка",
+    "tags": []
+   },
+   {
+    "id": "chk_4_4",
+    "code": "4.4",
+    "name": "Действительность паспорта ЕИО",
+    "how": "СМЭВ",
+    "why": "Результат нужен до выезда",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "pass",
+      "name": "Паспорт",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "stop_a"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "СМЭВ",
+    "tags": []
+   },
+   {
+    "id": "chk_4_5",
+    "code": "4.5",
+    "name": "Банкротство БВ и участников > 25 %",
+    "how": "ЕФРСБ, поиск по ФЛ. Возможно только сейчас — состав БВ известен из анкеты, не из ЕГРЮЛ",
+    "why": "",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "bnk",
+      "name": "Банкротство ФЛ",
+      "type": "bool"
+     },
+     {
+      "id": "bo",
+      "name": "БВ",
+      "type": "list"
+     }
+    ],
+    "verdicts": [
+     "stop_b"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "ЕФРСБ",
+    "tags": []
+   },
+   {
+    "id": "chk_4_6",
+    "code": "4.6",
+    "name": "ПДЛ по ролям",
+    "how": "Самодекларация из анкеты + сверка с коммерческой базой",
+    "why": "Принудительный ручной разбор",
+    "rule": "",
+    "norm": "",
+    "factors": [
+     "D-23"
+    ],
+    "inputs": [
+     {
+      "id": "pep",
+      "name": "ПДЛ",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "manual"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "",
+    "tags": []
+   },
+   {
+    "id": "chk_4_7",
+    "code": "4.7",
+    "name": "Расхождение юридического и фактического адреса",
+    "how": "Сверка анкеты с ЕГРЮЛ",
+    "why": "Не отказ — запрос пояснений",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "fact",
+      "name": "Факт. адрес",
+      "type": "text"
+     },
+     {
+      "id": "jur",
+      "name": "Юр. адрес",
+      "type": "text"
+     }
+    ],
+    "verdicts": [
+     "clarify"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Анкета + ЕГРЮЛ",
+    "tags": []
+   },
+   {
+    "id": "chk_4_8",
+    "code": "4.8",
+    "name": "Иностранный ЕИО или БВ",
+    "how": "Реестр контролируемых лиц МВД. Волна 2, но фактор 860-П обязателен уже сейчас",
+    "why": "Законность пребывания",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "frg",
+      "name": "Иностранец",
+      "type": "bool"
+     },
+     {
+      "id": "rkl",
+      "name": "РКЛ",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 1,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "мвд.рф/rkl",
+    "tags": []
+   },
+   {
+    "id": "chk_4_9",
+    "code": "4.9",
+    "name": "Качество фото, полнота анкеты, признаки недостоверности",
+    "how": "Человек — верификатор",
+    "why": "«Основания полагать, что документы недостоверны» — критерий средней степени, суждение не автоматизируется",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "ver",
+      "name": "Оценка верификатора",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "risk"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "verifier",
+    "note": "",
+    "comment": "",
+    "srcText": "Загруженные файлы",
+    "tags": []
+   },
+   {
+    "id": "chk_4_10",
+    "code": "4.10",
+    "name": "Согласия: на ПДн и на обращение во внешние источники",
+    "how": "",
+    "why": "",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "cons",
+      "name": "Согласия",
+      "type": "file"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 1,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "Загрузка клиента",
+    "tags": []
+   },
+   {
+    "id": "chk_5_1",
+    "code": "5.1",
+    "name": "Оригинал паспорта против анкеты и загруженного фото",
+    "how": "Человек, очно",
+    "why": "Без личного присутствия идентификация не завершена → отказ обязателен",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "orig",
+      "name": "Оригинал сверен",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "stop_a"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "km",
+    "note": "",
+    "comment": "",
+    "srcText": "Оригинал документа",
+    "tags": []
+   },
+   {
+    "id": "chk_5_2",
+    "code": "5.2",
+    "name": "Подписание объединённого документа",
+    "how": "Заявление о присоединении + анкета + соглашение о праве подписи, предзаполнен банком, 2 экз.",
+    "why": "Свели пакет к паспорт + 1 подписанный документ",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "doc",
+      "name": "Объединённый документ",
+      "type": "file"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "accepted",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "km",
+    "note": "",
+    "comment": "",
+    "srcText": "Предзаполненный пакет",
+    "tags": []
+   },
+   {
+    "id": "chk_5_3",
+    "code": "5.3",
+    "name": "Заверенная копия устава",
+    "how": "Только старые ЮЛ с бумажным уставом",
+    "why": "",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "cop",
+      "name": "Копия устава",
+      "type": "file"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "km",
+    "note": "",
+    "comment": "Сверку делает выездной КМ (деюро сотрудник банка) мы получаем его завереную копию",
+    "srcText": "Клиент",
+    "tags": []
+   },
+   {
+    "id": "chk_5_4",
+    "code": "5.4",
+    "name": "Фото паспорта и подписанного документа",
+    "how": "Курьер отправляет сканами, оригиналы — отдельно",
+    "why": "Хранение и воспроизводимость решения, 5 лет",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "ph",
+      "name": "Фото",
+      "type": "file"
+     }
+    ],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "km",
+    "note": "",
+    "comment": "",
+    "srcText": "Курьер",
+    "tags": []
+   },
+   {
+    "id": "chk_6_1",
+    "code": "6.1",
+    "name": "Повторная сверка по перечням РФМ / ООН / МВК",
+    "how": "Обязательна, fallback запрещён",
+    "why": "Между началом заявки и открытием счёта проходят дни — перечни обновляются",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "rfm",
+      "name": "Совпадение",
+      "type": "bool"
+     }
+    ],
+    "verdicts": [
+     "freeze"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "",
+    "tags": []
+   },
+   {
+    "id": "chk_6_2",
+    "code": "6.2",
+    "name": "Повторная сверка по ЗСК",
+    "how": "Цикл платформы суточный: уровень мог измениться. Здесь же hard stop по заявкам с флагом «фактор не проверен»",
+    "why": "Высокий или средний с кодами → отказ",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [
+     {
+      "id": "lvl",
+      "name": "Уровень",
+      "type": "number"
+     },
+     {
+      "id": "codes",
+      "name": "Коды",
+      "type": "list"
+     }
+    ],
+    "verdicts": [
+     "stop_b",
+     "manual"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "",
+    "tags": []
+   },
+   {
+    "id": "chk_6_3",
+    "code": "6.3",
+    "name": "Агрегация факторов Слоя 2",
+    "how": "Три состояния фактора: сработал → баллы; не сработал → 0 или понижающий вес; не проверен → принудительный ручной разбор. «Данных нет по природе клиента» → 0 баллов",
+    "why": "Без различения «нет фактора» и «не проверили» модель даёт скрытый ложный проход",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "",
+    "tags": []
+   },
+   {
+    "id": "chk_6_4",
+    "code": "6.4",
+    "name": "Гейт низкой степени риска",
+    "how": "Низкая степень → рекомендация отказа «по подозрениям» недоступна, остаются только основания группы А",
+    "why": "Банк вправе отказать, за исключением клиента низкой степени риска",
+    "rule": "",
+    "norm": "115-ФЗ ст. 7 п. 5.2",
+    "factors": [],
+    "inputs": [],
+    "verdicts": [
+     "info"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "",
+    "tags": []
+   },
+   {
+    "id": "chk_6_5",
+    "code": "6.5",
+    "name": "Решение по открытию",
+    "how": "Сумма баллов + гейт → три исхода. Пороги P1, P2 — TBD (P2 > 80)",
+    "why": "Продуктовое решение, один раз на заявке",
+    "rule": "",
+    "norm": "",
+    "factors": [],
+    "inputs": [],
+    "verdicts": [
+     "ok",
+     "manual",
+     "stop_b"
+    ],
+    "verdictTbd": 0,
+    "bank": {
+     "status": "none",
+     "comment": ""
+    },
+    "wave": 1,
+    "actor": "system",
+    "note": "",
+    "comment": "",
+    "srcText": "",
+    "tags": []
+   }
+  ],
+  "outcomes": [
+   {
+    "id": "out_refuse_a",
+    "verdict": "stop_a",
+    "name": "Отказ обязателен (группа А)",
+    "desc": "Основания, при которых открыть нельзя"
+   },
+   {
+    "id": "out_refuse_b",
+    "verdict": "stop_b",
+    "name": "Рекомендация отказа (группа Б)",
+    "desc": "Решение принимает уполномоченное лицо. Недоступно при низкой степени риска"
+   },
+   {
+    "id": "out_freeze",
+    "verdict": "freeze",
+    "name": "Замораживание + ФЭС",
+    "desc": "ФЭС в Росфинмониторинг не позднее следующего рабочего дня"
+   },
+   {
+    "id": "out_manual",
+    "verdict": "manual",
+    "name": "Ручной разбор (комплаенс)",
+    "desc": "Курьер не выезжает до решения"
+   },
+   {
+    "id": "out_risk",
+    "verdict": "risk",
+    "name": "Средняя степень риска",
+    "desc": "Критерий средней степени по ПВК"
+   },
+   {
+    "id": "out_clarify",
+    "verdict": "clarify",
+    "name": "Запрос пояснений",
+    "desc": "Не отказ"
+   },
+   {
+    "id": "out_neutral",
+    "verdict": "neutral",
+    "name": "Нейтральный экран",
+    "desc": "«Не нашли вас в реестрах — проверьте ИНН или напишите в чат». Задача комплаенсу не создаётся"
+   },
+   {
+    "id": "out_open",
+    "verdict": "ok",
+    "name": "Открыть счёт",
+    "desc": "Автоматическое открытие"
+   }
+  ]
+ }
+}

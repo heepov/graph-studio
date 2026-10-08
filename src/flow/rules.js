@@ -417,3 +417,75 @@ export function checkHoles(flow, lib, node) {
   }
   return res;
 }
+
+/* ---------- применимость: связи «Когда» ----------
+   Связь применимости может идти через reroute — исток ищется назад до значения
+   измерения. Группировка по измерению: внутри измерения ИЛИ, между — И (ТЗ §5). */
+export function traceOrigin(flow, nodeId, handle, depth = 0) {
+  if (depth > 16) return null;
+  for (const e of flow.edges) {
+    if (e.t !== nodeId || e.th !== handle) continue;
+    const s = findIn(flow.nodes, e.s);
+    if (!s) continue;
+    if (s.k === 'reroute') { const o = traceOrigin(flow, s.id, 'in', depth + 1); if (o) return Object.assign(o, {neg: !!e.neg || o.neg}); continue; }
+    return {node: s, handle: e.sh, neg: !!e.neg, edge: e};
+  }
+  return null;
+}
+export function condOf(flow, lib, nodeId) {
+  const out = {};
+  for (const e of flow.edges) {
+    if (e.t !== nodeId || e.th !== 'cond-in') continue;
+    let s = findIn(flow.nodes, e.s), sh = e.sh, neg = !!e.neg;
+    if (s && s.k === 'reroute') { const o = traceOrigin(flow, s.id, 'in'); if (!o) continue; s = o.node; sh = o.handle; neg = neg || o.neg; }
+    if (!s || s.k !== 'dim' || !/^val:/.test(sh)) continue;
+    const d = out[s.ref] = out[s.ref] || {pos: [], neg: []};
+    const v = sh.slice(4);
+    (neg ? d.neg : d.pos).includes(v) || (neg ? d.neg : d.pos).push(v);
+  }
+  return out;
+}
+const valueName = (lib, dimId, vid) => {
+  const d = findIn(lib && lib.dims, dimId), v = d && findIn(d.values, vid);
+  return v ? v.name : vid;
+};
+// «все» или «ЮЛ; кроме: ИП, Свежерег < 180 дней» — колонка «Применимость» xlsx.
+// Внутри измерения значения через «или», измерения — через «;»: так в тексте
+// видно то же И/ИЛИ, что считает applies().
+export function condText(flow, lib, nodeId) {
+  const c = condOf(flow, lib, nodeId), pos = [], neg = [];
+  for (const [dim, x] of Object.entries(c)) {
+    if (x.pos.length) pos.push(x.pos.map(v => valueName(lib, dim, v)).join(' или '));
+    for (const v of x.neg) neg.push(valueName(lib, dim, v));
+  }
+  if (!pos.length && !neg.length) return 'все';
+  return pos.concat(neg.length ? ['кроме: ' + neg.join(', ')] : []).join('; ');
+}
+
+// Колонка «Источник»: уникальные названия источников подключённых входов,
+// резерв «один из» — через « → »; нет подключённых — исходный текст из xls;
+// есть вход без связи — «🔴 источник не определён».
+export function sourceText(flow, lib, node) {
+  const it = itemOf(lib, node);
+  if (!it) return '';
+  const groups = [];
+  let unwired = false;
+  for (const inp of it.inputs || []) {
+    const h = 'in:' + inp.id;
+    if (!flow.edges.some(e => e.t === node.id && e.th === h)) { unwired = true; continue; }
+    const src = inputSources(flow, lib, node.id, h);
+    const names = [];
+    for (const s of src) { const nm = s.item ? s.item.name : s.source; if (!names.includes(nm)) names.push(nm); }
+    const via = src.some(s => s.path.length > 1);
+    if (via && names.length > 1) groups.push(names.join(' → '));
+    else for (const nm of names) groups.push(nm);
+  }
+  const uniq = [...new Set(groups)];
+  let text = uniq.length ? uniq.join(', ') : (it.srcText || '');
+  if (unwired) text = text ? text + ', 🔴 источник не определён' : '🔴 источник не определён';
+  return text;
+}
+
+// Натуральная сортировка кода проверки: «2.9» < «2.10» (ТЗ §10).
+export const codeCompare = (a, b) => String((a && a.code) || '').localeCompare(String((b && b.code) || ''), 'ru', {numeric: true})
+  || String((a && a.name) || '').localeCompare(String((b && b.name) || ''), 'ru');

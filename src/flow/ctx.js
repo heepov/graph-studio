@@ -5,3 +5,7 @@
 import {createContext} from 'react';
 
 export const FlowCtx = createContext(null);
+
+// Переход «к блоку на другой схеме»: gotoPage() размонтирует этот корень
+// и смонтирует новый — нода, которую надо показать, переживает переход здесь.
+export const nav = {focus: null};

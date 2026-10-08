@@ -12,12 +12,17 @@
 // иначе снимок снимался бы с уже сдвинутого состояния и Ctrl+Z не возвращал бы
 // ноду на место (те же грабли, что были у областей в 1.2.1).
 import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, useReactFlow,
+import {createPortal} from 'react-dom';
+import {ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, useReactFlow, useUpdateNodeInternals,
   applyNodeChanges, applyEdgeChanges} from '@xyflow/react';
 import * as R from './rules.js';
 import * as M from './model.js';
-import {FlowCtx} from './ctx.js';
+import {FlowCtx, nav} from './ctx.js';
+import {makeActions} from './actions.js';
 import {nodeTypes} from './nodes/index.js';
+import Library from './panels/Library.jsx';
+import Inspector from './panels/Inspector.jsx';
+import {openLibTable} from './panels/LibTable.js';
 import TypedEdge from './edges/TypedEdge.jsx';
 import ConnLine from './edges/ConnLine.jsx';
 import AddMenu from './panels/AddMenu.jsx';
@@ -51,6 +56,11 @@ function writeVp(key, vp) {
   catch (e) { /* квота или приватный режим: камера просто не запомнится */ }
 }
 
+function savePanels(v) {
+  try { localStorage.setItem('gs_flow_panels', JSON.stringify(v)); } catch (e) { /* не запомнится — не беда */ }
+  return v;
+}
+
 /* ---------- документ → React Flow ---------- */
 
 function sockColor(s, lib) {
@@ -79,6 +89,8 @@ function nodeData(n, c, conn, opt) {
   const it = R.itemOf(lib, n), d = n.data || {};
   const dec = s => s && Object.assign({}, s, {color: sockColor(s, lib), conn: conn.has(n.id + '\u0000' + s.id)});
   const base = {k: n.k, ro: !!opt.ro, muted: !!n.muted, collapsed: !!n.collapsed};
+  // Правка на месте: у гейта и заметки правится тело, у остальных — заголовок.
+  if (opt.editing === n.id) base.editing = n.k === 'gate' || n.k === 'note' ? 'body' : 'title';
   if (n.k === 'stage') {
     const s = R.socketsOf(flow, lib, n);
     const f = n.fit ? R.fitStage(flow, lib, n, opt.sizeOf) : null;
@@ -128,6 +140,17 @@ function nodeData(n, c, conn, opt) {
   }
 }
 
+// Раскладка сокетов ноды строкой: какие ручки и в каком порядке. React Flow
+// перемеряет ручки только когда меняется РАЗМЕР ноды — а вердикт, добавленный
+// в уже существующую строку, или переставленные входы размер не меняют. Ручка
+// оставалась невидимой для React Flow (из неё нельзя было тянуть связь), а связи
+// указывали на старые строки. По этой строке видно, кого перемерить.
+function socketLayout(d) {
+  if (d.rows) return (d.collapsed ? 'c|' : '') + d.rows.map(r => (r.l ? r.l.id : '') + '/' + (r.r ? r.r.id : '')).join(',');
+  if (d.socks) return Object.values(d.socks).map(x => (x ? x.id + ':' + (x.kind || '') : '')).join(',');
+  return '';
+}
+
 function deriveNodes(c, prev, opt) {
   const {flow} = c;
   const prevById = new Map(prev.map(n => [n.id, n]));
@@ -145,13 +168,15 @@ function deriveNodes(c, prev, opt) {
     const position = {x: +n.x || 0, y: +n.y || 0};
     const selected = pick ? pick.has(n.id) : !!(p && p.selected);
     // Идёт жест над этой нодой — позицию и размер держит React Flow, не трогаем.
-    if (p && (p.dragging || p.resizing)) return Object.assign({}, p, {data, __sig: sig});
+    const lay = socketLayout(data);
+    if (p && p.__lay !== lay && opt.relayout) opt.relayout.push(n.id);
+    if (p && (p.dragging || p.resizing)) return Object.assign({}, p, {data, __sig: sig, __lay: lay});
     if (p && p.__sig === sig && p.parentId === parentId && p.selected === selected
         && p.position.x === position.x && p.position.y === position.y) return p;
     // Слои: рамки — под всем (-1), остальные ноды — на 2. React Flow поднимает
     // связь, у которой конец сидит в рамке, до z этого конца; без общего z=2 такие
     // связи ложились бы поверх гейтов, источников и исходов верхнего уровня.
-    const o = {id: n.id, type: n.k, position, data, __sig: sig, parentId, selected,
+    const o = {id: n.id, type: n.k, position, data, __sig: sig, __lay: lay, parentId, selected,
       zIndex: n.k === 'stage' ? -1 : 2,
       draggable: !opt.ro, connectable: !opt.ro && n.k !== 'note', deletable: false};
     if (p && p.measured) o.measured = p.measured;
@@ -200,11 +225,27 @@ function FlowView({ctx, pageId, rev, api}) {
   const ro = ctx.ro();
   const rootRef = useRef(null), paneRef = useRef(null), tipRef = useRef(null);
   const ptr = useRef({x: 0, y: 0});
-  const pend = useRef(null), pick = useRef(null), lastReject = useRef('');
+  const pend = useRef(null), pick = useRef(null), lastReject = useRef(''), relayout = useRef([]);
   const [tick, setTick] = useState(0);
   const bump = useCallback(() => setTick(t => t + 1), []);
   const [menu, setMenu] = useState(null);
   const [hover, setHover] = useState(null);
+  // Панели (библиотека, инспектор) — личная настройка, как ширина инспектора.
+  const [panels, setPanels] = useState(() => {
+    try { const v = JSON.parse(localStorage.getItem('gs_flow_panels') || 'null'); if (v) return v; } catch (e) { /* нет — умолчание */ }
+    const narrow = typeof innerWidth === 'number' && innerWidth < 900;
+    return {lib: !narrow, insp: !narrow};
+  });
+  const [libSel, setLibSel] = useState(null);       // блок, выбранный в библиотеке: {sec, id}
+  // Запрос «фокус в поле названия» — одноразовый: поле забирает его и гасит.
+  // Висящий запрос уводил бы фокус в инспектор при каждой смене выделения.
+  const [focusReq, setFocusReq] = useState(0);
+  const [editing, setEditing] = useState(null);     // нода, которую переименовывают на месте
+  // Поколение форм инспектора и библиотеки: растёт, когда документ поменялся
+  // НЕ через их поля (отмена, таблица, правка на холсте) — неуправляемые поля
+  // тогда пересоздаются и показывают новое значение.
+  const [extGen, setExtGen] = useState(0);
+  const gen = rev * 1000 + extGen;
 
   // Тема следует за body.dark. Наблюдатель, а не вызов из applyTheme(): так
   // приложению не нужно знать, что где-то есть React, а при размонтировании
@@ -234,8 +275,17 @@ function FlowView({ctx, pageId, rev, api}) {
   useLayoutEffect(() => {
     const c = cur(); if (!c.flow) return;
     const want = pick.current; pick.current = null;
-    setNodes(prev => deriveNodes(c, prev, {ro, sizeOf, pick: want}));
-  }, [rev, tick, ro, fitTick, cur, sizeOf]);
+    setNodes(prev => deriveNodes(c, prev, {ro, sizeOf, pick: want, editing, relayout: relayout.current}));
+  }, [rev, tick, ro, fitTick, cur, sizeOf, editing]);
+  // Перемерить ручки нод, у которых поменялась раскладка сокетов, — после того,
+  // как React отрисовал новую разметку (см. socketLayout).
+  const updateInternals = useUpdateNodeInternals();
+  useEffect(() => {
+    if (!relayout.current.length) return;
+    const ids = [...new Set(relayout.current)];
+    relayout.current = [];
+    updateInternals(ids);
+  });
   useLayoutEffect(() => {
     const c = cur(); if (!c.flow) return;
     setEdges(prev => deriveEdges(c, prev, {sel: new Set(selKey ? selKey.split('\u0001') : []), hover}));
@@ -266,6 +316,11 @@ function FlowView({ctx, pageId, rev, api}) {
   /* ---------- камера ---------- */
   const vkey = ctx.viewKey(pageId);
   const initialVp = useMemo(() => readVp(vkey), [vkey]);
+  // «Вписать схему» решается ОДИН раз, при открытии страницы. Проп fitView,
+  // посчитанный на каждой отрисовке, перещёлкивался с false на true, когда на
+  // пустую схему ставили первую ноду, — и React Flow вписывал её в экран,
+  // камера прыгала в зум ×2 посреди работы.
+  const [fitOnOpen] = useState(() => !initialVp && !!(c0.flow && c0.flow.nodes.length));
   const vpSave = useRef({t: null, vp: null});
   const saveVp = useCallback(vp => {
     if (ctx.viewer || !vp) return;
@@ -379,6 +434,38 @@ function FlowView({ctx, pageId, rev, api}) {
     return true;
   }, [ctx, cur, edit]);
 
+  const dropOnBody = (p, pt) => {
+    const el = document.elementFromPoint(pt.clientX, pt.clientY);
+    const ne = el && el.closest && el.closest('.react-flow__node');
+    if (!ne) return false;
+    const c = cur(), tn = c.flow.nodes.find(n => n.id === ne.getAttribute('data-id'));
+    if (!tn || tn.id === p.nodeId) return false;
+    const s = R.socketOf(c.flow, c.lib, p.nodeId, p.handleId, p.handleType === 'source' ? 'out' : 'in');
+    if (!s || s.kind !== 'data') return false;
+    const it = R.itemOf(c.lib, tn);
+    if (p.handleType === 'source' && tn.k === 'check' && it) {
+      edit(x => {
+        const ii = R.itemOf(x.lib, tn);
+        const inp = {id: M.newId('in', new Set(ii.inputs.map(i => i.id))), name: s.name || 'Вход', type: s.type || 'any'};
+        ii.inputs.push(inp);
+        M.connect(x.flow, x.lib, {source: p.nodeId, sourceHandle: p.handleId, target: tn.id, targetHandle: 'in:' + inp.id});
+        M.refit(x.flow, x.lib, [tn.parent].filter(Boolean), sizeOf);
+      });
+      ctx.toast(`У проверки новый вход «${s.name}» (${s.type}) — он в библиотеке, то есть на всех схемах`);
+      return true;
+    }
+    if (p.handleType === 'target' && tn.k === 'source' && it) {
+      edit(x => {
+        const ii = R.itemOf(x.lib, tn);
+        const f = {id: M.newId('f_', new Set(ii.fields.map(i => i.id))), name: s.name || 'Поле', type: s.type || 'any', desc: ''};
+        ii.fields.push(f);
+        M.connect(x.flow, x.lib, {source: tn.id, sourceHandle: 'out:' + f.id, target: p.nodeId, targetHandle: p.handleId});
+      });
+      ctx.toast(`У источника новое поле «${s.name}» (${s.type})`);
+      return true;
+    }
+    return false;
+  };
   const onConnectStart = useCallback((e, p) => {
     pend.current = Object.assign({}, p, {ctrl: !!(e.ctrlKey || e.metaKey)});
   }, []);
@@ -395,6 +482,9 @@ function FlowView({ctx, pageId, rev, api}) {
       if (!r.ok) { lastReject.current = r.reason; ctx.toast(r.reason); }
       return;
     }
+    // Брошено на ТЕЛО ноды, мимо сокетов: поле источника на проверку — новый
+    // вход того же типа и имени; вход проверки на источник — новое поле.
+    if (dropOnBody(p, pt)) return;
     // Брошено в пустоту — меню, отфильтрованное по совместимым сокетам:
     // выбранная нода встанет под курсором и сразу соединится.
     openMenu(pt.clientX, pt.clientY, {from: p});
@@ -445,6 +535,9 @@ function FlowView({ctx, pageId, rev, api}) {
     const pos = rf.screenToFlowPosition({x: pt.x, y: pt.y});
     let made = null;
     edit(x => {
+      // Новый блок библиотеки заводится в той же операции, что и его нода:
+      // один Ctrl+Z убирает и то и другое.
+      if (spec.create) spec = Object.assign({}, spec, {ref: M.createBlock(x.lib, spec.create.sec, spec.create.init).id});
       const n = proto(spec.k, spec.ref, from);
       n.id = M.newId('n', new Set(x.flow.nodes.map(y => y.id)));
       const sz = R.nodeSize(x.flow, x.lib, n);
@@ -453,6 +546,11 @@ function FlowView({ctx, pageId, rev, api}) {
       x.flow.nodes.push(n);
       if (n.k === 'stage') M.orderStages(x.flow);
       M.refit(x.flow, x.lib, M.reparent(x.flow, x.lib, n, sizeOf), sizeOf);
+      // Код новой проверки — следующий свободный в этапе, куда её бросили.
+      if (spec.create && n.k === 'check' && n.parent) {
+        const it = R.itemOf(x.lib, n), st = x.flow.nodes.find(y => y.id === n.parent);
+        if (it && !it.code) it.code = M.nextCheckCode(x.lib, (st.data || {}).num);
+      }
       if (from) {
         const s = matchSocket(x.flow, x.lib, n, from);
         if (s) M.connect(x.flow, x.lib, from.handleType === 'source'
@@ -461,7 +559,12 @@ function FlowView({ctx, pageId, rev, api}) {
       }
       made = n.id;
     });
-    if (made) selectOnly([made]);
+    if (made) {
+      selectOnly([made]);
+      // Новый блок — сразу в инспектор с фокусом в названии: двух кликов
+      // достаточно, чтобы завести проверку и начать её описывать.
+      if (spec.create) { setLibSel(null); setPanels(p => (p.insp ? p : savePanels(Object.assign({}, p, {insp: true})))); setFocusReq(Date.now()); }
+    }
     return made;
   }, [ctx, cur, edit, rf, sizeOf, doConnect, selectOnly]);   // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -481,9 +584,34 @@ function FlowView({ctx, pageId, rev, api}) {
     for (const s of lib.sources) put('Источники', s.name, R.nameOf(R.SOURCE_STATUSES, s.status || 'unknown'), R.KIND_COLORS.source, 'source', s.id);
     for (const ch of lib.checks) put('Проверки', `${ch.code || ''} ${ch.name}`.trim(), onPage.has(ch.id) ? 'уже на схеме' : '', R.KIND_COLORS.check, 'check', ch.id, onPage.has(ch.id));
     for (const o of lib.outcomes) put('Исходы', o.name, R.verdictOf(lib, o.verdict).name, R.verdictOf(lib, o.verdict).color, 'outcome', o.id);
+    // «Создать» — новый блок библиотеки прямо с холста. Из связи, брошенной
+    // в пустоту, — блок, который к ней подходит: проверка с этим входом,
+    // исход для этого вердикта, источник с этим полем.
+    const fs = from ? R.socketOf(flow, lib, from.nodeId, from.handleId, from.handleType === 'source' ? 'out' : 'in') : null;
+    const create = (label, hint, k, sec, init) => {
+      items.unshift({key: 'new|' + sec, group: 'Создать', label, hint, color: k === 'outcome' && init && init.verdict
+        ? R.verdictOf(lib, init.verdict).color : R.KIND_COLORS[k], k, create: {sec, init}, special: !!init});
+    };
+    if (fs && from.handleType === 'source' && fs.kind === 'data') {
+      create('Новая проверка с этим входом', fs.name + ' · ' + fs.type, 'check', 'checks', {inputs: [{id: 'in1', name: fs.name || 'Вход', type: fs.type}]});
+    }
+    if (fs && from.handleType === 'source' && fs.kind === 'verdict') {
+      create('Новый исход для этого вердикта', R.verdictOf(lib, fs.verdict).name, 'outcome', 'outcomes', {verdict: fs.verdict, name: R.verdictOf(lib, fs.verdict).name});
+    }
+    if (fs && from.handleType === 'target' && fs.kind === 'data') {
+      create('Новый источник с этим полем', fs.name + ' · ' + fs.type, 'source', 'sources', {fields: [{id: 'f1', name: fs.name || 'Поле', type: fs.type, desc: ''}]});
+    }
+    if (!from) {
+      create('Новый исход', 'название, вердикт', 'outcome', 'outcomes');
+      create('Новая проверка', 'что проверяем, входы, вердикты', 'check', 'checks');
+      create('Новый источник', 'название, вид, поля', 'source', 'sources');
+      create('Новое измерение', 'ось профиля и её значения', 'dim', 'dims');
+    }
     let list = items;
     if (from) {
       list = items.filter(it => {
+        if (it.special) return true;
+        if (it.create) return false;
         if (it.k === 'check' && it.existing) {
           const have = flow.nodes.find(n => n.k === 'check' && n.ref === it.ref);
           return have && have.id !== from.nodeId && !!matchSocket(flow, lib, have, from);
@@ -500,15 +628,15 @@ function FlowView({ctx, pageId, rev, api}) {
     if (ctx.ro()) return;
     const r = rootRef.current.getBoundingClientRect();
     const from = opt && opt.from;
-    const items = menuItems(from).map(it => Object.assign(it, {run: () => placeNode({k: it.k, ref: it.ref}, {x: cx, y: cy}, from)}));
+    const items = menuItems(from).map(it => Object.assign(it, {run: () => placeNode({k: it.k, ref: it.ref, create: it.create}, {x: cx, y: cy}, from)}));
     const W = 320, H = 380;
     setMenu({x: clamp(cx - r.left, 4, Math.max(4, r.width - W - 4)), y: clamp(cy - r.top, 4, Math.max(4, r.height - H - 4)),
       title: from ? 'Подходящие для связи' : 'Добавить', items});
   }, [ctx, menuItems, placeNode]);
 
   /* ---------- операции над выделенным ---------- */
-  const toggleFlag = useCallback(field => {
-    const ids = selIds(); if (!ids.length) return;
+  const toggleFlag = useCallback((field, only) => {
+    const ids = only || selIds(); if (!ids.length) return;
     edit(x => {
       const ns = x.flow.nodes.filter(n => ids.includes(n.id));
       const on = !ns.every(n => n[field]);
@@ -700,10 +828,12 @@ function FlowView({ctx, pageId, rev, api}) {
   }, [ctx, rf, menu, cur, openMenu, fitSel, copySel, pasteClip, toggleFlag, toggleHide, wrapSel, deleteSel, selIds, selectOnly]);   // eslint-disable-line react-hooks/exhaustive-deps
   // Фокус в контейнер — по нажатию на холст, иначе клавиши уходили бы в body
   // и до обработчика выше не доезжали.
+  // Нажали не в поле ввода — фокус уходит в контейнер, даже если до этого он был
+  // в поле инспектора: иначе Delete или Ctrl+J после правки названия уходили бы
+  // в это поле, а не на холст.
   const onPointerDownCapture = useCallback(e => {
-    if (typing(e.target) || (e.target.closest && e.target.closest('.fl-add'))) return;
-    if (rootRef.current && !rootRef.current.contains(document.activeElement)) rootRef.current.focus({preventScroll: true});
-    else if (rootRef.current && document.activeElement !== rootRef.current && !typing(document.activeElement)) rootRef.current.focus({preventScroll: true});
+    if (typing(e.target) || (e.target.closest && e.target.closest('.fl-add, .fl-insp, .fl-lib'))) return;
+    if (rootRef.current && document.activeElement !== rootRef.current) rootRef.current.focus({preventScroll: true});
   }, []);
   const onPointerMove = useCallback(e => { ptr.current = {x: e.clientX, y: e.clientY}; }, []);
 
@@ -753,20 +883,108 @@ function FlowView({ctx, pageId, rev, api}) {
         M.refit(x.flow, x.lib, [n.parent].filter(Boolean), sizeOf);
       });
     },
+    // Двойной клик по шапке (у гейта и заметки — по телу): поле прямо на ноде.
     rename(id) {
-      const c = cur(); const n = c.flow.nodes.find(y => y.id === id); if (!n) return;
+      if (ctx.ro()) return;
+      const n = cur().flow.nodes.find(y => y.id === id);
+      if (!n || n.k === 'reroute') return;
+      setEditing(id);
+    },
+    renameDone(id, v) {
+      setEditing(null);
+      if (v == null) return;
+      const c = cur(), n = c.flow.nodes.find(y => y.id === id); if (!n) return;
       const it = R.itemOf(c.lib, n), d = n.data || {};
-      const field = it ? 'name' : n.k === 'stage' ? 'name' : n.k === 'gate' || n.k === 'note' ? 'text' : n.k === 'calc' || n.k === 'anyof' ? (n.k === 'calc' ? 'name' : 'label') : null;
-      if (!field) return;
+      const field = it ? 'name' : n.k === 'gate' || n.k === 'note' ? 'text' : n.k === 'anyof' ? 'label' : 'name';
       const was = it ? it.name : d[field] || '';
-      ctx.promptBox(R.KIND_NAMES[n.k], it ? 'Название (блок библиотеки — меняется на всех схемах)' : 'Текст', was, v => edit(x => {
+      if (v === was) return;
+      edit(x => {
         const nn = x.flow.nodes.find(y => y.id === id); if (!nn) return;
         const ii = R.itemOf(x.lib, nn);
         if (ii) ii.name = v; else { nn.data = nn.data || {}; nn.data[field] = v; }
-      }));
+      });
+      setExtGen(g => g + 1);
     },
     resized,
+    focusDone: () => setFocusReq(0),
+    label: n => nodeLabel(cur().lib, n),
+    // Блок в библиотеке: если он стоит на этой схеме — выделяем его ноду
+    // (инспектор покажет и блок, и ноду), иначе инспектор показывает блок.
+    pickLib(sec, id, focus) {
+      if (!sec) { setLibSel(null); return; }
+      const c = cur(), k = {dims: 'dim', sources: 'source', checks: 'check', outcomes: 'outcome'}[sec];
+      const n = c.flow.nodes.find(x => x.k === k && x.ref === id);
+      if (n && !focus) { setLibSel(null); selectOnly([n.id]); }
+      else { setLibSel({sec, id}); selectOnly([]); }
+      if (focus) { setPanels(p => (p.insp ? p : savePanels(Object.assign({}, p, {insp: true})))); setFocusReq(Date.now()); }
+    },
+    panel(which, open) { setPanels(p => savePanels(Object.assign({}, p, {[which]: open}))); },
+    // Ширина инспектора — та же настройка человека, что у инспектора приложения.
+    inspGrip(e) {
+      e.preventDefault();
+      const x0 = e.clientX, w0 = e.target.closest('.fl-insp').getBoundingClientRect().width;
+      let w = w0;
+      const mv = ev => { w = w0 + (x0 - ev.clientX); ctx.applyInspW(w); };
+      const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); ctx.saveInspW(w); };
+      window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+    },
+    // Перетаскивание блока из библиотеки: свой жест на указателе. HTML5 drag
+    // не работает пальцем, а здесь тот же код ведёт и мышь, и касание.
+    libDrag(e, spec) {
+      if (ctx.ro() || (e.button != null && e.button !== 0)) return;
+      const x0 = e.clientX, y0 = e.clientY;
+      let ghost = null;
+      const mv = ev => {
+        if (!ghost && Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) < 6) return;
+        if (!ghost) { ghost = document.createElement('div'); ghost.className = 'fl-ghost'; ghost.textContent = spec.label; document.body.appendChild(ghost); }
+        ghost.style.left = (ev.clientX + 12) + 'px'; ghost.style.top = (ev.clientY + 8) + 'px';
+      };
+      const up = ev => {
+        window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up);
+        if (!ghost) return;   // это был клик, а не перенос
+        ghost.remove();
+        const r = paneRef.current.getBoundingClientRect();
+        if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom) {
+          placeNode({k: spec.k, ref: spec.ref}, {x: ev.clientX, y: ev.clientY}, null);
+        }
+      };
+      window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+    },
+    openTable(tab) {
+      openLibTable(ctx, {
+        cur, readers: id => M.fieldReaders(cur().P, id),
+        edit: fn => { edit(() => fn()); setExtGen(g => g + 1); },
+        text: (obj, k, v) => { fx.text(obj, k, v); setExtGen(g => g + 1); },
+        textSet: fn => fx.textSet(fn),
+        closed: () => setExtGen(g => g + 1),
+      }, tab);
+    },
+    // Переход к ноде — на этой схеме или на другой странице доски.
+    goNode(pageId, nodeId) {
+      if (pageId === cur().pg.id) { selectOnly([nodeId]); rf.fitView({nodes: [{id: nodeId}], padding: 0.6, maxZoom: 1.2, duration: 250}); return; }
+      nav.focus = nodeId;
+      ctx.gotoPage(pageId);
+    },
+    op(name, ids) {
+      const only = ids && ids.length ? ids : null;
+      if (name === 'collapsed' || name === 'muted') toggleFlag(name, only);
+      else if (name === 'wrap') wrapSel();
+      else if (name === 'delete') { if (only) selectOnly(only); edit(x => {
+        const parents = x.flow.nodes.filter(n => (only || selIds()).includes(n.id) && n.parent).map(n => n.parent);
+        M.deleteNodes(x.flow, only || selIds()); M.refit(x.flow, x.lib, parents, sizeOf); }); }
+      else if (name === 'neg') toggleNeg(ids[0]);
+      else if (name === 'dropEdge') edit(x => { M.deleteEdges(x.flow, ids); });
+    },
   });
+  Object.assign(fx, makeActions({ctx, cur, edit, bump, sizeOf, setGen: () => setExtGen(g => g + 1), pickLib: (sec, id, f) => fx.pickLib(sec, id, f)}));
+
+  // Пришли сюда переходом «к блоку на другой схеме» — показать его.
+  useEffect(() => {
+    if (!nav.focus) return;
+    const id = nav.focus; nav.focus = null;
+    const t = setTimeout(() => { selectOnly([id]); rf.fitView({nodes: [{id}], padding: 0.6, maxZoom: 1.2, duration: 0}); }, 60);
+    return () => clearTimeout(t);
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---------- крючки для тестов ---------- */
   useEffect(() => {
@@ -777,8 +995,10 @@ function FlowView({ctx, pageId, rev, api}) {
         selected: rf.getNodes().filter(n => n.selected).map(n => n.id),
         viewport: {x: Math.round(vp.x), y: Math.round(vp.y), k: +vp.zoom.toFixed(4)},
         readonly: ctx.ro(), dark: ctx.isDark(), menu: menu ? {title: menu.title, items: menu.items.map(i => i.label)} : null,
-        lastReject: lastReject.current};
+        lastReject: lastReject.current, panels, libSel, editing,
+        insp: (() => { const el = rootRef.current && rootRef.current.querySelector('.fl-insp'); return el ? el.getAttribute('data-insp') || 'empty' : null; })()};
     };
+    api.pickLib = (sec, id) => { fx.pickLib(sec, id); return true; };
     api.setViewport = vp => { const v = {x: vp.x, y: vp.y, zoom: vp.k != null ? vp.k : vp.zoom}; rf.setViewport(v); saveVp(v); return true; };
     api.fit = () => { rf.fitView({padding: 0.12, duration: 0}); saveVp(rf.getViewport()); return true; };
     // Соединение тем же путём, что и мышью: from/to — «нода.ручка».
@@ -824,11 +1044,23 @@ function FlowView({ctx, pageId, rev, api}) {
   const flow = c0.flow;
   if (!flow) return <div className="fl-root fl-missing">Страница-конструктор не найдена</div>;
   const empty = !flow.nodes.length;
+  // Что показывает инспектор: одна выделенная нода, связь, несколько нод —
+  // или блок, выбранный в библиотеке.
+  const selNodes = selKey ? selKey.split('\u0001') : [];
+  const selEdges = edges.filter(e => e.selected);
+  let target = null;
+  if (selNodes.length === 1) { const n = flow.nodes.find(x => x.id === selNodes[0]); if (n) target = {node: n}; }
+  else if (selNodes.length > 1) target = {multi: selNodes};
+  else if (selEdges.length === 1) { const e = flow.edges.find(x => x.id === selEdges[0].id); if (e) target = {edge: e}; }
+  else if (libSel && (c0.lib[libSel.sec] || []).some(x => x.id === libSel.id)) target = {sec: libSel.sec, id: libSel.id};
+  const bar = ctx.bar();
 
   return (
     <FlowCtx.Provider value={fx}>
       <div className={'fl-root' + (ro ? ' fl-ro' : '')} ref={rootRef} tabIndex={-1}
            onKeyDown={onKeyDown} onPointerDownCapture={onPointerDownCapture} onPointerMove={onPointerMove}>
+        {panels.lib ? <Library fx={fx} flow={flow} lib={c0.lib} sel={libSel} ro={ro} gen={gen}/>
+          : <button className="fl-rail fl-rail-l" title="Показать библиотеку" onClick={() => fx.panel('lib', true)}>Библиотека ›</button>}
         <div className="fl-pane" ref={paneRef}>
           <ReactFlow
             nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
@@ -839,10 +1071,10 @@ function FlowView({ctx, pageId, rev, api}) {
             onNodeMouseEnter={(e, n) => setHover(n.id)} onNodeMouseLeave={() => setHover(null)}
             onPaneContextMenu={onPaneContextMenu} onNodeContextMenu={onNodeContextMenu}
             onEdgeContextMenu={onEdgeContextMenu} onEdgeClick={onEdgeClick} onEdgeDoubleClick={onEdgeDoubleClick}
-            onPaneClick={() => setMenu(null)}
+            onPaneClick={() => { setMenu(null); setLibSel(null); }}
             colorMode={dark ? 'dark' : 'light'}
             defaultViewport={initialVp || {x: 40, y: 40, zoom: 1}}
-            fitView={!initialVp && !empty}
+            fitView={fitOnOpen}
             fitViewOptions={{padding: 0.12}}
             minZoom={MIN_K} maxZoom={MAX_K}
             onMoveEnd={(e, vp) => saveVp(vp)}
@@ -869,7 +1101,16 @@ function FlowView({ctx, pageId, rev, api}) {
           )}
           {menu ? <AddMenu x={menu.x} y={menu.y} title={menu.title} items={menu.items} onClose={() => setMenu(null)}/> : null}
         </div>
+        {panels.insp ? <Inspector fx={fx} t={target} P={c0.P} flow={flow} lib={c0.lib} ro={ro} gen={gen} focus={focusReq}/>
+          : <button className="fl-rail fl-rail-r" title="Показать инспектор" onClick={() => fx.panel('insp', true)}>‹ Инспектор</button>}
         <div className="fl-ctip" ref={tipRef}/>
+        {bar ? createPortal(<div className="fl-bar">
+          <button className={'btn sm' + (panels.lib ? ' act' : '')} onClick={() => fx.panel('lib', !panels.lib)}>Библиотека</button>
+          <button className="btn sm" onClick={() => fx.openTable('checks')}>Таблица</button>
+          <span className="fl-sp"/>
+          <span className="hint">{ro ? 'Только просмотр' : 'Shift+A — добавить блок · двойной клик по шапке — переименовать'}</span>
+          <button className={'btn sm' + (panels.insp ? ' act' : '')} onClick={() => fx.panel('insp', !panels.insp)}>Инспектор</button>
+        </div>, bar) : null}
       </div>
     </FlowCtx.Provider>
   );

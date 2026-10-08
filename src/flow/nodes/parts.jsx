@@ -10,13 +10,29 @@ export function cls(data, selected, extra) {
     data.off && 'fl-off', data.collapsed && 'fl-col', data.ovl].filter(Boolean).join(' ');
 }
 
+// Правка «на месте»: поле поверх подписи. Фиксируется на Enter и уходе фокуса,
+// Esc отменяет. Класс nodrag — иначе нажатие в поле начинало бы тащить ноду.
+export function InlineEdit({id, value, area, cls}) {
+  const fx = useContext(FlowCtx);
+  const done = (e, ok) => { if (fx) fx.renameDone(id, ok ? e.target.value : null); };
+  const p = {className: 'nodrag nopan fl-inl ' + (cls || ''), defaultValue: value || '', autoFocus: true,
+    onFocus: e => e.target.select(), onBlur: e => done(e, true), onPointerDown: e => e.stopPropagation(),
+    onKeyDown: e => {
+      e.stopPropagation();
+      if (e.key === 'Escape') { e.preventDefault(); done(e, false); }
+      else if (e.key === 'Enter' && (!area || e.ctrlKey || e.metaKey)) { e.preventDefault(); done(e, true); }
+    }};
+  return area ? <textarea {...p}/> : <input type="text" {...p}/>;
+}
+
 export function Header({id, data}) {
   const fx = useContext(FlowCtx);
   return (
     <div className="fl-hd" style={{background: data.muted ? undefined : data.color}}
          onDoubleClick={e => { if (fx && !data.ro) { e.stopPropagation(); fx.rename(id); } }}>
       {data.code ? <span className="fl-code">{data.code}</span> : null}
-      <span className="fl-ttl" title={data.title}>{data.title || '—'}</span>
+      {data.editing === 'title' ? <InlineEdit id={id} value={data.title}/>
+        : <span className="fl-ttl" title={data.title}>{data.title || '—'}</span>}
       {(data.badges || []).map((b, i) => <span key={i} className={'fl-bdg ' + (b.c || '')} title={b.title}>{b.t}</span>)}
     </div>
   );
@@ -72,7 +88,9 @@ export function Block({id, data, selected}) {
       <Header id={id} data={data}/>
       {data.collapsed ? <Folded id={id} rows={data.rows}/> : <>
         <Rows id={id} rows={data.rows}/>
-        {data.body != null ? <div className="fl-body" title={data.body}>{data.body}</div> : null}
+        {data.editing === 'body' ? <div className="fl-body fl-body-ed"><InlineEdit id={id} value={data.body} area/></div>
+          : data.body != null ? <div className="fl-body" title={data.body}
+              onDoubleClick={e => { if (fx && !data.ro) { e.stopPropagation(); fx.rename(id); } }}>{data.body}</div> : null}
       </>}
       {data.plus && !data.ro && !data.collapsed
         ? <button className="fl-plus nodrag" title={data.plus} onClick={e => { e.stopPropagation(); fx.plus(id); }}>+</button> : null}

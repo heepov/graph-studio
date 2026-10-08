@@ -185,6 +185,50 @@ const ROOT = path.join(__dirname, '..');
   const fit = R.fitStage({nodes: [st, {id: 'a', k: 'note', parent: 'S1', x: -30, y: 70, w: 100, h: 50}]}, lib, st);
   check(fit.dx === 50 && fit.x === 50 && fit.w >= 240, 'рамка растёт влево, когда ребёнок вылез за край', JSON.stringify(fit));
 
+  /* ---------- M2: библиотека и тексты для таблицы ---------- */
+  const seed = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/flow/seed-kyc-rko.json'), 'utf8'));
+  seed.flowLib = M.normalizeLib(seed.flowLib);
+  seed.pages[0].flow = M.normalizeFlow(seed.pages[0].flow);
+  const SF = seed.pages[0].flow, SL = seed.flowLib;
+  const nodeOf = code => SF.nodes.find(n => n.ref === 'chk_' + code.replace('.', '_'));
+  check(R.condText(SF, SL, nodeOf('3.8').id) === 'кроме: ИП, Свежерег < 180 дней' && R.condText(SF, SL, nodeOf('2.8').id) === 'ЮЛ'
+    && R.condText(SF, SL, nodeOf('1.1').id) === 'все', 'применимость текстом — «все» или «ЮЛ; кроме: …»', R.condText(SF, SL, nodeOf('3.8').id));
+  check(R.condText(SF, SL, nodeOf('4.5').id) === 'ЮЛ; Единственный участник ≠ ЕИО или Несколько участников-ФЛ',
+    'внутри измерения — «или», между измерениями — «;»');
+  check(R.sourceText(SF, SL, nodeOf('3.15')) === '🔴 источник не определён', 'вход без связи в колонке «Источник»');
+  check(/ЦБ — FinOrg.* → Контур.Фокус.* → ЕГРЮЛ/.test(R.sourceText(SF, SL, nodeOf('3.11'))), '«один из» — через « → » в порядке приоритета',
+    R.sourceText(SF, SL, nodeOf('3.11')));
+  const pr = R.inputSources(SF, SL, nodeOf('3.11').id, 'in:lic');
+  check(pr.length === 3 && pr.map(x => x.priority).join() === '1,2,3', 'источники входа — по приоритету', pr.map(x => x.source).join(' → '));
+  const holes = R.checkHoles(SF, SL, nodeOf('3.17'));
+  check(holes.noAccess.includes('src_rkn') && R.checkHoles(SF, SL, nodeOf('3.15')).unwired.includes('sanc'), 'дыры проверки: нет доступа и вход без связи');
+
+  const doc = {pages: [{id: 'p1', name: 'РКО', kind: 'flow', flow: JSON.parse(JSON.stringify(SF))},
+    {id: 'p2', name: 'Кредит', kind: 'flow', flow: M.normalizeFlow({nodes: [{id: 'x', k: 'check', ref: 'chk_3_11', x: 0, y: 0}], edges: []})}],
+    flowLib: JSON.parse(JSON.stringify(SL))};
+  const u = M.usages(doc, 'checks', 'chk_3_11');
+  check(u.length === 2 && u[0].stage === '3b' && u[1].page === 'p2', 'использование блока — по всем схемам, с этапом', JSON.stringify(u.map(x => x.pageName + ':' + x.stage)));
+  check(M.nextCheckCode(doc.flowLib, '3b') === '3.20' && M.nextCheckCode(doc.flowLib, '6') === '6.6' && M.nextCheckCode(doc.flowLib, '') === '',
+    'код новой проверки — следующий свободный в этапе', M.nextCheckCode(doc.flowLib, '3b'));
+  const nb = M.createBlock(doc.flowLib, 'checks', {name: 'Тест'});
+  check(/^chk_/.test(nb.id) && nb.bank.status === 'none' && Array.isArray(nb.inputs), 'новый блок получает id с префиксом и умолчания');
+  const vd = M.createBlock(doc.flowLib, 'verdicts', {name: 'Новый'});
+  check(/^vd_/.test(vd.key) && /^#[0-9a-f]{6}$/i.test(vd.color) && doc.flowLib.verdicts.filter(v => v.color === vd.color).length === 1,
+    'новый вердикт — ключ генерируется, цвет — первый незанятый из палитры', vd.key + ' ' + vd.color);
+  const dup = M.duplicateBlock(doc.flowLib, 'sources', 'src_egrul');
+  check(dup && dup.id !== 'src_egrul' && / \(копия\)$/.test(dup.name), 'дубликат блока', dup && dup.name);
+  // смена типа поля, которое кормит проверки, рвёт связи на всех схемах
+  const bad = M.incompatibleAfter(doc, 'source', 'src_egrul', 'out:f_regdate', 'out', it => { it.fields.find(f => f.id === 'f_regdate').type = 'money'; });
+  check(bad.length === 1 && doc.flowLib.sources.find(s => s.id === 'src_egrul').fields.find(f => f.id === 'f_regdate').type === 'date',
+    'смена типа поля: считаются несовместимые связи, сам тип не меняется до подтверждения', `${bad.length} связь`);
+  const sockE = M.socketEdges(doc, 'check', 'chk_3_11', 'in:lic', 'in');
+  check(sockE.length === 1, 'связи сокета блока — по всем схемам');
+  const del = M.deleteBlock(doc, 'checks', 'chk_3_11');
+  // у 3.11 три связи данных (ОКВЭД, лицензии через «один из», самодекларация); вердикт info в исход не ведётся
+  check(del.nodes === 2 && del.edges === 3 && !doc.flowLib.checks.some(x => x.id === 'chk_3_11'), 'удаление блока уносит его ноды на всех схемах и их связи',
+    JSON.stringify(del));
+  check(M.verdictUses(SL, 'stop_b') > 0 && M.verdictUses(SL, 'nope') === 0, 'использование вердикта считается по проверкам и исходам');
+
   const fail = results.filter(r => r[0] === '✗');
   console.log(`\n===== ${results.length - fail.length}/${results.length} пройдено =====`);
   process.exit(fail.length ? 1 : 0);
