@@ -45,7 +45,7 @@ export default function Library({fx, flow, lib, sel, ro, gen}) {
       <div className="fl-ph"><b>Библиотека</b><span className="fl-sp"/>
         <button className="fl-ib" title="Свернуть панель" onClick={() => fx.panel('lib', false)}>‹</button></div>
       <div className="fl-tabs">
-        {TABS.map(([k, short, full]) => <button key={k} className={'fl-tab' + (tab === k ? ' on' : '')} title={full}
+        {TABS.map(([k, short, full]) => <button data-tab={k} key={k} className={'fl-tab' + (tab === k ? ' on' : '')} title={full}
           onClick={() => setTab(k)}>{short}<span className="fl-cnt">{(lib[k] || []).length}</span></button>)}
       </div>
       <div className="fl-lq">
@@ -72,7 +72,7 @@ export default function Library({fx, flow, lib, sel, ro, gen}) {
       <div className="fl-lf">
         <button className="btn sm" disabled={ro} onClick={() => fx.createBlock(tab)}>{NEW[tab]}</button>
         <span className="fl-sp"/>
-        <button className="btn sm" onClick={() => fx.openTable(tab === 'sources' ? 'sources' : 'checks')}>Таблица</button>
+        <button className="btn sm" data-a="table" onClick={() => fx.openTable(tab === 'sources' ? 'sources' : 'checks')}>Таблица</button>
       </div>
     </div>
   );

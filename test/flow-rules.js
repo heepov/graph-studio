@@ -350,6 +350,23 @@ const ROOT = path.join(__dirname, '..');
     && shape('verdicts') === 'color,key,name' && lib6.dims.length === 0 && lib6.checks.length === 1,
     'заготовки блоков (rules.blankBlock) — прежний набор полей', shape('sources'));
 
+  /* ---------- 2.10: «для кого» словами и блок в свой столбец ---------- */
+  const wdoc = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/flow/seed-kyc-rko.json'), 'utf8'));
+  wdoc.flowLib = M.normalizeLib(wdoc.flowLib);
+  const wf = wdoc.pages[0].flow;
+  const pos = wf.edges.find(e => e.th === 'cond-in' && !e.neg);
+  check(R.whoText(wf, wdoc.flowLib, 'n_chk_1_1') === 'для всех' && R.whoText(wf, wdoc.flowLib, 'n_chk_3_8') === 'для всех, кроме: ИП, Свежерег < 180 дней'
+    && /^для: /.test(R.whoText(wf, wdoc.flowLib, pos.t)), 'whoText: «для всех», «для всех, кроме: …», «для: …»', R.whoText(wf, wdoc.flowLib, pos.t));
+  const srcs = wf.nodes.filter(n => n.k === 'source' && !n.parent);
+  const lowest = Math.max(...srcs.map(n => n.y + R.nodeSize(wf, wdoc.flowLib, n).h));
+  const placed = M.placeBlockNode(wf, wdoc.flowLib, 'source', 'src_sms');
+  const outs = wf.nodes.filter(n => n.k === 'outcome');
+  const empty = {nodes: [{id: 'a', k: 'check', ref: 'chk_1_1', x: 100, y: 50}], edges: []};
+  const o2 = M.placeBlockNode(empty, wdoc.flowLib, 'outcome', 'out_risk');
+  check(placed.x === Math.min(...srcs.map(n => n.x)) && placed.y === lowest + 24 && outs.length === 8
+    && o2.x > 100 + R.nodeSize(empty, wdoc.flowLib, empty.nodes[0]).w && o2.y === 50,
+    'placeBlockNode: под последним блоком своего вида; исход без соседей — справа от схемы', `${placed.x},${placed.y}; ${o2.x},${o2.y}`);
+
   /* ---------- копия правил для сервера ---------- */
   // Образ API собирается с контекстом ./server и src/ не видит, поэтому получает
   // копию rules.js. Разъехавшаяся копия дала бы Claude и человеку разные ответы.

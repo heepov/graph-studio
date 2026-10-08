@@ -134,6 +134,26 @@ export function wrapInStage(flow, lib, ids, sizeOf, data) {
   return st;
 }
 
+// Нода блока, которого на схеме ещё нет, — для связей, поставленных формой
+// в инспекторе. Встаёт в «свой» столбец: под последним блоком того же вида,
+// а если таких нет — измерения и источники слева от схемы, исходы справа.
+export function placeBlockNode(flow, lib, k, ref, sizeOf) {
+  const sz = sizeOf || (n => nodeSize(flow, lib, n));
+  const n = {id: newId('n', idsOf(flow.nodes)), k, ref};
+  const top = flow.nodes.filter(x => !x.parent);
+  const same = top.filter(x => x.k === k);
+  if (same.length) {
+    n.x = Math.round(Math.min(...same.map(s => +s.x || 0)));
+    n.y = Math.round(Math.max(...same.map(s => (+s.y || 0) + sz(s).h)) + 24);
+  } else if (top.length) {
+    const w = sz(n).w;
+    n.x = Math.round(k === 'outcome' ? Math.max(...top.map(s => (+s.x || 0) + sz(s).w)) + 120 : Math.min(...top.map(s => +s.x || 0)) - w - 120);
+    n.y = Math.round(Math.min(...top.map(s => +s.y || 0)));
+  } else { n.x = 0; n.y = 0; }
+  flow.nodes.push(n);
+  return n;
+}
+
 /* ---------- буфер обмена ----------
    Копия нод и связей между ними. Буфер — JSON в localStorage, поэтому работает
    между досками; вместе с нодами едут их блоки библиотеки — в целевой доске

@@ -442,7 +442,7 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     // Элемент панели может быть ниже видимой части — человек сначала прокрутил бы к нему.
     const center = sel => c.eval(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) return null;
       // Прокручиваем только контейнер панели: scrollIntoView сдвинул бы и саму страницу.
-      const sc = el.closest('.fl-ibody, .fl-ll, .fl-tw, .fl-pop');
+      const sc = el.closest('.fl-ibody, .fl-ll, .fl-tw, .fl-pop, .fl-list');
       if (sc) { const r0 = el.getBoundingClientRect(), rs = sc.getBoundingClientRect();
         if (r0.top < rs.top || r0.bottom > rs.bottom) sc.scrollTop += (r0.top - rs.top) - rs.height / 2;
         if (r0.left < rs.left || r0.right > rs.right) sc.scrollLeft += (r0.left - rs.left) - rs.width / 3; }
@@ -674,7 +674,8 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     check(srcAfter === srcBefore + 1, 'источник из библиотеки ставится ещё раз — для разгрузки связей', `${srcBefore} → ${srcAfter}`);
 
     // --- табличный редактор ------------------------------------------------------
-    await clickEl('#flowBar [data-a="table"]');
+    await clickEl('.fl-lib [data-tab="checks"]');
+    await clickEl('.fl-lib [data-a="table"]');
     await sleep(300);
     const tbl = await c.eval(`({rows: document.querySelectorAll('#mbox table.fl-lt tbody tr').length,
       heads: [...document.querySelectorAll('#mbox table.fl-lt thead tr:first-child th')].map(t => t.textContent.replace(/[▲▼]/g, '').trim())})`);
@@ -1084,6 +1085,79 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     check(pv && pv.n.length === 90 && pv.n[0][4] === '#e5e8f0' && pv.n.slice(0, 7).every(x => x[4] === '#e5e8f0') && pv.e.length > 50,
       'превью конструктора для главной: рамки первыми, затем ноды и связи', pv && `${pv.n.length} блоков, ${pv.e.length} связей`);
 
+    /* =====================  2.10: связи формой и вид «Список»  ===================== */
+    // Небольшая схема: проверка одна; измерения, источник и исход — только в библиотеке.
+    await c.eval(`(() => {
+      const L = P.flowLib;
+      L.sources.push({id: 'src_u', name: 'Реестр сайтов', kind: 'gov', access: 'api', mode: 'sync', status: 'live', fields: [{id: 'f_site', name: 'Сайт', type: 'text', desc: ''}]});
+      L.checks.push({id: 'chk_u', code: '9.9', name: 'Сайт в реестре', how: '', inputs: [{id: 'site', name: 'Сайт', type: 'text'}], verdicts: ['manual'], factors: [], bank: {status: 'none', comment: ''}});
+      L.outcomes.push({id: 'out_u', name: 'Разбор сайта', verdict: 'manual', desc: ''});
+      const pg = {id: 'pg_form', name: 'Форма', kind: 'flow', filter: {q: '', cats: [], statuses: [], types: [], f: {}},
+        flow: normalizeFlow({nodes: [{id: 'nU', k: 'check', ref: 'chk_u', x: 0, y: 0}], edges: []})};
+      P.pages.push(pg); save(1); gotoPage(pg.id); FLOW.call('select', ['nU']); return true; })()`);
+    await sleep(500);
+    const fstate = () => c.eval(`(() => { const f = curPage().flow; return {kinds: f.nodes.map(n => n.k).sort().join(','),
+      edges: f.edges.map(e => { const s = f.nodes.find(n => n.id === e.s); return (s ? s.k + ':' + (s.ref || '') : '?') + '.' + e.sh + '>' + e.th + (e.neg ? '!' : ''); }).sort().join(' '),
+      who: (document.querySelector('[data-wire="who"] [data-who]') || {}).textContent}; })()`);
+    const w0 = await fstate();
+    check(w0.who === 'для всех' && !!(await c.eval(`!!document.querySelector('[data-wire="data"] select') && !!document.querySelector('[data-wire="verdict"] select')`)),
+      'инспектор проверки: «Для кого», «Откуда данные», «Куда ведёт вердикт»', w0.who);
+    await clickEl('[data-wire="who"] [data-a="who-more"]');
+    await clickEl('[data-wire="who"] [data-dim="dim_ctype"] [data-val="v_ip"]');
+    const w1 = await fstate();
+    await clickEl('[data-wire="who"] [data-dim="dim_ctype"] [data-val="v_ip"]');
+    const w2 = await fstate();
+    check(w1.kinds === 'check,dim' && w1.edges === 'dim:dim_ctype.val:v_ip>cond-in' && w1.who === 'для: ИП'
+      && w2.edges === 'dim:dim_ctype.val:v_ip>cond-in!' && w2.who === 'для всех, кроме: ИП',
+      '«Для кого»: клик — «для», второй — «кроме»; измерение само встаёт на схему', `${w1.who} → ${w2.who}`);
+    await choose('[data-wire="data"] [data-input="site"] select', 'src_u::f_site');
+    await sleep(200);
+    await choose('[data-wire="verdict"] [data-verdict="manual"] select', 'out_u');
+    await sleep(200);
+    const w3 = await fstate();
+    check(w3.kinds === 'check,dim,outcome,source' && w3.edges.includes('source:src_u.out:f_site>in:site') && w3.edges.includes('check:chk_u.v:manual>vin'),
+      'источник для входа и исход для вердикта выбираются списком и сами встают на схему', w3.edges);
+    for (let i = 0; i < 4; i++) await c.eval(`undo()`);
+    await sleep(300);
+    const w4 = await fstate();
+    check(w4.kinds === 'check' && w4.edges === '', 'каждая правка формой — один шаг отмены', JSON.stringify(w4));
+
+    // «Список» на seed: этапы разделами, строка — проверка; клик открывает инспектор
+    await c.eval(`(async () => { if (!P || P.id !== ${JSON.stringify(KYC_ID)}) await openProject(${JSON.stringify(KYC_ID)}); gotoPage('pg_kyc_rko'); return true; })()`);
+    await c.waitFor(`FLOW.state().mounted && FLOW.state().rfNodes > 100`, 10000, 'seed для списка');
+    await clickEl('#flowBar [data-a="view-list"]');
+    await sleep(300);
+    const lv = await c.eval(`({rows: document.querySelectorAll('.fl-lrow').length, secs: [...document.querySelectorAll('.fl-lst-h b')].map(x => x.textContent),
+      gate: document.querySelectorAll('.fl-lgate').length, r38: (document.querySelector('.fl-lrow[data-row="n_chk_3_8"] .fl-lwho') || {}).textContent})`);
+    check(lv.rows === 55 && lv.secs.length === 7 && lv.gate === 3 && lv.r38 === 'для всех, кроме: ИП, Свежерег < 180 дней',
+      '«Список»: 7 этапов разделами, 3 условия перехода, 55 проверок строками с «для кого»', `${lv.rows} строк, ${lv.secs.length} этапов`);
+    await clickEl('.fl-lrow[data-row="n_chk_2_6"]');
+    await sleep(300);
+    const lsel = await c.eval(`({sel: FLOW.state().selected, insp: (document.querySelector('.fl-insp') || {dataset: {}}).dataset.insp})`);
+    check(lsel.sel.join() === 'n_chk_2_6' && lsel.insp === 'check', 'клик по строке выделяет проверку и открывает её в инспекторе', JSON.stringify(lsel));
+    await choose('#flowBar select[data-f="profile"]', 'pf_ip');
+    await sleep(250);
+    const loff = await c.eval(`document.querySelectorAll('.fl-lrow.fl-loff').length`);
+    await clickEl('.fl-pbanner [data-f="hideoff"]');
+    await sleep(250);
+    const lhidden = await c.eval(`document.querySelectorAll('.fl-lrow').length`);
+    await clickEl('.fl-pbanner [data-f="hideoff"]');
+    await choose('#flowBar select[data-f="profile"]', '');
+    check(loff === 10 && lhidden === 45, 'профиль в списке: 10 строк приглушены, «скрыть погашенные» оставляет 45', `${loff} / ${lhidden}`);
+    const ln0 = await c.eval(`curPage().flow.nodes.length`);
+    await clickEl('.fl-lst[data-stage="n_st_s3b"] [data-a="list-add"]');
+    await sleep(400);
+    const added = await c.eval(`(() => { const f = curPage().flow, id = FLOW.state().selected[0], n = f.nodes.find(x => x.id === id); const it = n && P.flowLib.checks.find(x => x.id === n.ref);
+      return {nodes: f.nodes.length, parent: n && n.parent, code: it && it.code, focus: !!(document.activeElement && document.activeElement.closest('.fl-insp')),
+        row: !!document.querySelector('.fl-lst[data-stage="n_st_s3b"] .fl-lrow[data-row="' + id + '"]')}; })()`);
+    check(added.nodes === ln0 + 1 && added.parent === 'n_st_s3b' && added.code === '3.20' && added.focus && added.row,
+      '«+ Проверка» в этапе: нода в рамке, код 3.20, строка в разделе, фокус в названии', JSON.stringify(added));
+    await c.eval(`undo()`);
+    await clickEl('#flowBar [data-a="view-graph"]');
+    await sleep(200);
+    const lback = await c.eval(`({list: !!document.querySelector('.fl-list'), nodes: curPage().flow.nodes.length})`);
+    check(!lback.list && lback.nodes === ln0, 'назад к схеме; отмена убрала добавленную проверку', JSON.stringify(lback));
+
     /* =====================  M7: справка и версия  ===================== */
     await c.eval(`showHelp()`);
     await sleep(100);
@@ -1092,7 +1166,7 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
       'справка: раздел конструктора с горячими клавишами §8.3');
     await c.eval(`closeModal()`);
     const ver = await c.eval(`BUILD.version`).catch(() => null);
-    check(ver === require('../package.json').version && ver === '2.9.0', 'версия сборки — 2.9.0', String(ver));
+    check(ver === require('../package.json').version, 'версия сборки — из package.json', String(ver));
 
     if (c.errors.length) bad('исключения в консоли', c.errors.join(' | ').slice(0, 400));
     else ok('исключений в консоли нет');

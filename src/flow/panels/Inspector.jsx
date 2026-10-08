@@ -3,7 +3,14 @@
 // пересборки панели (SPEC §8 п. 4): иначе каждая буква крала бы фокус. Панель
 // пересоздаётся, только когда документ сменили снаружи (отмена, чужая правка):
 // ключ формы включает поколение документа.
-import {useEffect, useRef} from 'react';
+import {Suspense, useEffect, useRef} from 'react';
+import {Quiet} from './Quiet.jsx';
+import {lazyPart} from '../lazy.js';
+
+// Связи формой — ленивым чанком (бюджет основного бандла); FlowView подгружает его
+// заранее. В офлайн-просмотрщике чанк не загрузится — граница Quiet не покажет раздел.
+export const Wiring = lazyPart(() => import('./Wiring.jsx'));
+const wire = props => <Quiet><Suspense fallback={null}><Wiring {...props}/></Suspense></Quiet>;
 import * as R from '../rules.js';
 
 const TYPE_OPTS = R.TYPES.map(t => [t.key, t.name + ' · ' + t.key]);
@@ -102,8 +109,10 @@ export default function Inspector({fx, t, P, flow, lib, ro, gen, focus}) {
       <Head fx={fx} title={R.KIND_NAMES[kind]} sub={it ? `Блок библиотеки · используется на ${pages} ${pages === 1 ? 'схеме' : 'схемах'}` : 'Нода этой схемы'}/>
       <div className="fl-ibody" key={key}>
         {sec && !it ? <div className="fl-iempty">Блока нет в библиотеке: {n && n.ref}. Удалите ноду или почините её в проверке доски.</div> : null}
-        {kind === 'check' && it ? <CheckF fx={fx} it={it} lib={lib} ro={ro} fp={fp}/> : null}
-        {kind === 'source' && it ? <SourceF fx={fx} it={it} ro={ro} fp={fp} P={P}/> : null}
+        {kind === 'check' && it ? <CheckF fx={fx} it={it} lib={lib} ro={ro} fp={fp}
+          wire={n ? wire({kind: 'check', fx, n, it, flow, lib, ro}) : null}/> : null}
+        {kind === 'source' && it ? <SourceF fx={fx} it={it} ro={ro} fp={fp} P={P}
+          wire={n ? wire({kind: 'source', fx, n, it, flow, lib, ro}) : null}/> : null}
         {kind === 'dim' && it ? <DimF fx={fx} it={it} ro={ro} fp={fp}/> : null}
         {kind === 'outcome' && it ? <>
           <Txt label="Название" obj={it} k="name" ro={ro} fx={fx} focus={fp}/>
@@ -134,7 +143,7 @@ function Head({fx, title, sub}) {
     <button className="fl-ib" title="Свернуть панель" onClick={() => fx.panel('insp', false)}>›</button></div>;
 }
 
-function CheckF({fx, it, lib, ro, fp}) {
+function CheckF({fx, it, lib, ro, fp, wire}) {
   const factorsObj = {get f() { return (it.factors || []).join(', '); }};
   const bank = it.bank || (it.bank = {status: 'none', comment: ''});
   return <>
@@ -143,6 +152,7 @@ function CheckF({fx, it, lib, ro, fp}) {
       <Sel label="Волна" value={it.wave == null ? 1 : it.wave} f="wave" ro={ro} opts={WAVES} on={v => fx.set(() => { it.wave = +v; })}/>
     </div>
     <Txt label="Что проверяем" obj={it} k="name" ro={ro} fx={fx} focus={fp}/>
+    {wire}
     <Txt label="Как проверяем" obj={it} k="how" area={3} ro={ro} fx={fx}/>
     <Txt label="Зачем" obj={it} k="why" area={2} ro={ro} fx={fx}/>
     <Txt label="Правило" obj={it} k="rule" area={3} ro={ro} fx={fx} ph="текстом: проверки не исполняются"/>
@@ -176,10 +186,11 @@ function CheckF({fx, it, lib, ro, fp}) {
   </>;
 }
 
-function SourceF({fx, it, ro, fp, P}) {
+function SourceF({fx, it, ro, fp, P, wire}) {
   const readers = fx.fieldReaders(it.id);
   return <>
     <Txt label="Название" obj={it} k="name" ro={ro} fx={fx} focus={fp}/>
+    {wire}
     <div className="fl-row2">
       <Sel label="Вид" value={it.kind || 'gov'} f="kind" ro={ro} opts={R.SOURCE_KINDS} on={v => fx.set(() => { it.kind = v; })}/>
       <Sel label="Статус" value={it.status || 'unknown'} f="status" ro={ro} opts={R.SOURCE_STATUSES} on={v => fx.set(() => { it.status = v; })}/>
@@ -226,6 +237,7 @@ function NodeF({fx, n, ro, flow, lib, fp}) {
   if (n.k === 'stage') return <>
     <div className="fl-row2"><Txt label="Номер" obj={d} k="num" ro={ro} fx={fx}/><Txt label="Точка процесса" obj={d} k="point" ro={ro} fx={fx}/></div>
     <Txt label="Название этапа" obj={d} k="name" ro={ro} fx={fx} focus={fp}/>
+    {wire({kind: 'stage', fx, n, flow, lib, ro})}
     <Chk label="Подгонять рамку под содержимое" value={n.fit} f="fit" ro={ro} on={v => fx.set(() => { if (v) n.fit = 1; else n.fit = 0; }, {refit: [n.id]})}/>
     <div className="fl-hint">Проверки внутри рамки идут параллельно, если между ними нет связей порядка ▶.</div>
   </>;

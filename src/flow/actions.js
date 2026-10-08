@@ -32,6 +32,48 @@ export function makeActions(kit) {
     usages: (sec, id) => M.usages(cur().P, sec, id),
     fieldReaders: id => M.fieldReaders(cur().P, id),
 
+    // Связи формой — «Для кого», «Откуда данные», «Куда ведёт вердикт». Те же связи,
+    // что тянутся мышью: правила canConnect, одна операция отмены. Блок, которого
+    // нет на схеме, встаёт сам в свой столбец. Сначала проверка, потом правка:
+    // отказ не должен оставлять полусделанное (старая связь снята, новой нет).
+    wire(spec) {
+      const {flow, lib} = cur();
+      const drop = e => (spec.drop ? spec.drop(e) : false);
+      const node = spec.from ? flow.nodes.find(n => n.k === spec.from.k && n.ref === spec.from.ref) : null;
+      if (spec.from && node) {
+        const c = spec.make(node.id);
+        const r = R.canConnect({nodes: flow.nodes, edges: flow.edges.filter(e => !drop(e))}, lib, c);
+        if (!r.ok) { ctx.toast(r.reason); return; }
+      }
+      edit(x => {
+        x.flow.edges = x.flow.edges.filter(e => !drop(e));
+        if (!spec.from) return;
+        let nd = x.flow.nodes.find(n => n.k === spec.from.k && n.ref === spec.from.ref);
+        if (!nd) nd = M.placeBlockNode(x.flow, x.lib, spec.from.k, spec.from.ref, kit.sizeOf);
+        const r = M.connect(x.flow, x.lib, spec.make(nd.id), spec.extra || null);
+        if (!r.ok) ctx.toast(r.reason);
+      });
+    },
+    // state: '' — снять, 'pos' — «для», 'neg' — «кроме».
+    setWho(nodeId, dimId, valueId, state) {
+      const h = 'val:' + valueId, {flow} = cur();
+      const dims = new Set(flow.nodes.filter(n => n.k === 'dim' && n.ref === dimId).map(n => n.id));
+      a.wire({drop: e => e.t === nodeId && e.th === 'cond-in' && dims.has(e.s) && e.sh === h,
+        from: state ? {k: 'dim', ref: dimId} : null, extra: state === 'neg' ? {neg: 1} : null,
+        make: id => ({source: id, sourceHandle: h, target: nodeId, targetHandle: 'cond-in'})});
+    },
+    // src: {source, field} или null — отключить вход.
+    setInput(nodeId, inputId, src) {
+      const th = 'in:' + inputId;
+      a.wire({drop: e => e.t === nodeId && e.th === th, from: src ? {k: 'source', ref: src.source} : null,
+        make: id => ({source: id, sourceHandle: 'out:' + src.field, target: nodeId, targetHandle: th})});
+    },
+    setVerdict(nodeId, key, outcomeRef) {
+      const sh = 'v:' + key;
+      a.wire({drop: e => e.s === nodeId && e.sh === sh, from: outcomeRef ? {k: 'outcome', ref: outcomeRef} : null,
+        make: id => ({source: nodeId, sourceHandle: sh, target: id, targetHandle: 'vin'})});
+    },
+
     toggleVerdict(it, key, on) {
       if (on) { edit(() => { it.verdicts = (it.verdicts || []).concat(key); }); return; }
       const list = M.socketEdges(cur().P, 'check', it.id, 'v:' + key, 'out');

@@ -362,11 +362,6 @@ table.fl-lt tr.fl-filt input{width:100%;font-size:11.5px;text-transform:none;fon
 .fl-num:hover,.fl-num.on{background:var(--hov2);color:var(--ink)}
 .fl-dot{color:var(--muted)}
 .fl-sep{width:1px;height:18px;background:var(--line);margin:0 4px}
-.fl-eks{display:flex;align-items:center;gap:2px;font-size:var(--t-meta);color:var(--muted)}
-.fl-ek{width:22px;height:22px;border:1px solid var(--line);background:var(--card);border-radius:var(--r-xs);cursor:pointer;
-  font-size:11px;line-height:1;color:var(--ink);padding:0}
-.fl-ek.fl-ek2{background:var(--accent-bg);border-color:var(--accent-br);color:var(--accent-ink)}
-.fl-ek.fl-ek0{color:var(--muted);text-decoration:line-through;opacity:.6}
 .fl-pop{position:absolute;z-index:60;top:calc(var(--h-topbar) + var(--h-pagebar) - 2px);background:var(--card);border:1px solid var(--line);
   border-radius:var(--r-l);box-shadow:var(--sh3);padding:10px;max-height:70vh;overflow:auto}
 .fl-pop-edit{left:120px;width:560px}
@@ -399,3 +394,76 @@ table.fl-lt tr.fl-filt input{width:100%;font-size:11.5px;text-transform:none;fon
 .fl-lg-r b{font-variant-numeric:tabular-nums}
 .fl-lg-holes{margin-top:6px;padding-top:6px;border-top:1px solid var(--line2)}
 .fl-lg-sh{font-size:var(--t-micro);color:var(--muted);text-transform:uppercase;margin-bottom:2px}
+
+/* ============ связи формой в инспекторе ============ */
+.fl-wire .fl-sh{display:flex;align-items:baseline;gap:8px}
+.fl-wsum{font-weight:500;text-transform:none;letter-spacing:0;color:#6b4fd8;font-size:var(--t-meta);
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.dark .fl-wsum{color:#a995ff}
+.fl-wdim{display:flex;gap:8px;align-items:flex-start;padding:4px 0}
+.fl-wdim-n{flex:0 0 96px;font-size:var(--t-meta);color:var(--ink2);padding-top:3px;line-height:1.25}
+.fl-wvals{flex:1;display:flex;flex-wrap:wrap;gap:4px}
+.fl-wv{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:12px;padding:2px 9px;
+  font-size:var(--t-meta);line-height:16px;cursor:pointer}
+.fl-wv:hover:not(:disabled){border-color:#7c5cff;color:var(--ink)}
+.fl-wv-pos{background:#7c5cff;border-color:#7c5cff;color:#fff}
+.fl-wv-pos:hover:not(:disabled){color:#fff}
+.fl-wv-neg{background:#fde8e6;border-color:#e0473a;color:#b3261e;text-decoration:line-through}
+body.dark .fl-wv-neg{background:#3a1d1b}
+.fl-wv:disabled{cursor:default}
+.fl-wrow{display:flex;align-items:center;gap:8px;padding:4px 0}
+.fl-wname{flex:0 0 40%;min-width:0;display:flex;align-items:center;gap:6px;font-size:var(--t-meta);color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-wname.fl-miss{color:#b3261e}
+.fl-wdot{flex:0 0 auto;width:9px;height:9px;border-radius:2px;font-style:normal}
+.fl-wrow select{flex:1;min-width:0;width:auto;height:28px;padding:0 6px;line-height:normal;font-size:var(--t-meta)}
+.fl-wvia{flex:1;min-width:0;font-size:var(--t-meta);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-wmore{border:none;background:none;color:var(--accent-ink);font-size:var(--t-meta);padding:4px 0;cursor:pointer}
+.fl-wmore:hover{text-decoration:underline}
+
+/* ============ вид «Список» ============
+   Поверх схемы, а не вместо неё: выделение, отмена и инспектор у них общие. */
+.fl-list{position:absolute;inset:0;z-index:7;overflow:auto;background:var(--surf);padding:0 24px 90px}
+.fl-lhead{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:14px;max-width:1180px;margin:0 auto;
+  padding:12px 0 10px;background:var(--surf);border-bottom:1px solid var(--line)}
+.fl-lq{width:360px;max-width:55%}
+.fl-lst{max-width:1180px;margin:18px auto 0}
+.fl-lgate{font-size:var(--t-meta);color:var(--ink2);padding:6px 10px;margin-bottom:8px;border-left:3px solid #6b7280;
+  background:var(--card);border-radius:0 var(--r-s) var(--r-s) 0;cursor:pointer}
+.fl-lgate i{font-style:normal;color:var(--muted);margin-right:4px}
+.fl-lst-h{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r-m);cursor:pointer;color:#2c45b0}
+body.dark .fl-lst-h{color:#8da2ff}
+.fl-lst-h b{font-size:14px;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-lst-m{flex:1;min-width:0;font-size:var(--t-meta);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-lst-h.on{background:var(--accent-bg)}
+.fl-lrow{display:grid;grid-template-columns:44px minmax(0,2.2fr) minmax(0,1fr) minmax(0,1.3fr) minmax(0,1.4fr);overflow:hidden;
+  gap:12px;align-items:start;padding:9px 12px;margin-top:6px;border-radius:var(--r-m);background:var(--card);
+  border:1px solid var(--line);cursor:pointer;font-size:var(--t-meta);line-height:1.35}
+.fl-lrow:hover{border-color:var(--line-str)}
+.fl-lrow.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.fl-lcode{font-weight:750;color:#3355d1;font-variant-numeric:tabular-nums;padding-top:1px}
+body.dark .fl-lcode{color:#8da2ff}
+.fl-lmain{display:flex;flex-direction:column;gap:2px;min-width:0}
+.fl-lmain b{font-size:13px;color:var(--ink);font-weight:650}
+.fl-lmain small{color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.fl-lwho{color:#6b4fd8}
+body.dark .fl-lwho{color:#a995ff}
+.fl-lwho.fl-lall{color:var(--muted)}
+.fl-lsrc{display:flex;flex-direction:column;gap:2px;color:var(--ink2);min-width:0}
+.fl-lsrc span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-lver{display:flex;flex-wrap:wrap;gap:4px;min-width:0}
+.fl-vpill{display:inline-flex;align-items:center;gap:5px;max-width:100%;padding:1px 8px;border-radius:10px;font-size:11px;line-height:18px;
+  color:var(--ink);background:color-mix(in srgb,var(--vc,#8a94a6) 13%,var(--card));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-vpill i{flex:0 0 auto;width:7px;height:7px;border-radius:2px;background:var(--vc,#8a94a6)}
+.fl-vtbd{color:var(--muted);font-style:italic}
+.fl-loff{opacity:.38}
+.fl-lmuted{opacity:.55;border-style:dashed}
+.fl-lempty{font-size:var(--t-meta);color:var(--muted);padding:8px 10px}
+.fl-lempty-big{max-width:1180px;margin:40px auto;font-size:var(--t-body);display:flex;align-items:center;gap:12px}
+.fl-viewseg{margin-right:4px}
+.fl-pbanner.fl-pb-list{top:auto;bottom:16px;z-index:8}
+@media (max-width:900px){
+  .fl-list{padding:0 10px 90px}
+  .fl-lrow{grid-template-columns:44px 1fr;row-gap:4px}
+  .fl-lrow > .fl-lwho,.fl-lrow > .fl-lsrc,.fl-lrow > .fl-lver{grid-column:2}
+}

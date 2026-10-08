@@ -28,7 +28,7 @@ function Pop({onClose, children, cls}) {
   return <div ref={ref} className={'fl-pop fl-nowheel ' + (cls || '')}>{children}</div>;
 }
 
-export default function ProfileBar({fx, flow, lib, prof, stats, overlay, show, ro, panels}) {
+export default function ProfileBar({fx, flow, lib, prof, stats, overlay, show, ro, panels, view}) {
   const [pop, setPop] = useState(null);
   // Ctrl+F на холсте и «Поиск» в шапке открывают поиск отсюда же.
   useEffect(() => { fx.openPop = setPop; return () => { if (fx.openPop === setPop) fx.openPop = null; }; }, [fx]);
@@ -44,6 +44,10 @@ export default function ProfileBar({fx, flow, lib, prof, stats, overlay, show, r
   const allShown = EDGE_KINDS.filter(([k]) => mode(k) === 1).length;
   return (
     <div className="fl-bar">
+      {view ? <span className="fl-seg fl-viewseg" title="Схема — блоки и связи; список — этапы и проверки строками">
+        <button className={view !== 'list' ? 'on' : ''} data-a="view-graph" onClick={() => fx.setView('graph')}>Схема</button>
+        <button className={view === 'list' ? 'on' : ''} data-a="view-list" onClick={() => fx.setView('list')}>Список</button>
+      </span> : null}
       <label className="fl-pf" title="Профиль клиента: для кого показать проверки">Клиент
         <select value={prof.id || (custom ? '__custom' : '')} data-f="profile" onChange={e => fx.setProfile(e.target.value)}>
           <option value="">все клиенты</option>
@@ -66,8 +70,7 @@ export default function ProfileBar({fx, flow, lib, prof, stats, overlay, show, r
         title="Какие связи показывать">Связи{allShown === EDGE_KINDS.length ? ': все' : allShown ? '' : ': у выделенной'}</button>
       {!ro ? <button className="btn sm" data-a="layout" onClick={() => fx.layout()} title="Разложить блоки слоями слева направо, проверки в этапе — по коду">Разложить</button> : null}
       <span className="fl-sp"/>
-      {/* Библиотека и инспектор открываются вкладками по краям холста — второй пары кнопок здесь нет. */}
-      <button className="btn sm" data-a="table" onClick={() => fx.openTable('checks')}>Таблица</button>
+      {/* Библиотека и инспектор — вкладками по краям холста, таблица библиотеки — кнопкой внизу библиотеки. */}
       <button className="btn sm" data-a="export" title="xlsx, JSON-контракт, Markdown-архив, PNG, SVG" onClick={() => fx.showExport()}>Экспорт</button>
       {pop === 'edit' ? <Pop onClose={close} cls="fl-pop-edit"><ProfileEdit fx={fx} flow={flow} lib={lib} prof={prof} ro={ro}/></Pop> : null}
       {pop === 'find' ? <Pop onClose={close} cls="fl-pop-find"><Search fx={fx} onDone={close}/></Pop> : null}

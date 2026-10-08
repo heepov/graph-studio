@@ -11,7 +11,9 @@
 // save() после. Позиции пишутся на отпускании, а не на каждый кадр жеста —
 // иначе снимок снимался бы с уже сдвинутого состояния и Ctrl+Z не возвращал бы
 // ноду на место (те же грабли, что были у областей в 1.2.1).
-import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {Quiet} from './panels/Quiet.jsx';
+import {lazyPart} from './lazy.js';
 import {createPortal} from 'react-dom';
 import {ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, useReactFlow, useUpdateNodeInternals,
   applyNodeChanges, applyEdgeChanges, useStore, ViewportPortal} from '@xyflow/react';
@@ -21,14 +23,18 @@ import {FlowCtx, nav} from './ctx.js';
 import {makeActions} from './actions.js';
 import {nodeTypes} from './nodes/index.js';
 import Library from './panels/Library.jsx';
-import Inspector from './panels/Inspector.jsx';
-import {openLibTable} from './panels/LibTable.js';
+import Inspector, {Wiring} from './panels/Inspector.jsx';
 import ProfileBar from './panels/ProfileBar.jsx';
+// «Список» — тоже ленивым чанком (бюджет основного бандла). Просмотрщик офлайн
+// чанк не загрузит, поэтому там переключателя «Схема | Список» нет.
+const ListView = lazyPart(() => import('./panels/ListView.jsx'));
 import Legend, {OV} from './panels/Legend.jsx';
 import {runLayout} from './layout.js';
 import TypedEdge from './edges/TypedEdge.jsx';
 import ConnLine from './edges/ConnLine.jsx';
-import AddMenu from './panels/AddMenu.jsx';
+// Только для правки — ленивыми чанками: офлайн-просмотрщик открывается на чтение,
+// и меню добавления с таблицей библиотеки ему не нужны (бюджет основного бандла).
+const AddMenu = lazyPart(() => import('./panels/AddMenu.jsx'));
 
 const edgeTypes = {typed: TypedEdge};
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -341,12 +347,17 @@ function FlowView({ctx, pageId, rev, api}) {
   const openInspAuto = useCallback(() => {
     setPanels(p => { if (p.insp) return p; autoInsp.current = true; return Object.assign({}, p, {insp: true}); });
   }, []);
+  // Схема или список — личная настройка вида этой страницы, как камера.
+  const listKey = ctx.viewKey(pageId).replace(/^gs_view:/, 'gs_flowview:');
+  const [view, setViewState] = useState(() => { try { return localStorage.getItem(listKey) === 'list' ? 'list' : 'graph'; } catch (e) { return 'graph'; } });
   // Скрыть погашенное профилем — личная настройка вида, как панели.
   const [hideOff, setHideOff] = useState(() => { try { return localStorage.getItem('gs_flow_hideoff') === '1'; } catch (e) { return false; } });
   const [libSel, setLibSel] = useState(null);       // блок, выбранный в библиотеке: {sec, id}
   // Запрос «фокус в поле названия» — одноразовый: поле забирает его и гасит.
   // Висящий запрос уводил бы фокус в инспектор при каждой смене выделения.
-  const [focusReq, setFocusReq] = useState(0);
+  // {id, at}: id — нода, чьё название ждёт фокус. Выделение доезжает до инспектора
+  // на кадр позже, и без id запрос забирало бы поле ПРЕДЫДУЩЕЙ выделенной ноды.
+  const [focusReq, setFocusReq] = useState(null);
   const [editing, setEditing] = useState(null);     // нода, которую переименовывают на месте
   // Поколение форм инспектора и библиотеки: растёт, когда документ поменялся
   // НЕ через их поля (отмена, таблица, правка на холсте) — неуправляемые поля
@@ -727,7 +738,7 @@ function FlowView({ctx, pageId, rev, api}) {
       selectOnly([made]);
       // Новый блок — сразу в инспектор с фокусом в названии: двух кликов
       // достаточно, чтобы завести проверку и начать её описывать.
-      if (spec.create) { setLibSel(null); openInspAuto(); setFocusReq(Date.now()); }
+      if (spec.create) { setLibSel(null); openInspAuto(); setFocusReq({id: made, at: Date.now()}); }
     }
     return made;
   }, [ctx, cur, edit, rf, sizeOf, doConnect, selectOnly]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -1073,7 +1084,7 @@ function FlowView({ctx, pageId, rev, api}) {
       setExtGen(g => g + 1);
     },
     resized,
-    focusDone: () => setFocusReq(0),
+    focusDone: () => setFocusReq(null),
     showExport: () => ctx.showExport(),
     /* --- профиль, оверлей, видимость связей --- */
     setProfile(v) { if (v !== '__custom') setProf(v ? {id: v} : {sel: {}}); },
@@ -1168,12 +1179,33 @@ function FlowView({ctx, pageId, rev, api}) {
       const n = c.flow.nodes.find(x => x.k === k && x.ref === id);
       if (n && !focus) { setLibSel(null); selectOnly([n.id]); }
       else { setLibSel({sec, id}); selectOnly([]); }
-      if (focus) { openInspAuto(); setFocusReq(Date.now()); }
+      if (focus) { openInspAuto(); setFocusReq({id: null, at: Date.now()}); }
     },
     // Человек сам открыл или закрыл панель — это его выбор, он запоминается,
     // и автоматика инспектора больше его не трогает.
     panel(which, open) { if (which === 'insp') autoInsp.current = false; setPanels(p => savePanels(Object.assign({}, p, {[which]: open}))); },
     hideOff(v) { try { localStorage.setItem('gs_flow_hideoff', v ? '1' : '0'); } catch (e) { /* не запомнится */ } setHideOff(!!v); },
+    setView(v) { try { localStorage.setItem(listKey, v); } catch (e) { /* не запомнится */ } setViewState(v === 'list' ? 'list' : 'graph'); },
+    selectNode(id) { setLibSel(null); selectOnly(id ? [id] : []); },
+    showOnScheme(id) { fx.setView('graph'); setTimeout(() => fx.focusNode(id), 40); },
+    // «+ Проверка» в разделе этапа (вид «Список»): блок в библиотеке, нода в рамке
+    // под последней проверкой, код — следующий свободный в этапе. Одна операция отмены.
+    newCheckIn(sid) {
+      let made = null;
+      edit(x => {
+        const st = x.flow.nodes.find(n => n.id === sid && n.k === 'stage'); if (!st) return;
+        const it = M.createBlock(x.lib, 'checks', {});
+        it.code = M.nextCheckCode(x.lib, (st.data || {}).num);
+        const {PAD, PADT, GAP} = R.SIZE.STAGE;
+        const n = {id: M.newId('n', new Set(x.flow.nodes.map(y => y.id))), k: 'check', ref: it.id, parent: sid, x: PAD, y: PADT};
+        for (const k of x.flow.nodes) if (k.parent === sid) n.y = Math.max(n.y, Math.round((+k.y || 0) + sizeOf(k).h + GAP));
+        x.flow.nodes.push(n);
+        M.refit(x.flow, x.lib, [sid], sizeOf);
+        made = n.id;
+      });
+      if (made) { setLibSel(null); selectOnly([made]); openInspAuto(); setFocusReq({id: made, at: Date.now()}); }
+      return made;
+    },
     // Создать блок с нуля посреди видимой части схемы — кнопки пустой страницы.
     createAt(k) {
       const sec = {check: 'checks', source: 'sources', dim: 'dims', outcome: 'outcomes'}[k];
@@ -1216,13 +1248,13 @@ function FlowView({ctx, pageId, rev, api}) {
       window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
     },
     openTable(tab) {
-      openLibTable(ctx, {
+      import('./panels/LibTable.js').then(m => m.openLibTable(ctx, {
         cur, readers: id => M.fieldReaders(cur().P, id),
         edit: fn => { edit(() => fn()); setExtGen(g => g + 1); },
         text: (obj, k, v) => { fx.text(obj, k, v); setExtGen(g => g + 1); },
         textSet: fn => fx.textSet(fn),
         closed: () => setExtGen(g => g + 1),
-      }, tab);
+      }, tab)).catch(() => ctx.toast('Таблица не загрузилась — нужна сеть'));
     },
     // Переход к ноде — на этой схеме или на другой странице доски.
     goNode(pageId, nodeId) {
@@ -1242,6 +1274,15 @@ function FlowView({ctx, pageId, rev, api}) {
     },
   });
   Object.assign(fx, makeActions({ctx, cur, edit, bump, sizeOf, setGen: () => setExtGen(g => g + 1), pickLib: (sec, id, f) => fx.pickLib(sec, id, f)}));
+
+  // Ленивые части (меню добавления, форма связей, список) — заранее, в фоне: в основной
+  // бандл они не попадают, но и первый Shift+A не ждёт загрузки чанка. Просмотрщику
+  // офлайн грузить их неоткуда — там не пробуем.
+  useEffect(() => {
+    if (ctx.viewer) return undefined;
+    const t = setTimeout(() => { AddMenu.preload(); ListView.preload(); Wiring.preload(); }, 300);
+    return () => clearTimeout(t);
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Пришли сюда переходом «к блоку на другой схеме» — показать его.
   useEffect(() => {
@@ -1440,7 +1481,7 @@ function FlowView({ctx, pageId, rev, api}) {
               nodeColor={n => (n.type === 'stage' ? 'rgba(51,85,209,.10)' : (n.data && n.data.color) || '#c4c9d4')}
               nodeStrokeColor={n => (n.type === 'stage' ? 'rgba(51,85,209,.45)' : 'transparent')}/>
           </ReactFlow>
-          {empty && (
+          {empty && (view !== 'list' || ctx.viewer) && (
             <div className="fl-empty">
               <div className="ttl">Схема пока пустая</div>
               <div className="fl-model">
@@ -1459,20 +1500,24 @@ function FlowView({ctx, pageId, rev, api}) {
               </>}
             </div>
           )}
-          {profOn && stats ? <div className="fl-pbanner" data-banner="profile">
+          {view === 'list' && !ctx.viewer ? <Quiet><Suspense fallback={<div className="fl-list"/>}><ListView fx={fx} flow={flow} lib={c0.lib}
+            act={profOn ? act : null} hideOff={hideNow} selId={selNodes.length === 1 ? selNodes[0] : null} ro={ro}/></Suspense></Quiet> : null}
+          {profOn && stats ? <div className={'fl-pbanner' + (view === 'list' && !ctx.viewer ? ' fl-pb-list' : '')} data-banner="profile">
             <span>Профиль <b>«{profObj && !prof.sel ? profObj.name : profObj ? profObj.name + ' *' : 'свой выбор'}»</b>: участвуют <b>{stats.checks.on}</b> из {stats.checks.all} проверок
               {stats.checks.all > stats.checks.on ? <>, погашено {stats.checks.all - stats.checks.on}</> : null}</span>
             <label className="fl-chk"><input type="checkbox" checked={hideOff} data-f="hideoff" onChange={e => fx.hideOff(e.target.checked)}/>скрыть погашенные</label>
             <button className="fl-ib" title="Все клиенты" onClick={() => fx.setProfile('')}>×</button>
           </div> : null}
-          {menu ? <AddMenu x={menu.x} y={menu.y} title={menu.title} items={menu.items} onClose={() => setMenu(null)}/> : null}
+          {menu ? <Quiet><Suspense fallback={null}>
+            <AddMenu x={menu.x} y={menu.y} title={menu.title} items={menu.items} onClose={() => setMenu(null)}/></Suspense></Quiet> : null}
           <Legend fx={fx} overlay={overlay} counts={lgCounts} holes={lgHoles}/>
         </div>
-        {panels.insp ? <Inspector fx={fx} t={target} P={c0.P} flow={flow} lib={c0.lib} ro={ro} gen={gen} focus={focusReq}/>
+        {panels.insp ? <Inspector fx={fx} t={target} P={c0.P} flow={flow} lib={c0.lib} ro={ro} gen={gen}
+          focus={focusReq && (!focusReq.id || (target && target.node && target.node.id === focusReq.id)) ? focusReq.at : 0}/>
           : <button className="fl-rail fl-rail-r" title="Показать инспектор" onClick={() => fx.panel('insp', true)}>‹ Инспектор</button>}
         <div className="fl-ctip" ref={tipRef}/>
         {bar ? createPortal(<ProfileBar fx={fx} flow={flow} lib={c0.lib} prof={prof} stats={stats} overlay={overlay}
-          show={show} ro={ro} panels={panels}/>, bar) : null}
+          show={show} ro={ro} panels={panels} view={ctx.viewer ? null : view}/>, bar) : null}
       </div>
     </FlowCtx.Provider>
   );

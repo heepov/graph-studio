@@ -27,6 +27,34 @@ const inlineOne = async (src, tagRe, wrap) => {
 
 let out = html, inlined = [], guard = 0;
 
+// Общие чанки, которые главный модуль импортирует статически (у Rolldown это его
+// runtime — помощники совместимости с CommonJS, когда React берут и ленивые чанки).
+// Встроенный в страницу модуль не может импортировать соседний файл: в просмотрщике,
+// открытом с диска, его нет. Такой чанк обязан быть «только экспорт», без импортов, —
+// тогда он встраивается в главный модуль функцией, а его импорт меняется на чтение полей.
+const shared = new Map();   // имя файла → код замены импорта
+for (const m of html.matchAll(/<link[^>]+rel="modulepreload"[^>]+href="\/assets\/([^"]+\.js)"[^>]*>/g)) {
+  const file = m[1];
+  const code = await readFile(join(dist, 'assets', file), 'utf8');
+  if (/(^|[;\s])import[\s{*"']/.test(code.replace(/import\(/g, ''))) {
+    throw new Error(`общий чанк ${file} сам что-то импортирует — встроить его в просмотрщик нельзя`);
+  }
+  const ex = code.match(/export\s*\{([^}]*)\}\s*;?\s*$/);
+  if (!ex) throw new Error(`общий чанк ${file}: не нашёл export{…} в конце`);
+  const map = ex[1].split(',').map(x => x.trim()).filter(Boolean).map(x => { const [a, b] = x.split(/\s+as\s+/); return [b || a, a]; });
+  const v = '__shared' + shared.size;
+  shared.set(file, `const ${v}=(()=>{${code.slice(0, ex.index)};return{${map.map(([pub, loc]) => `${JSON.stringify(pub)}:${loc}`).join(',')}};})();`);
+  out = out.replace(m[0], () => '');
+  inlined.push(file + ' (в главный модуль)');
+}
+const inlineShared = body => body.replace(/import\s*\{([^}]*)\}\s*from\s*"\.\/([^"]+\.js)"\s*;?/g, (all, names, file) => {
+  const pre = shared.get(file);
+  if (!pre) throw new Error(`главный модуль статически импортирует ${file} — просмотрщик не самодостаточен`);
+  const v = pre.match(/^const (__shared\d+)=/)[1];
+  const binds = names.split(',').map(x => x.trim()).filter(Boolean).map(x => { const [a, b] = x.split(/\s+as\s+/); return `${JSON.stringify(a)}:${b || a}`; });
+  return `${pre}const{${binds.join(',')}}=${v};`;
+});
+
 // стили
 for (;;) {
   if (++guard > 50) throw new Error('слишком много ассетов — похоже, замена зациклилась');
@@ -38,7 +66,7 @@ for (;;) {
 for (;;) {
   if (++guard > 50) throw new Error('слишком много ассетов — похоже, замена зациклилась');
   const r = await inlineOne(out, /<script[^>]*type="module"[^>]*src="([^"]+)"[^>]*><\/scr(?:)ipt>/,
-    b => `<script type="module">\n${b}\n</scr` + `ipt>`);
+    b => `<script type="module">\n${inlineShared(b)}\n</scr` + `ipt>`);
   if (!r.hit) break;
   out = r.out; inlined.push(r.hit);
 }
