@@ -996,6 +996,16 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     check(pv && pv.n.length === 90 && pv.n[0][4] === '#e5e8f0' && pv.n.slice(0, 7).every(x => x[4] === '#e5e8f0') && pv.e.length > 50,
       'превью конструктора для главной: рамки первыми, затем ноды и связи', pv && `${pv.n.length} блоков, ${pv.e.length} связей`);
 
+    /* =====================  M7: справка и версия  ===================== */
+    await c.eval(`showHelp()`);
+    await sleep(100);
+    const help = await c.eval(`document.getElementById('mbox').textContent.replace(/\\s+/g, ' ')`);
+    check(/Конструктор проверок/.test(help) && ['Shift+A', 'Ctrl+J', 'Ctrl+H', 'Ctrl+F', 'Ctrl+Shift+Z'].every(k => help.includes(k)),
+      'справка: раздел конструктора с горячими клавишами §8.3');
+    await c.eval(`closeModal()`);
+    const ver = await c.eval(`BUILD.version`).catch(() => null);
+    check(ver === require('../package.json').version && ver === '2.9.0', 'версия сборки — 2.9.0', String(ver));
+
     if (c.errors.length) bad('исключения в консоли', c.errors.join(' | ').slice(0, 400));
     else ok('исключений в консоли нет');
   } catch (e) {
