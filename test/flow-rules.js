@@ -273,6 +273,14 @@ const ROOT = path.join(__dirname, '..');
   check(!ar1.nodes.has('c') && !ar1.edges.has('e2') && ar2.nodes.has('c') && ar2.nodes.has('r'), '«кроме» через точку перегиба работает так же');
   check(ar2.nodes.has('s') && !ar1.nodes.has('s'), 'источник с «Когда» активен только при своём значении и при активной проверке');
 
+  /* ---------- копия правил для сервера ---------- */
+  // Образ API собирается с контекстом ./server и src/ не видит, поэтому получает
+  // копию rules.js. Разъехавшаяся копия дала бы Claude и человеку разные ответы.
+  const orig = fs.readFileSync(path.join(ROOT, 'src/flow/rules.js'));
+  const copy = fs.existsSync(path.join(ROOT, 'server/src/mcp/flow-rules.js')) ? fs.readFileSync(path.join(ROOT, 'server/src/mcp/flow-rules.js')) : null;
+  check(copy && Buffer.compare(orig, copy) === 0, 'server/src/mcp/flow-rules.js совпадает с src/flow/rules.js байт-в-байт',
+    copy ? `${orig.length} байт` : 'копии нет — node scripts/sync-flow-rules.mjs');
+
   const fail = results.filter(r => r[0] === '✗');
   console.log(`\n===== ${results.length - fail.length}/${results.length} пройдено =====`);
   process.exit(fail.length ? 1 : 0);

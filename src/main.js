@@ -5721,6 +5721,11 @@ const TPL = [
     pages: [{id: 'p1', name: 'Схема', kind: 'canvas', filter: {}, canvas: {layout: 'free', lanes: []}},
       {id: 'p2', name: 'Шаги', kind: 'table', filter: {}, table: {cols: ['name', 'cat', 'status', 'f.sla', 'f.owner'], sort: 'name', dir: 1, group: ''}}]
   })},
+  // Конструктор проверок KYC/KYB: библиотека (9 измерений, 24 источника, 55 проверок,
+  // 8 исходов) и конвейер РКО на 109 нод. Seed весит 106 КБ — грузится отдельным
+  // чанком по клику, а не лежит в основном бандле у всех, кто его не открывает.
+  {id: 'kyc', name: 'KYC/KYB — конструктор проверок', desc: 'Нодовый конструктор: профили клиента, источники, проверки, исходы',
+    make: async () => clone((await import('./flow/seed-kyc-rko.json')).default)},
   {id: 'demo', name: 'Демо-проект', desc: 'Готовая карта на 32 узла — запуск маркетплейса с платёжным треком. Чтобы посмотреть, как всё работает.', make: () => clone(SEED)}
 ];
 /* ---------- аккаунт ----------
@@ -6040,7 +6045,9 @@ async function uploadAllLocal() {
 async function createFromTemplate(tplId) {
   const t = TPL.find(x => x.id === tplId);
   if (!t) return;
-  const pr = normalize(t.make());
+  let made;
+  try { made = await t.make(); } catch (e) { toast('Шаблон не загрузился: ' + (e.message || e)); return; }
+  const pr = normalize(made);
   pr.id = uid('pr'); pr.created = today(); pr.updated = today();
   if (cloud.CLOUD.account) {
     try {

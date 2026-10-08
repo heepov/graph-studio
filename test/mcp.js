@@ -583,6 +583,17 @@ async function json(path, opts = {}) {
     badKind ? ok('страница с несуществующим видом отклоняется с ошибкой')
             : bad('страница с чужим видом принята');
 
+    // Seed конструктора KYC Flow: импорт обязан сохранить страницу-конструктор
+    // и библиотеку flowLib. Документ здесь собирается заново из известных ключей —
+    // раньше flowLib молча терялась, а вид flow отклонялся как несуществующий.
+    const seedKyc = JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/flow/seed-kyc-rko.json'), 'utf8'));
+    const kycDry = await call('import_board', { doc: seedKyc, dry_run: true });
+    (kycDry.warnings.length === 0 && kycDry.pages_created.length === 1 && kycDry.pages_created[0].kind === 'flow'
+      && kycDry.flow && kycDry.flow.nodes === 109 && kycDry.flow.edges === 137 && kycDry.flow.lib.checks === 55)
+      ? ok('import_board(dry_run) на seed KYC Flow — без предупреждений, конвейер и библиотека целы',
+        `${kycDry.flow.nodes} нод, ${kycDry.flow.edges} связей, ${kycDry.flow.lib.checks} проверок`)
+      : bad('импорт seed конструктора неверен', JSON.stringify(kycDry).slice(0, 300));
+
     const listed2 = await call('list_boards', {});
     const impRow = listed2.boards.find(b => b.id === imp.id);
     (impRow && impRow.pages === 2 && impRow.version >= 1)

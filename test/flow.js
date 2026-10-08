@@ -787,6 +787,75 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     check(roView.on === 45 && roView.lg && roView.same && !roView.layout, 'в режиме чтения профиль и оверлей переключаются без записи, раскладки нет', JSON.stringify(roView));
     await c.eval(`(() => { setReadonly(false); renderPage(); })()`);
 
+    /* =====================  M4: seed и шаблон  ===================== */
+    await c.eval(`home.showHome('tpl')`);
+    await sleep(200);
+    const tplCard = await c.eval(`[...document.querySelectorAll('#hmain .bcard[data-t]')].map(x => x.dataset.t + ':' + x.querySelector('.t').textContent)`);
+    check(tplCard.includes('kyc:KYC/KYB — конструктор проверок'), 'шаблон «KYC/KYB — конструктор проверок» на главной', tplCard.length + ' шаблонов');
+    // С1: открыть шаблон с главной кликом по карточке
+    await clickEl('#hmain .bcard[data-t="kyc"]');
+    await c.waitFor(`P && P.name === 'KYC/KYB — конструктор проверок'` + EDITOR_SHOWN + ` && FLOW.state().mounted`, 20000, 'доска из шаблона');
+    await c.waitFor(`document.querySelectorAll('#flowRoot .react-flow__node').length === 109`, 10000, 'все ноды отрисованы');
+    await sleep(400);
+    const c1 = await c.eval(`(() => {
+      const pane = document.querySelector('#flowRoot .fl-pane').getBoundingClientRect();
+      let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+      for (const el of document.querySelectorAll('#flowRoot .react-flow__node')) { const r = el.getBoundingClientRect();
+        x0 = Math.min(x0, r.left); y0 = Math.min(y0, r.top); x1 = Math.max(x1, r.right); y1 = Math.max(y1, r.bottom); }
+      return {page: curPage().kind, nodes: document.querySelectorAll('#flowRoot .react-flow__node').length,
+        edges: document.querySelectorAll('#flowRoot .react-flow__edge').length,
+        inside: x0 >= pane.left - 2 && y0 >= pane.top - 2 && x1 <= pane.right + 2 && y1 <= pane.bottom + 2, k: FLOW.state().viewport.k}; })()`);
+    check(c1.page === 'flow' && c1.nodes === 109 && c1.edges === 137, 'С1: страница-конструктор показывает 109 нод и 137 связей', `${c1.nodes} нод, ${c1.edges} связей`);
+    check(c1.inside, 'С1: камера вписывает всю схему', `масштаб ${c1.k}`);
+    // контрольные цифры §13 — из документа, созданного шаблоном
+    const s13 = await c.eval(`(() => { const L = P.flowLib, f = curPage().flow, k = {};
+      for (const n of f.nodes) k[n.k] = (k[n.k] || 0) + 1;
+      const ek = {}; for (const e of f.edges) { const x = /^exec/.test(e.sh) ? 'exec' : /^val:/.test(e.sh) ? 'cond' : /^v:/.test(e.sh) ? 'verdict' : 'data'; ek[x] = (ek[x] || 0) + 1; }
+      return {dims: L.dims.length, values: L.dims.reduce((a, d) => a + d.values.length, 0), sources: L.sources.length,
+        fields: L.sources.reduce((a, s) => a + s.fields.length, 0), checks: L.checks.length, outcomes: L.outcomes.length, verdicts: L.verdicts.length,
+        stages: k.stage, gates: k.gate, ek, profiles: f.profiles.length}; })()`);
+    check(s13.dims === 9 && s13.values === 41 && s13.sources === 24 && s13.fields === 64 && s13.checks === 55 && s13.outcomes === 8 && s13.verdicts === 9,
+      '§13: библиотека — 9 измерений (41 значение), 24 источника (64 поля), 55 проверок, 8 исходов', JSON.stringify(s13).slice(0, 120));
+    check(s13.stages === 7 && s13.gates === 3 && s13.ek.data === 78 && s13.ek.verdict === 34 && s13.ek.cond === 16 && s13.ek.exec === 9 && s13.profiles === 4,
+      '§13: 7 этапов, 3 гейта, связи 78 + 34 + 16 + 9, 4 профиля', JSON.stringify(s13.ek));
+    // §15: открытие seed — от gotoPage до отрисовки всех нод
+    const tOpen = await c.eval(`(async () => {
+      const pg = {id: 'pg_tbl', name: 'Таблица', kind: 'table', filter: {q: '', cats: [], statuses: [], types: [], f: {}}, table: {cols: ['name'], sort: 'name', dir: 1, group: ''}};
+      if (!pageById('pg_tbl')) P.pages.push(pg);
+      gotoPage('pg_tbl');
+      const t0 = performance.now();
+      gotoPage('pg_kyc_rko');
+      while (document.querySelectorAll('#flowRoot .react-flow__node').length < 109 && performance.now() - t0 < 10000) await new Promise(r => requestAnimationFrame(r));
+      return Math.round(performance.now() - t0); })()`);
+    check(tOpen <= 4000, '§15: схема seed открывается быстрее 4 с (цель — 1,5 с)', tOpen + ' мс');
+
+    // §15: просмотрщик офлайн — страница-конструктор рисуется, профиль переключается
+    // Dev-сервер Vite отдаёт index.html на любой адрес — настоящий шаблон узнаём
+    // по содержимому: в нём код встроен, а не подключён ссылкой.
+    const hasTpl = await c.eval(`fetch('/viewer-template.html').then(r => r.ok ? r.text() : '').then(t => !!t && t.includes('window.VIEWER=false;')
+      && !/<script[^>]+type="module"[^>]+src=/.test(t)).catch(() => false)`);
+    if (!hasTpl) {
+      ok('просмотрщик: шаблон есть только в сборке — проверка пропущена на dev-сервере');
+    } else {
+      const html = await c.eval(`(async () => {
+        let blob = null; const orig = URL.createObjectURL;
+        URL.createObjectURL = b => { blob = b; return orig.call(URL, b); };
+        try { await exportViewer(); } finally { URL.createObjectURL = orig; }
+        return blob ? await blob.text() : null; })()`);
+      const vpath = require('path').resolve('./chrome-prof-flow-viewer.html');
+      require('fs').writeFileSync(vpath, html);
+      await c.send('Page.navigate', {url: 'file://' + vpath});
+      await c.waitFor(BOOTED, 20000, 'viewer запустился');
+      await c.waitFor(`document.querySelectorAll('#flowRoot .react-flow__node').length === 109`, 15000, 'viewer: схема отрисована');
+      await choose('#flowBar select[data-f="profile"]', 'pf_ip');
+      await sleep(250);
+      const vw = await c.eval(`({viewer: document.body.classList.contains('viewer'), ro: FLOW.state().readonly, on: FLOW.active().checks.on})`);
+      check(vw.viewer && vw.ro && vw.on === 45, 'viewer.html офлайн: конструктор отрисован, профиль переключается, правки закрыты', JSON.stringify(vw));
+      require('fs').unlinkSync(vpath);
+      await c.send('Page.navigate', {url: URL});
+      await c.waitFor(BOOTED, 25000, 'назад в приложение');
+    }
+
     if (c.errors.length) bad('исключения в консоли', c.errors.join(' | ').slice(0, 400));
     else ok('исключений в консоли нет');
   } catch (e) {

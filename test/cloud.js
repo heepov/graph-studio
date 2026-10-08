@@ -86,6 +86,24 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       ? ok('превью доски считается и доезжает до сервера', prev.stored + ' узлов')
       : bad('превью не сохраняется', JSON.stringify(prev));
 
+    // С1 (KYC Flow): шаблон конструктора создаёт доску на сервере, и сервер хранит
+    // её целиком — страницу-конструктор и библиотеку flowLib, а не только узлы пула.
+    const kyc = await c.eval(`(async () => {
+      await createFromTemplate('kyc');
+      const t0 = Date.now();
+      while (!(P && P.name === 'KYC/KYB — конструктор проверок' && cloud.boundToServer()) && Date.now() - t0 < 15000) await new Promise(r => setTimeout(r, 100));
+      const id = cloud.CLOUD.board.id;
+      const r = await api.boardGet(id);
+      const pg = (r.doc.pages || []).find(p => p.kind === 'flow');
+      const out = {bound: cloud.boundToServer(), page: pg ? pg.kind : null, nodes: pg ? pg.flow.nodes.length : 0, edges: pg ? pg.flow.edges.length : 0,
+        checks: r.doc.flowLib ? r.doc.flowLib.checks.length : 0, url: location.pathname === '/b/' + id};
+      await api.boardDelete(id);
+      return out;
+    })()`);
+    (kyc.bound && kyc.page === 'flow' && kyc.nodes === 109 && kyc.edges === 137 && kyc.checks === 55 && kyc.url)
+      ? ok('С1: шаблон KYC/KYB создаёт доску на сервере — конвейер и библиотека целиком', `${kyc.nodes} нод, ${kyc.edges} связей, ${kyc.checks} проверок`)
+      : bad('шаблон конструктора не доехал до сервера', JSON.stringify(kyc));
+
     // Импорт кладёт доску сразу на сервер: файл — это способ занести работу внутрь,
     // а не второе место, где она живёт.
     const imp = await c.eval(`(async () => {

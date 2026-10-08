@@ -13,6 +13,11 @@ PORT="${GRAPH_STUDIO_PORT:-8081}"
 # и сам же их не принимал.
 export GRAPH_STUDIO_PUBLIC_URL="${GRAPH_STUDIO_PUBLIC_URL:-http://127.0.0.1:${PORT}}"
 
+# Копия правил конструктора для сервера: образ API собирается с контекстом ./server
+# и src/ не видит. Без свежей копии коннектор отвечал бы по старым правилам.
+echo "── правила конструктора → server/"
+node scripts/sync-flow-rules.mjs
+
 echo "── сборка образа"
 docker compose up -d --build
 

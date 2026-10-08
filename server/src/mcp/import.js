@@ -16,6 +16,7 @@
 //   3. Ничего не создаётся сверх того, что есть в файле: ни лишних страниц,
 //      ни «страницы по умолчанию».
 import { PAGE_KINDS, linkType, fail, uid } from './doc.js';
+import { defaultFlow, LIB_KINDS } from './flow-rules.js';
 
 const DEF_STATUSES = [
   { key: 'done', name: 'готово', color: '#18a558' },
@@ -72,6 +73,7 @@ export function importDoc(src, opts = {}) {
     out.filter = p.filter && typeof p.filter === 'object' ? p.filter : { q: '', cats: [], statuses: [], types: [], f: {} };
     if (kind === 'canvas') out.canvas = p.canvas && typeof p.canvas === 'object' ? p.canvas : { layout: 'auto', lanes: [] };
     if (kind === 'space') out.space = p.space && typeof p.space === 'object' ? p.space : {};
+    if (kind === 'flow') out.flow = p.flow && typeof p.flow === 'object' ? p.flow : defaultFlow();
     doc.pages.push(out);
   }
   if (!doc.pages.length) {
@@ -164,6 +166,24 @@ export function importDoc(src, opts = {}) {
       (cyc.length > 4 ? ' → …' : '') + '. Приложение покажет его в «Проверить доску»');
   }
 
+  // Библиотека конструктора лежит в корне документа, рядом с узлами. Документ здесь
+  // собирается заново из известных ключей — без этой строки она молча терялась бы
+  // вместе со всеми проверками, а ноды конвейера ссылались бы в пустоту.
+  const flowPages = doc.pages.filter(p => p.kind === 'flow');
+  if (src.flowLib && typeof src.flowLib === 'object') doc.flowLib = src.flowLib;
+  const lib = doc.flowLib || {};
+  let flowNodes = 0, flowEdges = 0;
+  for (const p of flowPages) {
+    const f = p.flow, nodes = Array.isArray(f.nodes) ? f.nodes : [], edges = Array.isArray(f.edges) ? f.edges : [];
+    flowNodes += nodes.length; flowEdges += edges.length;
+    const ids = new Set(nodes.map(n => n.id));
+    const lost = nodes.filter(n => LIB_KINDS[n.k] && !(lib[LIB_KINDS[n.k]] || []).some(x => x.id === n.ref));
+    if (lost.length) warnings.push(`страница «${p.name}»: ${lost.length} нод ссылаются на блоки, которых нет в flowLib (` +
+      lost.slice(0, 3).map(n => n.ref).join(', ') + (lost.length > 3 ? ', …' : '') + ')');
+    const hanging = edges.filter(e => !ids.has(e.s) || !ids.has(e.t));
+    if (hanging.length) warnings.push(`страница «${p.name}»: ${hanging.length} связей ведут к нодам, которых нет на странице`);
+  }
+
   for (const f of (Array.isArray(src.frames) ? src.frames : [])) doc.frames.push({ ...f, id: f.id || uid('f') });
   for (const t of (Array.isArray(src.notes) ? src.notes : [])) doc.notes.push({ ...t, id: t.id || uid('t') });
 
@@ -192,6 +212,10 @@ export function importDoc(src, opts = {}) {
       pages_dropped: dropped_pages,
       frames_created: doc.frames.length,
       notes_created: doc.notes.length,
+      flow: flowPages.length || doc.flowLib ? {
+        pages: flowPages.length, nodes: flowNodes, edges: flowEdges,
+        lib: Object.fromEntries(['dims', 'sources', 'checks', 'outcomes', 'verdicts'].map(k => [k, (lib[k] || []).length])),
+      } : undefined,
       warnings,
     },
   };

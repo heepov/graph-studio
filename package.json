@@ -4,12 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/gen-bridge.mjs && vite build && node scripts/pack-viewer.mjs dist",
+    "build": "node scripts/gen-bridge.mjs && node scripts/sync-flow-rules.mjs && vite build && node scripts/pack-viewer.mjs dist",
     "preview": "vite preview",
     "test": "node test/smoke.js && node test/legacy.js",
     "bridge": "node scripts/gen-bridge.mjs",
     "verify": "bash scripts/verify.sh",
-    "prod": "node test/prod.js"
+    "prod": "node test/prod.js",
+    "flow-rules": "node scripts/sync-flow-rules.mjs"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "6.1.1",

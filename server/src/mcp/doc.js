@@ -10,9 +10,13 @@
 // только то, что перечислено явно, и никогда не пересобираем объекты целиком.
 // Клиент может добавить в узел что угодно — оно переживёт правку отсюда.
 
+import { defaultFlow, defaultLib } from './flow-rules.js';
+
 const uid = p => p + '_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3);
 
-export const PAGE_KINDS = ['canvas', 'space', 'jam', 'table', 'board', 'dash'];
+// flow — нодовый конструктор KYC Flow: у него свои ноды и связи в page.flow
+// и общая библиотека доски в doc.flowLib; узлов пула на нём нет.
+export const PAGE_KINDS = ['canvas', 'space', 'jam', 'flow', 'table', 'board', 'dash'];
 // Пространственные страницы — те, где у узла есть координата. Доска сюда входит:
 // на неё, как и на схему, узел кладут руками.
 const SPATIAL = ['canvas', 'space', 'jam'];
@@ -429,6 +433,9 @@ export function addPage(doc, raw) {
   if (kind === 'canvas') p.canvas = { layout: raw.layout === 'free' ? 'free' : 'auto', lanes: Array.isArray(raw.lanes) ? raw.lanes.map(String) : [] };
   if (kind === 'space') p.space = {};
   if (kind === 'jam') p.jam = { items: [], bg: 'dots' };
+  // Первая страница-конструктор заводит и библиотеку доски — общую для конвейеров.
+  // Умолчания — из той же копии правил, что у приложения, а не своей версии.
+  if (kind === 'flow') { p.flow = defaultFlow(); if (!doc.flowLib) doc.flowLib = defaultLib(); }
   if (kind === 'table') p.table = { cols: Array.isArray(raw.columns) ? raw.columns.map(String) : ['name', 'cat', 'status', 'step', 'weight'], sort: 'name', dir: 1, group: '' };
   if (kind === 'board') p.board = { groupBy: String(raw.groupBy || 'status') };
   applyFilter(doc, p, raw.filter);
