@@ -3,8 +3,9 @@ import { icon } from './icons.js';
 import * as cloud from './cloud.js';
 import * as home from './home.js';
 import * as live from './live.js';
-import { mountFlow, updateFlow, unmountFlow, flowMounted, flowExportImage, FLOW } from './flow/index.jsx';
+import { mountFlow, updateFlow, unmountFlow, flowMounted, flowExportImage, flowFocus, FLOW } from './flow/index.jsx';
 import { normalizeFlow, normalizeLib, needsLib } from './flow/model.js';
+import { nodeSize as flowNodeSize, absPos as flowAbsPos, KIND_COLORS as FLOW_COLORS, validateFlow, applyFlowFix, FIX_LABEL as FLOW_FIX } from './flow/rules.js';
 /* ==========================================================================
    HEEPOV BOARD — редактор графов зависимостей, роадмапов и схем
    Один файл. Проекты в IndexedDB. Экспорт/импорт JSON, CSV, Markdown, viewer.
@@ -266,18 +267,41 @@ function save(immediate) {
 /* ---------- слияние правок доски ----------
    На доске одновременная правка — не исключение, а весь смысл: четверо на воркшопе
    клеят стикеры в одну минуту. Модалка «взять серверную» здесь означала бы «потерять
-   свой стикер», и она выскакивала бы постоянно.
+   свой стикер», и она выскакивала бы постоянно. То же на конструкторе: двое
+   описывают разные проверки одной схемы.
 
    Слияние трёхстороннее и ПО ИДЕНТИФИКАТОРУ объекта, а не CRDT: у объектов есть id,
    и этого хватает. Конфликт остаётся ровно там, где двое правят ОДИН объект, — там
-   честно побеждает последний. */
-function jamSnapshot(doc) {
+   честно побеждает последний.
+
+   Что сливается по id: объекты досок (page.jam.items), ноды, связи и сохранённые
+   профили конвейеров (page.flow) и все разделы библиотеки конструктора (flowLib;
+   у вердиктов ключ — key). Всё остальное — «остаток»: если он у меня изменился,
+   автоматика молча потеряла бы мою правку, и нужен разговор с человеком. */
+function objCollections(doc) {
+  const out = [];
+  for (const p of (doc.pages || [])) {
+    if (p.kind === 'jam' && p.jam) out.push({key: 'jam:' + p.id, holder: p.jam, field: 'items', id: 'id'});
+    if (p.kind === 'flow' && p.flow) {
+      for (const f of ['nodes', 'edges', 'profiles']) out.push({key: `flow:${p.id}:${f}`, holder: p.flow, field: f, id: 'id', page: p.id});
+    }
+  }
+  if (doc.flowLib) {
+    for (const sec of ['dims', 'sources', 'checks', 'outcomes', 'verdicts']) {
+      out.push({key: 'lib:' + sec, holder: doc.flowLib, field: sec, id: sec === 'verdicts' ? 'key' : 'id'});
+    }
+  }
+  return out;
+}
+function objSnapshot(doc) {
   const items = {}, npos2 = {};
+  for (const c of objCollections(doc)) {
+    const m = {};
+    for (const it of (Array.isArray(c.holder[c.field]) ? c.holder[c.field] : [])) if (it && it[c.id] != null) m[it[c.id]] = JSON.stringify(it);
+    items[c.key] = m;
+  }
   for (const p of (doc.pages || [])) {
     if (p.kind !== 'jam') continue;
-    const m = {};
-    for (const it of (((p.jam || {}).items) || [])) m[it.id] = JSON.stringify(it);
-    items[p.id] = m;
     // Узел, положенный на доску, двигают там же и так же часто — его позиция
     // на ЭТОЙ странице сливается вместе с объектами.
     for (const n of (doc.nodes || [])) {
@@ -288,34 +312,33 @@ function jamSnapshot(doc) {
   return {items, npos: npos2};
 }
 // Документ без всего, что умеет сливаться. Если эта часть у меня не менялась,
-// значит мои правки целиком лежат в объектах доски — и слияние ничего не потеряет.
-function jamRest(doc) {
+// значит мои правки целиком лежат в сливаемых объектах — и слияние ничего не потеряет.
+function objRest(doc) {
   const c = JSON.parse(JSON.stringify(doc));
+  for (const col of objCollections(c)) col.holder[col.field] = [];
   const jamIds = new Set((c.pages || []).filter(p => p.kind === 'jam').map(p => p.id));
-  for (const p of (c.pages || [])) if (p.kind === 'jam' && p.jam) p.jam.items = [];
   for (const n of (c.nodes || [])) if (n.p) for (const id of jamIds) delete n.p[id];
   return JSON.stringify(c);
 }
-function jamBase(doc) { const s2 = jamSnapshot(doc); return {items: s2.items, npos: s2.npos, rest: jamRest(doc)}; }
+function objBase(doc) { const s2 = objSnapshot(doc); return {items: s2.items, npos: s2.npos, rest: objRest(doc)}; }
 
 // Возвращает слитый документ или null, если сливать нельзя и нужен разговор с человеком.
-function mergeJamDocs(base, mine, theirs) {
+function mergeObjDocs(base, mine, theirs) {
   if (!base || !theirs || !Array.isArray(theirs.pages)) return null;
-  // Меняли ли ВНЕ объектов доски? Тогда автоматика молча потеряла бы эти правки.
-  if (jamRest(mine) !== base.rest) return null;
+  // Меняли ли ВНЕ сливаемых объектов? Тогда автоматика молча потеряла бы эти правки.
+  if (objRest(mine) !== base.rest) return null;
   const out = JSON.parse(JSON.stringify(theirs));
-  const mineSnap = jamSnapshot(mine);
+  const mineSnap = objSnapshot(mine);
+  const mineCols = new Map(objCollections(mine).map(c => [c.key, c]));
   let touched = 0;
 
-  for (const p of (out.pages || [])) {
-    if (p.kind !== 'jam') continue;
-    p.jam = p.jam || {items: [], bg: 'dots'};
-    if (!Array.isArray(p.jam.items)) p.jam.items = [];
-    const was = base.items[p.id] || {};
-    const now = (mineSnap.items || {})[p.id];
-    if (!now) continue;                       // этой доски у меня нет — не мне и решать
-    const theirById = new Map(p.jam.items.map(it => [it.id, it]));
-
+  for (const c of objCollections(out)) {
+    const now = (mineSnap.items || {})[c.key];
+    if (!now) continue;                       // этого у меня нет — не мне и решать
+    if (!Array.isArray(c.holder[c.field])) c.holder[c.field] = [];
+    const was = base.items[c.key] || {};
+    const theirs2 = c.holder[c.field];
+    const theirById = new Map(theirs2.map(it => [it[c.id], it]));
     // мои удаления: было в базе, у меня нет
     for (const id of Object.keys(was)) {
       if (now[id] === undefined && theirById.has(id)) { theirById.delete(id); touched++; }
@@ -326,13 +349,21 @@ function mergeJamDocs(base, mine, theirs) {
       theirById.set(id, JSON.parse(now[id]));
       touched++;
     }
-    // Порядок наложения берём МОЙ для того, что я трогал, остальное — как у них.
-    const mineOrder = (mine.pages.find(x => x.id === p.id).jam.items || []).map(it => it.id);
+    // Порядок (у доски — наложения) берём МОЙ для того, что я трогал, остальное — как у них.
+    const mc = mineCols.get(c.key);
+    const mineOrder = (mc && Array.isArray(mc.holder[mc.field]) ? mc.holder[mc.field] : []).map(it => it[c.id]);
     const seen = new Set();
     const merged = [];
     for (const id of mineOrder) { const it = theirById.get(id); if (it) { merged.push(it); seen.add(id); } }
-    for (const it of p.jam.items) if (!seen.has(it.id) && theirById.has(it.id)) merged.push(theirById.get(it.id));
-    p.jam.items = merged;
+    for (const it of theirs2) if (!seen.has(it[c.id]) && theirById.has(it[c.id])) merged.push(theirById.get(it[c.id]));
+    c.holder[c.field] = merged;
+  }
+  // Связь конвейера, у которой после слияния не стало конца (коллега удалил ноду,
+  // а я провёл к ней связь), висела бы в воздухе — убираем.
+  for (const p of (out.pages || [])) {
+    if (p.kind !== 'flow' || !p.flow || !Array.isArray(p.flow.edges)) continue;
+    const ids = new Set((p.flow.nodes || []).map(n => n.id));
+    p.flow.edges = p.flow.edges.filter(e => ids.has(e.s) && ids.has(e.t));
   }
 
   // позиции узлов на досках
@@ -357,14 +388,15 @@ function onPushState(st) {
   if (!st.conflict) return;
   const srv = st.server || {};
   // Сначала пробуем слить сами. Получается ровно тогда, когда мои правки целиком
-  // лежат в объектах доски, — то есть в самом частом и самом болезненном случае.
+  // лежат в объектах доски и конструктора, — то есть в самом частом и самом
+  // болезненном случае.
   const merged = (() => {
-    try { return mergeJamDocs(cloud.getBaseJam(), P, srv.doc); } catch (e) { return null; }
+    try { return mergeObjDocs(cloud.getBaseObj(), P, srv.doc); } catch (e) { return null; }
   })();
   if (merged) {
     P = normalize(merged);
     cloud.bindBoard(Object.assign({}, cloud.CLOUD.board, {version: srv.version}));
-    cloud.setBaseline(fingerprint(P), jamBase(P));
+    cloud.setBaseline(fingerprint(P), objBase(P));
     gInval(); renderPages(); renderPage();
     save();   // отправит слитое поверх серверной версии
     toast('Правки на доске слиты с чужими');
@@ -394,7 +426,7 @@ function onPushState(st) {
       cloud.bindBoard(Object.assign({}, cloud.CLOUD.board, {version: srv.version}));
       // Без этого слепок остаётся от ПРЕЖНЕГО документа, и следующая подпись
       // «что поменялось» считается от того, чего уже нет.
-      cloud.setBaseline(fingerprint(P), jamBase(P));
+      cloud.setBaseline(fingerprint(P), objBase(P));
       gInval(); save(1); renderPages(); renderPage();
       toast('Взята версия с сервера');
     };
@@ -538,9 +570,33 @@ function connEndKey(end) {
   if (end.node) return 'n:' + end.node;
   return null;
 }
+// Превью конструктора: те же прямоугольники и линии, что у карты, собранные из
+// блоков схемы. Дети рамок хранят координаты относительно рамки — в превью
+// они переводятся в абсолютные. Рамки идут первыми: на картинке они под блоками.
+function flowPreview(pg) {
+  const f = pg.flow; if (!f || !f.nodes.length) return undefined;
+  const lib = P.flowLib || {};
+  const order = f.nodes.filter(n => n.k === 'stage').concat(f.nodes.filter(n => n.k !== 'stage' && n.k !== 'reroute'));
+  const n = [], mid = {};
+  for (const nd of order) {
+    if (n.length >= PREVIEW_NODES) break;
+    const a = flowAbsPos(f, nd), sz = flowNodeSize(f, lib, nd);
+    mid[nd.id] = [Math.round(a.x + sz.w / 2), Math.round(a.y + sz.h / 2)];
+    n.push([Math.round(a.x), Math.round(a.y), Math.round(sz.w), Math.round(sz.h), nd.k === 'stage' ? '#e5e8f0' : (FLOW_COLORS[nd.k] || '#9aa1b2')]);
+  }
+  const e = [];
+  for (const l of f.edges) {
+    const a = mid[l.s], b = mid[l.t];
+    if (!a || !b) continue;
+    e.push([a[0], a[1], b[0], b[1]]);
+    if (e.length >= PREVIEW_EDGES) break;
+  }
+  return {v: 1, n, e};
+}
 function buildPreview() {
   try {
     const pg = curPage();
+    if (P && pg && isFlow(pg)) return flowPreview(pg);
     if (!P || !pg || !isSpatial(pg)) return undefined;
     // У доски своё содержимое: считать превью по одним узлам графа значит вернуть
     // undefined, а undefined сервер понимает как «не трогай прежнее» — картинка
@@ -586,7 +642,20 @@ function fingerprint(doc) {
   }
   const l = {};
   for (const x of doc.links || []) l[x.from + '>' + x.to] = x.type || '';
-  return {name: doc.name || '', n, l, pages: (doc.pages || []).length};
+  // Конструктор: блоки и связи схем по страницам и элементы библиотеки. Положение
+  // и размер блока в подпись не входят — передвинуть блок не значит его изменить.
+  const fn = {}, fe = {}, lib = {};
+  for (const p of doc.pages || []) {
+    if (p.kind !== 'flow' || !p.flow) continue;
+    for (const x of p.flow.nodes || []) { const {x: _x, y: _y, w: _w, h: _h, ...rest} = x; fn[p.id + '\u0000' + x.id] = JSON.stringify(rest); }
+    for (const e of p.flow.edges || []) fe[p.id + '\u0000' + e.id] = `${e.s}.${e.sh}>${e.t}.${e.th}${e.neg ? '!' : ''}`;
+  }
+  if (doc.flowLib) {
+    for (const sec of ['dims', 'sources', 'checks', 'outcomes', 'verdicts']) {
+      for (const it of doc.flowLib[sec] || []) lib[sec + '\u0000' + (it.id || it.key)] = JSON.stringify(it);
+    }
+  }
+  return {name: doc.name || '', n, l, pages: (doc.pages || []).length, fn, fe, lib};
 }
 
 function summarize(base, doc) {
@@ -604,6 +673,26 @@ function summarize(base, doc) {
   if (changed) parts.push('изменено ' + nOf(changed, NODES));
   if (la) parts.push('+' + nOf(la, LINKS));
   if (lr) parts.push('−' + nOf(lr, LINKS));
+  // Конструктор: «+3 блока схемы, +2 проверки, изменена библиотека, +5 связей схемы».
+  const diff = (a, b) => { let add = 0, rem = 0, ch = 0;
+    for (const k in a) { if (!(k in b)) add++; else if (a[k] !== b[k]) ch++; }
+    for (const k in b) if (!(k in a)) rem++;
+    return {add, rem, ch}; };
+  const fn = diff(cur.fn || {}, base.fn || {}), fe = diff(cur.fe || {}, base.fe || {});
+  let chkAdd = 0, libCh = 0;
+  for (const k in (cur.lib || {})) {
+    if (!(k in (base.lib || {}))) { if (k.startsWith('checks\u0000')) chkAdd++; else libCh++; }
+    else if (base.lib[k] !== cur.lib[k]) libCh++;
+  }
+  for (const k in (base.lib || {})) if (!(k in (cur.lib || {}))) libCh++;
+  const BLOCKS = ['блок', 'блока', 'блоков'], CHECKS = ['проверка', 'проверки', 'проверок'];
+  if (fn.add) parts.push('+' + nOf(fn.add, BLOCKS) + ' схемы');
+  if (fn.rem) parts.push('−' + nOf(fn.rem, BLOCKS) + ' схемы');
+  if (chkAdd) parts.push('+' + nOf(chkAdd, CHECKS));
+  if (libCh) parts.push('изменена библиотека');
+  if (fe.add) parts.push('+' + nOf(fe.add, LINKS) + ' схемы');
+  if (fe.rem) parts.push('−' + nOf(fe.rem, LINKS) + ' схемы');
+  if (fn.ch && !fn.add && !fn.rem) parts.push('изменено ' + nOf(fn.ch, BLOCKS) + ' схемы');
   if (base.name !== cur.name) parts.push('переименована');
   if (base.pages !== cur.pages) parts.push(cur.pages > base.pages ? 'добавлена страница' : 'убрана страница');
   // Двинули узел, поправили описание, покрутили фильтр — по подписи это неотличимо
@@ -672,7 +761,7 @@ function applyLiveDoc(m, doc) {
   const keepPage = UI.page, keepView = UI.view, keepSel = [...UI.sel], keepInsp = UI.insp;
   P = normalize(doc);
   cloud.bindBoard(Object.assign({}, b, {version: m.version}));
-  cloud.setBaseline(fingerprint(P), jamBase(P));
+  cloud.setBaseline(fingerprint(P), objBase(P));
   gInval();
   UI.view = keepView;
   if (P.pages.some(p => p.id === keepPage)) UI.page = keepPage;
@@ -1867,6 +1956,12 @@ function updatePositions(ids) {
 // доски. Без этой ветки fitAll() на доске без узлов каждый раз сбрасывал бы камеру
 // в {40,40,1}, а миникарта оставалась бы пустой: обе строили список только по cvNodes.
 function sceneBoxes(pg) {
+  // Конструктор: блоки схемы (своя камера у React Flow, но габариты сцены нужны
+  // и превью, и всему, что спрашивает «что лежит на странице»).
+  if (isFlow(pg)) {
+    const pv = flowPreview(pg);
+    return pv ? pv.n.map(([x, y, w, h, c]) => ({x, y, w, h, c: c === '#e5e8f0' ? null : c})) : [];
+  }
   const out = cvNodes.map(n => ({...cvPos[n.id], ...nsize(n, UI.page), c: catOf(n.cat).color}));
   if (isJam(pg)) {
     for (const it of jamItems(pg)) {
@@ -5323,7 +5418,7 @@ async function restoreVersion(v) {
     const bar = $('verbar'); if (bar) bar.remove();
     P = normalize(r.doc); gInval();
     cloud.bindBoard(Object.assign({}, cloud.CLOUD.board, {version: r.version}));
-    cloud.setBaseline(fingerprint(P), jamBase(P));
+    cloud.setBaseline(fingerprint(P), objBase(P));
     undoReset();
     setReadonly(cloud.CLOUD.board.role === 'viewer');
     if (!P.pages.some(p => p.id === UI.page)) UI.page = (P.pages[0] || {}).id;
@@ -5414,6 +5509,13 @@ function validateProject() {
     if (!(g.kids[n.id] || []).length && !(g.par[n.id] || []).length)
       issues.push({level: 'info', cat: 'Изолированный узел', msg: `${nm} не связан ни с чем`, node: n.id});
   });
+  // Конструктор (ТЗ §11): инварианты схемы по каждой его странице. Правила общие
+  // с MCP (src/flow/rules.js), здесь только перевод находок на язык этого окна.
+  P.pages.filter(isFlow).forEach(pg => {
+    validateFlow(P, pg).forEach(i => issues.push({level: i.level === 'warning' ? 'warn' : i.level,
+      cat: 'Конструктор · ' + pg.name, msg: i.msg, flow: {page: pg.id, node: i.node},
+      fix: i.fix && {label: FLOW_FIX[i.fix.kind] || 'Починить', run: () => applyFlowFix(P, pg, i.fix)}}));
+  });
   const order = {error: 0, warn: 1, info: 2};
   issues.sort((a, b) => order[a.level] - order[b.level]);
   return issues;
@@ -5425,8 +5527,8 @@ function showValidator() {
   const fixable = issues.filter(i => i.fix);
   const rows = issues.length ? issues.map((i, ix) => `<div class="lrow" style="align-items:flex-start;gap:9px">
       <span style="flex:0 0 auto;font-size:13px">${ic(i.level)}</span>
-      <div class="t" style="white-space:normal;cursor:${i.node ? 'pointer' : 'default'}" ${i.node ? `data-go="${esc(i.node)}"` : ''}>
-        <b>${esc(i.cat)}</b><br><span class="hint">${esc(i.msg)}${i.node ? ' · <span style="color:var(--ink2)">перейти →</span>' : ''}</span></div>
+      <div class="t" style="white-space:normal;cursor:${i.node || i.flow ? 'pointer' : 'default'}" ${i.node ? `data-go="${esc(i.node)}"` : i.flow ? `data-fgo="${ix}"` : ''}>
+        <b>${esc(i.cat)}</b><br><span class="hint">${esc(i.msg)}${i.node || (i.flow && i.flow.node) ? ' · <span style="color:var(--ink2)">перейти →</span>' : ''}</span></div>
       ${i.fix ? `<button class="btn sm" data-fix="${ix}">${esc(i.fix.label)}</button>` : ''}
     </div>`).join('') : '<div class="kv" style="color:var(--green);margin-top:14px;font-size:13px">✓ Проблем не найдено — проект целостный.</div>';
   modal(`<h3>Проверка проекта</h3>
@@ -5437,6 +5539,7 @@ function showValidator() {
       <button class="btn pri" data-a="c">Закрыть</button></div>`, b => {
     b.querySelector('[data-a=c]').onclick = closeModal;
     qsa('[data-go]', b).forEach(el => el.onclick = () => {closeModal(); jumpToNode(el.dataset.go);});
+    qsa('[data-fgo]', b).forEach(el => el.onclick = () => {const f = issues[+el.dataset.fgo].flow; closeModal(); flowFocus(f.page, f.node, gotoPage);});
     qsa('[data-fix]', b).forEach(el => el.onclick = () => {
       snapNow(); issues[+el.dataset.fix].fix.run(); gInval(); save(1); renderPage(); showValidator();
     });
@@ -5905,7 +6008,7 @@ async function openServerBoard(id, opts) {
     if (r.asAdmin) toast('Вы открыли чужую доску как администратор — это записано в журнал');
     setReadonly(r.role === 'viewer', r.role === 'viewer' ? 'Только просмотр: править эту доску вам не разрешили' : '');
     if (!o.keepUrl) cloud.goTo('/b/' + id, true);
-    cloud.setBaseline(fingerprint(P), jamBase(P));
+    cloud.setBaseline(fingerprint(P), objBase(P));
     live.connect(id);
     return true;
   } catch (e) {
@@ -6269,7 +6372,7 @@ if ($('navInstall')) $('navInstall').onclick = doInstall;
 
    Блок СГЕНЕРИРОВАН: scripts/gen-bridge.mjs (npm run bridge). Руками не правьте —
    добавили функцию верхнего уровня, перегенерируйте. */
-Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, COL_MIN, DBNAME, FLOW, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KBCOL_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, elFromHTML, emptyBlock, endPtr, ensureCanvasShell, ensureColgroup, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flowCtx, flowExportImage, flowMounted, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, icon, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isFlow, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamBase, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamRest, jamSnapshot, jamToolDown, jumpToNode, kbDropTo, kbIndexAt, kbInsMark, kbScroll, kbSort, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeJamDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, mountFlow, moveTableCol, nBlockers, nOf, needsLib, newPage, nextColor, nodeById, nodeHTML, normalize, normalizeFlow, normalizeLib, nowStr, npos, nsize, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, patchList, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderFlow, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, unmountFlow, updateFlow, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireColOrder, wireColResize, wireEdit, wireJam, wireKbResize, wrapLines, zoomAt});
+Object.assign(window, {$, ApiError, BUILD, CLIP_KEY, COLGAP, COLMETA, COL_MIN, DBNAME, FLOW, FLOW_COLORS, FLOW_FIX, G, GRID, GRIDBG, INSP_MAX, INSP_MIN, JAM, JAM_FILLS, KBCOL_MIN, KIND, LINKS, META, NH, NODES, NW, OBJS, PADX, PADY, PREVIEW_EDGES, PREVIEW_NODES, PULL, ROWGAP, ROWS, SCHEMA_PALETTE, SECT_DEFAULT, SEED, SF, SNAP, SNAP_CAP, STORE, SUBGAP, TPL, UI, UNDO_BYTES, UNDO_STEPS, VIEWER, accountMenu, activeFilterCount, addFrame, addLink, addNode, addNote, alignSel, allFields, api, applyFlowFix, applyHi, applyInspW, applyLiveDoc, applySideRail, applyTheme, applyView, autoLayout, backupAll, boardCols, buildCanvasSVG, buildColsMenu, buildFilterMenu, buildGbyMenu, buildPreview, bulkSet, cancelDrag, canvasShell, cardView, catOf, cellHTML, cellValue, centerWorld, clamp, clone, closeInsp, closeModal, cloud, colLabel, confirmBox, connAnchor, connBox, connEndKey, connGeom, connPath, connSide, copySelection, createFieldOption, createFromTemplate, createLane, createSchemaItem, csvCell, csvChecks, csvLinks, csvNodes, ctxMenu, curPage, cvRect, dbAll, dbDel, dbGet, dbPut, deb, deleteSelection, dl, doInstall, doneTool, drawBox, drawHTML, drawMini, drawPath, duplicatePage, duplicateSelection, edgeFor, edgePath, edgePathAuto, edit, editForm, editLanes, elFromHTML, emptyBlock, endPtr, ensureCanvasShell, ensureColgroup, esc, exitVersionView, exportCanvasPNG, exportCanvasSVG, exportMd, exportProject, exportViewer, facetCounts, fetchLiveDoc, fieldOf, fingerprint, fitAll, flowAbsPos, flowCtx, flowExportImage, flowFocus, flowMounted, flowNodeSize, flowPreview, flyTo, fname, fromLegacy, fset, fval, gInval, goHome, gotoPage, hasCycle, hideCtx, home, icon, importCsv, importJson, importText, inlineNote, inlineRename, inspOpen, inspW, isCache, isFlow, isGraphCv, isJam, isKey, isLegacy, isPinned, isSpatial, itemBox, itemHTML, itemsBBox, jamDefaults, jamDelete, jamDuplicate, jamEdit, jamEndAt, jamEraseAt, jamGestureUp, jamInlineText, jamItemById, jamItems, jamPreview, jamRaise, jamToolDown, jumpToNode, kbDropTo, kbIndexAt, kbInsMark, kbScroll, kbSort, kindName, layoutPage, linkById, live, loadInspW, loadProjects, localProjects, ltOf, makeSnap, matchFilter, mergeObjDocs, midOf, midOfLine, migrateLegacyViews, migrateNodeSizes, modal, mountFlow, moveTableCol, nBlockers, nOf, needsLib, newPage, nextColor, nodeById, nodeHTML, normalize, normalizeFlow, normalizeLib, nowStr, npos, nsize, objBase, objCollections, objRest, objSnapshot, offBy, onDoubleTap, onDown, onLiveUpdate, onPushState, onSignedOut, openBoard, openDB, openDemo, openFrame, openLink, openLocal, openNode, openPalette, openProject, openServerBoard, openShare, opts, pageById, pageMenu, pageNodes, paintAccount, paintCursors, paintEdges, paintEmptyHint, paintFrames, paintInspFoot, paintItems, paintLanes, paintNodes, paintNodesSafe, paintNotes, paintPeers, paintProps, paintSave, paintVersionBar, palRender, parseCsv, parseRoute, pasteSelection, patchList, persistView, pickFile, pillOf, plural, promptBox, ptrs, purgeLocal, purgeProject, qs, qsa, rdp, readView, redo, redoS, refreshInstallUI, refreshProjMeta, renameProject, renderBoard, renderCanvas, renderDash, renderFlow, renderJam, renderPage, renderPageBar, renderPages, renderTable, restoreBundle, restoreLocal, restoreProject, restoreSnap, restoreVersion, ro, routeBoot, safeName, save, saveInspW, saveSects, sceneBoxes, scheduleViewSave, schemaKey, sectOpen, sectionHTML, seedFreePositions, selArr, selItemsArr, selectLink, setNpos, setNsize, setReadonly, setSel, setSelItems, setTool, showAdmin, showCtx, showExport, showHelp, showHistory, showProjects, showSchema, showSnaps, showValidator, snapList, snapNow, snapshot, stalePages, startMove, statusOf, stepOf, stepOut, summarize, svgEsc, syncBulk, toCsv, toWorld, toast, today, toggleSideRail, toggleTheme, trashProject, tx, typeOf, uid, undo, undoPop, undoPush, undoReset, undoS, uniq, unmountFlow, updateFlow, updatePositions, uploadAllLocal, uploadCurrentProject, uploadLocalProject, validateFlow, validateProject, view, viewKey, viewVersion, visibleRect, wireCanvas, wireCanvasShell, wireColOrder, wireColResize, wireEdit, wireJam, wireKbResize, wrapLines, zoomAt});
 Object.defineProperty(window, 'P', {get: () => P, set: v => {P = v;}, configurable: true});
 Object.defineProperty(window, 'PROJECTS', {get: () => PROJECTS, set: v => {PROJECTS = v;}, configurable: true});
 Object.defineProperty(window, 'RO', {get: () => RO, set: v => {RO = v;}, configurable: true});
@@ -6302,7 +6405,7 @@ Object.defineProperty(window, 'viewSaveT', {get: () => viewSaveT, set: v => {vie
 // Вызов стоит ЗДЕСЬ, а не в начале файла: $, esc, modal и остальные объявлены
 // через const, и обращение к ним выше по тексту даёт TDZ-ReferenceError, который
 // убивает весь скрипт до boot() — приложение молча не стартует.
-cloud.initCloud({ $, esc, modal, closeModal, toast, confirmBox, promptBox, fingerprint, summarize, jamBase });
+cloud.initCloud({ $, esc, modal, closeModal, toast, confirmBox, promptBox, fingerprint, summarize, objBase });
 
 // Модуль главной получает ровно то, что ему нужно, — и ни одной внутренности
 // редактора сверх этого. Иначе он превратился бы во вторую копию этого файла.

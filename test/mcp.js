@@ -188,8 +188,9 @@ async function json(path, opts = {}) {
     // Число ТОЧНОЕ, а не «хотя бы столько»: мягкая проверка означала, что реестр
     // можно нечаянно урезать или раздуть, и никто не заметит. Добавили инструмент —
     // поправьте здесь, это одна строка и осознанное действие.
-    const TOOLS_EXPECTED = 29;
-    (names.length === TOOLS_EXPECTED && names.includes('add_nodes') && names.includes('place_nodes') && names.includes('edit_schema'))
+    const TOOLS_EXPECTED = 41;
+    (names.length === TOOLS_EXPECTED && names.includes('add_nodes') && names.includes('place_nodes') && names.includes('edit_schema')
+      && names.includes('flow_profile') && names.includes('flow_connect'))
       ? ok('инструменты объявлены', names.length + ' шт.')
       : bad(`инструментов ${names.length}, а ожидалось ${TOOLS_EXPECTED}`, names.join(', '));
 
@@ -593,6 +594,90 @@ async function json(path, opts = {}) {
       ? ok('import_board(dry_run) на seed KYC Flow — без предупреждений, конвейер и библиотека целы',
         `${kycDry.flow.nodes} нод, ${kycDry.flow.edges} связей, ${kycDry.flow.lib.checks} проверок`)
       : bad('импорт seed конструктора неверен', JSON.stringify(kycDry).slice(0, 300));
+
+    /* ---------- конструктор KYC Flow (ТЗ §12) ---------- */
+    const kyc = await call('import_board', { doc: { ...seedKyc, name: 'MCP-проверка KYC' } });
+    const KB = kyc.id, KP = 'pg_kyc_rko';
+    const kb = await call('get_board', { board: KB });
+    const kpg = kb.pages.find(p => p.id === KP);
+    (kpg && kpg.flow_nodes === 109 && kpg.flow_edges === 137 && kb.lib && kb.lib.checks === 55 && kb.lib.sources === 24
+      && !JSON.stringify(kb).includes('n_chk_1_1'))
+      ? ok('get_board отдаёт для конструктора счётчики, а не ноды', `${kpg.flow_nodes} нод, ${kpg.flow_edges} связей, библиотека ${JSON.stringify(kb.lib)}`)
+      : bad('get_board на конструкторе неверен', JSON.stringify({ kpg, lib: kb.lib }).slice(0, 300));
+
+    // С8: «какие источники нужны для ИП» — те же числа, что в сводке над схемой.
+    const pip = await call('flow_profile', { board: KB, page: KP, profile: 'pf_ip' });
+    (pip.checks.on === 45 && pip.checks.all === 55 && pip.sources.on === 22 && pip.sources.list.length === 22
+      && pip.checks.off.join(' ') === '2.8 2.9 2.10 2.11 3.8 3.9 4.2 4.3 4.5 5.3' && pip.holes.length === 2)
+      ? ok('С8: flow_profile для P-ИП — 45 проверок из 55 и 22 источника', `погашены ${pip.checks.off.join(', ')}`)
+      : bad('С8: flow_profile неверен', JSON.stringify({ c: pip.checks.on, s: pip.sources.on, off: pip.checks.off }).slice(0, 300));
+    const psel = await call('flow_profile', { board: KB, page: 'РКО — онбординг резидента (Волна 1)', sel: { 'Тип клиента': ['ИП'], dim_opf: ['v_opf_ip'] } });
+    (psel.checks.on === 45 && psel.sources.on === 22)
+      ? ok('flow_profile по выбору значений (имена и id вперемешку) даёт те же числа')
+      : bad('flow_profile по sel неверен', JSON.stringify(psel.checks).slice(0, 200));
+    let badProf = '';
+    try { await call('flow_profile', { board: KB, page: KP, profile: 'P-ЗЗЗ' }); } catch (e) { badProf = e.message; }
+    /pf_ip \(P-ИП\)/.test(badProf) ? ok('неизвестный профиль — отказ с перечнем существующих')
+                                    : bad('неизвестный профиль не отклонён как надо', badProf);
+
+    const kcon = await call('flow_export', { board: KB, page: KP });
+    (kcon.format === 'kycflow/1' && kcon.stages.length === 7 && kcon.stages.reduce((n, st) => n + st.checks.length, 0) === 55
+      && kcon.issues.length === 25)
+      ? ok('flow_export отдаёт контракт kycflow/1', `7 этапов, 55 проверок, замечаний ${kcon.issues.length}`)
+      : bad('flow_export неверен', JSON.stringify({ f: kcon.format, st: kcon.stages && kcon.stages.length, is: kcon.issues && kcon.issues.length }));
+
+    // Отказ по типам — той же фразой, что у курсора в приложении; версия не растёт.
+    const v0 = (await call('board_history', { board: KB })).current;
+    const rej = await call('flow_connect', { board: KB, page: KP, edges: [{ from: 'n_src_egrul.f_regdate', to: 'n_chk_3_4.debt' }] });
+    (rej.added.length === 0 && rej.skipped.length === 1 && /date → money: типы не совпадают/.test(rej.skipped[0].reason) && rej.changed === false && rej.version === v0)
+      ? ok('flow_connect отклоняет date → money с причиной, версия не растёт', rej.skipped[0].reason)
+      : bad('flow_connect по типам неверен', JSON.stringify(rej).slice(0, 300));
+    const rep = await call('flow_connect', { board: KB, page: KP, edges: [{ from: 'n_dim_ctype.v_ip', to: 'n_chk_3_8.cond', neg: true }] });
+    (rep.added.length === 0 && /уже есть/.test(rep.skipped[0].reason) && rep.skipped[0].id === 'e61' && rep.version === v0)
+      ? ok('повтор существующей связи — skipped, пустой версии нет', 'связь ' + rep.skipped[0].id)
+      : bad('повтор связи создал версию или не распознан', JSON.stringify(rep).slice(0, 300));
+
+    // Новый блок: библиотека → схема → связь. Id читаемые: из кода и названия.
+    const up = await call('flow_lib_upsert', { board: KB, section: 'checks', items: [
+      { code: '3.20', name: 'Сайт в реестре РКН', inputs: [{ name: 'Дата регистрации', type: 'date' }], verdicts: ['ok', 'Ручной разбор'] }] });
+    const add = await call('flow_add', { board: KB, page: KP, nodes: [{ k: 'check', ref: up.created[0], parent: 'n_st_s3b' }] });
+    const nid = add.added[0].id, inH = add.added[0].sockets.in.find(x => x.type === 'date');
+    const con = await call('flow_connect', { board: KB, page: KP, edges: [
+      { from: 'n_src_egrul.f_regdate', to: `${nid}.${inH.h}` }, { from: `${nid}.manual`, to: 'n_out_manual.vin' }] });
+    (up.created[0] === 'chk_3_20' && add.added[0].parent === 'n_st_s3b' && con.added.length === 2 && con.added[0].kind === 'data' && con.version > v0)
+      ? ok('блок создаётся в библиотеке, встаёт в рамку этапа и соединяется', `${nid}: ${con.added.map(e => e.from + ' → ' + e.to).join(', ')}`)
+      : bad('создание блока через MCP сломано', JSON.stringify({ up, a: add.added && add.added[0] && add.added[0].id, con }).slice(0, 400));
+    let twice = '';
+    try { await call('flow_add', { board: KB, page: KP, nodes: [{ k: 'check', ref: 'chk_3_20' }] }); } catch (e) { twice = e.message; }
+    /один раз/.test(twice) ? ok('проверку на страницу второй раз не поставить') : bad('проверка встала дважды', twice);
+
+    const rd = await call('flow_read', { board: KB, page: KP });
+    const st3b = rd.stages.find(st => st.num === '3b');
+    (rd.nodes === 110 && st3b && st3b.checks.includes('3.20') && !rd.issues && rd.stages.map(st => st.num).join(' ') === '1 2 3a 3b 4 5 6')
+      ? ok('flow_read: этапы в порядке исполнения, новая проверка в своём этапе, валидатор чист', `3b: ${st3b.checks.length} проверок`)
+      : bad('flow_read неверен', JSON.stringify(rd).slice(0, 400));
+
+    const chg = await call('flow_lib_upsert', { board: KB, section: 'checks', items: [{ id: 'chk_3_20', inputs: [{ id: inH.h.slice(3), name: 'Дата', type: 'text' }] }] });
+    (chg.dropped_edges && chg.dropped_edges.length === 1 && /date → text/.test(chg.dropped_edges[0].reason))
+      ? ok('смена типа входа убирает несовместимую связь в той же правке', chg.dropped_edges[0].reason)
+      : bad('несовместимая связь осталась', JSON.stringify(chg).slice(0, 300));
+    let used = '';
+    try { await call('flow_lib_delete', { board: KB, section: 'checks', ids: ['chk_3_20'] }); } catch (e) { used = e.message; }
+    /force/.test(used) && /n_chk_3_20/.test(used) ? ok('блок на схеме без force не удаляется — с перечнем, где стоит')
+                                                  : bad('flow_lib_delete без force неверен', used);
+    const gone = await call('flow_lib_delete', { board: KB, section: 'checks', ids: ['chk_3_20'], force: true });
+    (gone.nodes === 1 && gone.edges === 1) ? ok('с force блок уходит вместе с нодой и связями', JSON.stringify(gone.deleted))
+                                           : bad('flow_lib_delete с force неверен', JSON.stringify(gone));
+
+    const klay = await call('flow_layout', { board: KB, page: KP });
+    klay.moved > 20 && klay.changed ? ok('flow_layout раскладывает схему ELK на сервере', `сдвинуто ${klay.moved}`)
+                                  : bad('flow_layout не сработал', JSON.stringify(klay));
+    const kh = await call('board_history', { board: KB });
+    const sums = kh.versions.map(v => v.summary).join(' | ');
+    (/библиотека конструктора/.test(sums) && /на схеме/.test(sums) && /связ/.test(sums) && /раскладка схемы/.test(sums))
+      ? ok('правки конструктора подписаны в истории', kh.versions.slice(0, 3).map(v => v.summary).join(' | '))
+      : bad('подписи версий конструктора неверны', sums.slice(0, 300));
+    await call('delete_board', { board: KB });
 
     const listed2 = await call('list_boards', {});
     const impRow = listed2.boards.find(b => b.id === imp.id);

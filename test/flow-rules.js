@@ -312,6 +312,44 @@ const ROOT = path.join(__dirname, '..');
   const v26 = allChecks.find(x => x.code === '2.6').verdicts;
   check(v26.length === 1 && v26[0].verdict === 'risk' && v26[0].outcome === 'out_risk', 'вердикт ведёт в свой исход', JSON.stringify(v26));
 
+  /* ---------- M6: валидатор §6.3 ---------- */
+  const vdoc = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/flow/seed-kyc-rko.json'), 'utf8'));
+  vdoc.flowLib = M.normalizeLib(vdoc.flowLib);
+  const vpg = vdoc.pages[0], vf = vpg.flow;
+  check(R.validateFlow(vdoc, vpg).length === 0, 'валидатор: seed целостный');
+  // Ломаем так, как ломают правкой файла и неудачным слиянием.
+  vf.nodes.push(JSON.parse(JSON.stringify(vf.nodes.find(n => n.ref === 'chk_2_6'))));    // дубль id и проверки
+  vf.edges.push({id: 'e1', s: 'n_src_egrul', sh: 'out:f_regdate', t: 'n_chk_3_4', th: 'in:debt'});   // дубль id и date → money
+  let codes = R.validateFlow(vdoc, vpg).map(i => i.code);
+  check(codes.join(' ') === 'DUP_NODE DUP_EDGE', 'пока есть дубли id — только они', codes.join(' '));
+  vf.nodes.push({id: 'ghost', k: 'check', ref: 'chk_nope', x: 0, y: 0});
+  vf.edges.push({id: 'eX', s: 'n_src_egrul', sh: 'out:f_gone', t: 'n_chk_2_6', th: 'in:reg'});
+  vf.edges.push(Object.assign({}, vf.edges[5], {id: 'eRep'}));
+  vdoc.flowLib.sources.push({id: 'src_t6', name: 'Второй реестр', fields: [{id: 'f_d', name: 'Дата', type: 'date'}]});
+  vf.nodes.push({id: 'n_t6', k: 'source', ref: 'src_t6', x: 0, y: 2000});
+  vf.edges.push({id: 'eIn', s: 'n_t6', sh: 'out:f_d', t: 'n_chk_2_6', th: 'in:reg'});   // второй вход в занятый вход
+  vf.nodes.find(n => n.ref === 'chk_2_7').parent = 'n_dim_ctype';
+  const before = vf.edges.length;
+  const fixed = R.fixFlowAll(vdoc, vpg);
+  codes = R.validateFlow(vdoc, vpg).map(i => i.code);
+  const e1 = vf.edges.find(e => e.id === 'e1');
+  check(!codes.length && vf.nodes.filter(n => n.ref === 'chk_2_6').length === 1 && !vf.nodes.some(n => n.id === 'ghost')
+    && e1 && e1.t !== 'n_chk_3_4' && !vf.nodes.find(n => n.ref === 'chk_2_7').parent,
+    '«починить всё»: схема снова целостная, своя связь e1 не задета', `${fixed} починок, связей ${before} → ${vf.edges.length}`);
+  // Лишняя связь во вход данных: остаётся последняя. Цикл порядка: рвётся последняя добавленная.
+  const in26 = vf.edges.filter(e => e.t === 'n_chk_2_6' && e.th === 'in:reg');
+  check(in26.length === 1 && in26[0].id === 'eIn', 'лишняя связь входа разорвана, осталась последняя', in26.map(e => e.id).join());
+  const cyc6 = {nodes: [{id: 'a', k: 'gate', x: 0, y: 0}, {id: 'b', k: 'gate', x: 300, y: 0}], edges: [
+    {id: 'c1', s: 'a', sh: 'exec-out', t: 'b', th: 'exec-in'}, {id: 'c2', s: 'b', sh: 'exec-out', t: 'a', th: 'exec-in'}], profiles: []};
+  const ci = R.validateFlow({flowLib: M.normalizeLib(null)}, {flow: cyc6});
+  check(ci.length === 1 && ci[0].code === 'EXEC_CYCLE' && ci[0].fix.id === 'c2', 'цикл порядка рвётся последней добавленной связью', ci.map(i => i.msg).join());
+  // Заготовки блоков общие с MCP: тот же набор полей, что у меню «Создать».
+  const lib6 = M.normalizeLib(null);
+  const shape = sec => Object.keys(M.createBlock(lib6, sec, {name: 'x'})).sort().join(',');
+  check(shape('checks') === 'actor,bank,code,comment,factors,how,id,inputs,name,norm,note,rule,srcText,tags,verdictTbd,verdicts,wave,why'
+    && shape('verdicts') === 'color,key,name' && lib6.dims.length === 0 && lib6.checks.length === 1,
+    'заготовки блоков (rules.blankBlock) — прежний набор полей', shape('sources'));
+
   /* ---------- копия правил для сервера ---------- */
   // Образ API собирается с контекстом ./server и src/ не видит, поэтому получает
   // копию rules.js. Разъехавшаяся копия дала бы Claude и человеку разные ответы.

@@ -14,6 +14,7 @@ import {flushSync} from 'react-dom';
 import '@xyflow/react/dist/style.css';
 import './flow.css';
 import FlowApp from './FlowView.jsx';
+import {nav} from './ctx.js';
 
 // Один корень на приложение: страница-конструктор на экране максимум одна.
 let R = null;   // {root, container, ctx, pageId, docId, rev, api}
@@ -58,6 +59,15 @@ export function unmountFlow() {
 export async function flowExportImage(fmt) {
   if (!R || !R.api.exportImage) return false;
   return R.api.exportImage(fmt);
+}
+
+// Показать ноду схемы (переход из окна проверки проекта). Открыт конструктор —
+// он сам подлетит к ноде или уйдёт на нужную страницу; открыта страница другого
+// вида — метка nav.focus переживёт переход, и смонтированная схема покажет ноду.
+export function flowFocus(pageId, nodeId, gotoPage) {
+  if (R && R.api.goNode && R.container.isConnected) { nodeId ? R.api.goNode(pageId, nodeId) : R.pageId !== pageId && gotoPage(pageId); return; }
+  nav.focus = nodeId || null;
+  gotoPage(pageId);
 }
 
 // Крючки для тестов и отладки из консоли. Ничего из этого не нужно интерфейсу:

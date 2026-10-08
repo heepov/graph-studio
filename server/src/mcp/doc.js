@@ -125,6 +125,20 @@ export function summarize(doc, opts = {}) {
           o.jam_kinds = by;
         }
       }
+      // У конструктора тоже своё содержимое — и тоже только счётчики: схема seed —
+      // сотня нод и полторы сотни связей. Сами ноды — flow_read.
+      if (p.kind === 'flow') {
+        const f = p.flow && typeof p.flow === 'object' ? p.flow : {};
+        const nodes = Array.isArray(f.nodes) ? f.nodes : [];
+        o.flow_nodes = nodes.length;
+        o.flow_edges = Array.isArray(f.edges) ? f.edges.length : 0;
+        if (nodes.length) {
+          const by = {};
+          for (const n of nodes) by[n.k] = (by[n.k] || 0) + 1;
+          o.flow_kinds = by;
+        }
+        if (Array.isArray(f.profiles) && f.profiles.length) o.flow_profiles = f.profiles.map(x => ({ id: x.id, name: x.name }));
+      }
       if (opts.layout && SPATIAL.includes(p.kind)) {
         // Два РАЗНЫХ числа, и путать их нельзя: закреплённых позиций может быть
         // больше, чем узлов на странице, — фильтр страницы отсекает часть из них,
@@ -138,6 +152,12 @@ export function summarize(doc, opts = {}) {
       return o;
     }),
   };
+  // Библиотека конструктора — общая для всех его страниц. Только размеры разделов;
+  // сами блоки — flow_lib_read.
+  if (doc.flowLib && typeof doc.flowLib === 'object') {
+    const L = doc.flowLib, len = k => (Array.isArray(L[k]) ? L[k].length : 0);
+    out.lib = { dims: len('dims'), sources: len('sources'), checks: len('checks'), outcomes: len('outcomes') };
+  }
   if (opts.pagesOnly) return out;
   out.nodes = (doc.nodes || []).map(short);
   out.links = (doc.links || []).map(l => ({ from: l.from, to: l.to, type: l.type }));
@@ -150,6 +170,8 @@ export function summarize(doc, opts = {}) {
 // «узлов на странице» обязано совпадать с тем, что человек видит на экране,
 // иначе им нельзя пользоваться как проверкой.
 export function visibleOn(doc, page) {
+  // У конструктора узлов пула нет: его ноды — блоки библиотеки в page.flow.
+  if (page.kind === 'flow') return [];
   const flt = page.filter;
   const blockingKeys = new Set((doc.schema.linkTypes || []).filter(t => t.blocking).map(t => t.key));
   const blockersOf = n => (doc.links || []).filter(l => l.to === n.id && blockingKeys.has(l.type)).length;

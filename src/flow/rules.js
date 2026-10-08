@@ -806,3 +806,229 @@ export function toContract(doc, page, opts = {}) {
     stages, issues,
   };
 }
+
+/* ---------- операции над конвейером, общие для интерфейса и MCP ----------
+   Все — по месту, над объектом страницы, без отмены и без генератора id:
+   id приносит вызывающий (у интерфейса и сервера генераторы свои). */
+
+// Рамки этапов всегда раньше детей: так их рисует React Flow (родитель до
+// потомков) и так они лежат под остальным — порядок в массиве = порядок наложения.
+export function orderStages(flow) {
+  const st = flow.nodes.filter(n => n.k === 'stage'), rest = flow.nodes.filter(n => n.k !== 'stage');
+  flow.nodes = st.concat(rest);
+}
+
+// В рамку кладутся «рабочие» ноды. Измерения, источники и исходы — общие для
+// всего конвейера, их место вне этапов; рамка в рамке запрещена (§6.3 п. 5).
+export const NESTABLE = new Set(['check', 'calc', 'anyof', 'note', 'reroute']);
+
+// Удалить ноды и все их связи. Дети удаляемой рамки остаются на схеме на тех же
+// местах: стереть этап вместе с двадцатью проверками одним Delete — не то,
+// чего ждёт человек, выделивший рамку.
+export function deleteNodes(flow, ids) {
+  const del = new Set(ids);
+  for (const n of flow.nodes) {
+    if (n.parent && del.has(n.parent) && !del.has(n.id)) {
+      const p = absPos(flow, n);
+      delete n.parent; n.x = p.x; n.y = p.y;
+    }
+  }
+  const before = flow.edges.length;
+  flow.nodes = flow.nodes.filter(n => !del.has(n.id));
+  flow.edges = flow.edges.filter(e => !del.has(e.s) && !del.has(e.t));
+  return {nodes: ids.length, edges: before - flow.edges.length};
+}
+
+// Подогнать рамки (fit:1) и записать результат: сдвиг влево/вверх двигает
+// и рамку, и её детей, чтобы абсолютные места детей не поменялись.
+export function refit(flow, lib, stageIds, sizeOf) {
+  for (const id of new Set(stageIds)) {
+    const s = flow.nodes.find(n => n.id === id && n.k === 'stage');
+    if (!s || !s.fit) continue;
+    const f = fitStage(flow, lib, s, sizeOf);
+    if (f.dx || f.dy) for (const k of flow.nodes) if (k.parent === s.id) { k.x = Math.round(+k.x + f.dx); k.y = Math.round(+k.y + f.dy); }
+    s.x = Math.round(f.x); s.y = Math.round(f.y); s.w = f.w; s.h = f.h;
+  }
+}
+
+// Соединить по правилам canConnect. Занятый вход данных освобождается в той же
+// операции; «один из» с типом any запоминает тип первой связи.
+export function addEdge(flow, lib, c, id, extra) {
+  const r = canConnect(flow, lib, c);
+  if (!r.ok) return r;
+  if (r.replace.length) flow.edges = flow.edges.filter(e => !r.replace.includes(e.id));
+  const e = Object.assign({id, s: c.source, sh: c.sourceHandle, t: c.target, th: c.targetHandle}, extra || {});
+  flow.edges.push(e);
+  for (const nid of [c.source, c.target]) {
+    const n = flow.nodes.find(x => x.id === nid);
+    if (n && n.k === 'anyof' && (!n.data || !n.data.type || n.data.type === 'any')) {
+      const s = socketOf(flow, lib, c.source, c.sourceHandle, 'out');
+      if (s && s.kind === 'data' && s.type && s.type !== 'any') { n.data = n.data || {}; n.data.type = s.type; }
+    }
+  }
+  return {ok: true, edge: e, replaced: r.replace};
+}
+
+// Заготовка блока библиотеки — одна для меню «Создать» и для flow_lib_upsert,
+// чтобы блоки из Claude и из интерфейса не отличались набором полей.
+// mk(prefix) выдаёт свободный id.
+const PALETTE = ['#3355d1', '#0f8f6a', '#8b46c9', '#d2740c', '#b3261e', '#136c33', '#2f6fed', '#8a5d00', '#0e7490', '#9d174d', '#6b7280', '#b08900', '#4338ca', '#c2410c', '#18a558'];
+export function blankBlock(lib, sec, mk, init) {
+  const i = init || {};
+  if (sec === 'dims') {
+    return {id: mk('dim_'), code: '', name: i.name || 'Новое измерение', desc: '',
+      values: [{id: mk('v_'), code: '', name: 'Значение 1', desc: '', wave: 1}]};
+  }
+  if (sec === 'sources') {
+    return {id: mk('src_'), name: i.name || 'Новый источник', kind: i.kind || 'gov', access: 'api', mode: 'sync',
+      status: 'unknown', providers: '', url: '', cost: '', note: '', fields: i.fields || []};
+  }
+  if (sec === 'checks') {
+    return {id: mk('chk_'), code: i.code || '', name: i.name || 'Новая проверка', how: '', why: '', rule: '', norm: '',
+      factors: [], inputs: i.inputs || [], verdicts: i.verdicts || [], verdictTbd: 0, bank: {status: 'none', comment: ''},
+      wave: 1, actor: 'system', note: '', comment: '', srcText: '', tags: []};
+  }
+  if (sec === 'outcomes') {
+    return {id: mk('out_'), verdict: i.verdict || ((lib.verdicts || [])[0] || {}).key || 'ok', name: i.name || 'Новый исход', desc: ''};
+  }
+  if (sec === 'verdicts') {
+    const used = new Set((lib.verdicts || []).map(v => v.color));
+    return {key: mk('vd_'), name: i.name || 'Новый вердикт', color: i.color || PALETTE.find(c => !used.has(c)) || PALETTE[0]};
+  }
+  return null;
+}
+
+/* ---------- валидатор конвейера (ТЗ §6.3) ----------
+   Находки с описанием починки в один клик. Починка — данные (fix), а не функция:
+   так находки можно и показать в окне проверки приложения, и вернуть из MCP.
+   Повторяющиеся id ломают всё остальное (ссылки становятся неоднозначными),
+   поэтому, пока они есть, валидатор сообщает только о них. */
+const nameFor = (lib, n) => {
+  if (!n) return '?';
+  const it = itemOf(lib, n);
+  if (n.k === 'check' && it) return `${it.code} ${it.name}`.trim();
+  return it ? it.name : n.k === 'stage' ? (n.title || 'рамка') : `${KIND_NAMES[n.k] || n.k} ${n.id}`;
+};
+const edgeSig = e => [e.s, e.sh, e.t, e.th].join('\u0000');
+const dropEdgeFix = e => ({kind: 'dropEdge', id: e.id, s: e.s, sh: e.sh, t: e.t, th: e.th});
+export function validateFlow(doc, page) {
+  const flow = page.flow, lib = doc.flowLib || {};
+  const out = [];
+  const add = (level, code, msg, node, fix) => out.push({level, code, msg, node: node || null, fix: fix || null});
+  // п. 6: уникальность id — внутри страницы и внутри каждого раздела библиотеки
+  const dups = (list, key, each) => {
+    const seen = {};
+    for (const x of list) { seen[x[key]] = (seen[x[key]] || 0) + 1; if (seen[x[key]] > 1) each(x[key], seen[x[key]]); }
+  };
+  dups(flow.nodes, 'id', (id, nth) => add('error', 'DUP_NODE', `id ноды «${id}» повторяется`, null, {kind: 'renameNode', id, nth}));
+  dups(flow.edges, 'id', (id, nth) => add('error', 'DUP_EDGE', `id связи «${id}» повторяется`, null, {kind: 'renameEdge', id, nth}));
+  for (const sec of LIB_SECTIONS) {
+    dups(lib[sec] || [], sec === 'verdicts' ? 'key' : 'id', (id, nth) =>
+      add('error', 'DUP_LIB', `в библиотеке (${sec}) повторяется «${id}»`, null, {kind: 'renameLib', sec, id, nth}));
+  }
+  if (out.length) return out;
+  const N = new Map(flow.nodes.map(n => [n.id, n]));
+  const deg = {};
+  for (const e of flow.edges) { deg[e.s] = (deg[e.s] || 0) + 1; deg[e.t] = (deg[e.t] || 0) + 1; }
+  // п. 1: ссылка на блок библиотеки
+  for (const n of flow.nodes) {
+    if (LIB_KINDS[n.k] && !itemOf(lib, n)) add('error', 'REF_MISSING', `${KIND_NAMES[n.k]} ссылается на «${n.ref}» — такого блока в библиотеке нет`, n.id, {kind: 'dropNode', id: n.id});
+  }
+  // п. 2: проверка стоит на странице один раз; оставляем ноду с бо́льшим числом связей
+  const byRef = {};
+  for (const n of flow.nodes) if (n.k === 'check' && itemOf(lib, n)) (byRef[n.ref] = byRef[n.ref] || []).push(n);
+  for (const list of Object.values(byRef)) {
+    if (list.length < 2) continue;
+    const keep = list.reduce((a, b) => (deg[b.id] || 0) > (deg[a.id] || 0) ? b : a);
+    for (const n of list) if (n !== keep) add('error', 'CHECK_TWICE', `проверка «${nameFor(lib, n)}» стоит на схеме ${list.length} раза`, n.id, {kind: 'dropNode', id: n.id});
+  }
+  // п. 5: родитель — рамка той же страницы, вложенность одна
+  for (const n of flow.nodes) {
+    if (!n.parent) continue;
+    const p = N.get(n.parent);
+    if (!p || p.k !== 'stage' || p.id === n.id || n.k === 'stage') {
+      add('warning', 'BAD_PARENT', `«${nameFor(lib, n)}»: ${n.k === 'stage' ? 'рамка вложена в рамку' : 'родитель — не рамка этапа этой страницы'}`, n.id, {kind: 'unparent', id: n.id});
+    }
+  }
+  // п. 3 и 4: сокеты на месте, типы совместимы, без повторов, вход данных — одна связь
+  const into = {}, sigs = new Set();
+  for (const e of flow.edges) {
+    const s = N.get(e.s), t = N.get(e.t);
+    if (!s || !t) { add('error', 'EDGE_DANGLING', `связь ${e.id} ведёт к ноде, которой нет`, (s || t || {}).id, dropEdgeFix(e)); continue; }
+    const lbl = `${nameFor(lib, s)} → ${nameFor(lib, t)}`;
+    if (!socketOf(flow, lib, e.s, e.sh, 'out') || !socketOf(flow, lib, e.t, e.th, 'in')) {
+      add('error', 'SOCKET_MISSING', `${lbl}: связь ведёт к исчезнувшему сокету (${e.sh} → ${e.th})`, t.id, dropEdgeFix(e));
+      continue;
+    }
+    if (sigs.has(edgeSig(e))) { add('warning', 'EDGE_REPEAT', `${lbl}: связь задана дважды`, t.id, dropEdgeFix(e)); continue; }
+    sigs.add(edgeSig(e));
+    const rest = {nodes: flow.nodes, edges: flow.edges.filter(x => edgeSig(x) !== edgeSig(e))};
+    const r = canConnect(rest, lib, {source: e.s, sourceHandle: e.sh, target: e.t, targetHandle: e.th});
+    if (!r.ok && !/цикл/.test(r.reason)) {
+      add('error', 'EDGE_TYPES', `${lbl}: ${r.reason}`, t.id, dropEdgeFix(e));
+      continue;
+    }
+    if (single(t, e.th)) (into[e.t + '\u0000' + e.th] = into[e.t + '\u0000' + e.th] || []).push(e);
+  }
+  for (const list of Object.values(into)) {
+    // Лишние — все, кроме последней: новая связь во вход данных заменяет старую.
+    for (const e of list.slice(0, -1)) add('error', 'INPUT_MULTI', `во вход «${e.th.replace(/^in:/, '')}» ноды «${nameFor(lib, N.get(e.t))}» ведут ${list.length} связи — лишняя разорвётся`, e.t, dropEdgeFix(e));
+  }
+  // п. 4: цикл по порядку — разрываем последней добавленной связью
+  const cyc = new Set(controlCycles(flow, lib));
+  if (cyc.size) {
+    const last = flow.edges.filter(e => cyc.has(e.id)).pop();
+    add('error', 'EXEC_CYCLE', `порядок исполнения замкнут в цикл: ${nameFor(lib, N.get(last.s))} → ${nameFor(lib, N.get(last.t))}`, last.t, dropEdgeFix(last));
+  }
+  return out;
+}
+const freeId = (base, taken) => { let i = 2; while (taken.has(base + '_' + i)) i++; return base + '_' + i; };
+// Применить починку. Связь ищется по id и концам: если id за это время сменился
+// (переименование дубля), находится по концам — чужую связь починка не тронет.
+export function applyFlowFix(doc, page, fix) {
+  const flow = page.flow, lib = doc.flowLib || {};
+  if (!fix) return false;
+  if (fix.kind === 'dropEdge') {
+    const same = e => e.s === fix.s && e.sh === fix.sh && e.t === fix.t && e.th === fix.th;
+    const hit = flow.edges.find(e => e.id === fix.id && (fix.s == null || same(e))) || (fix.s != null && flow.edges.find(same));
+    if (!hit) return false;
+    flow.edges = flow.edges.filter(e => e !== hit);
+    return true;
+  }
+  if (fix.kind === 'dropNode') {
+    const n = flow.nodes.find(x => x.id === fix.id); if (!n) return false;
+    flow.nodes = flow.nodes.filter(x => x !== n);
+    flow.edges = flow.edges.filter(e => e.s !== fix.id && e.t !== fix.id);
+    for (const k of flow.nodes) if (k.parent === fix.id) { k.x = (+k.x || 0) + (+n.x || 0); k.y = (+k.y || 0) + (+n.y || 0); delete k.parent; }
+    return true;
+  }
+  if (fix.kind === 'unparent') {
+    const n = flow.nodes.find(x => x.id === fix.id); if (!n) return false;
+    const a = absPos(flow, n); delete n.parent; n.x = Math.round(a.x); n.y = Math.round(a.y); return true;
+  }
+  const renameNth = (list, key, id, nth) => {
+    let k = 0;
+    const taken = new Set(list.map(x => x[key]));
+    for (const x of list) if (x[key] === id && ++k === nth) { x[key] = freeId(id, taken); return true; }
+    return false;
+  };
+  if (fix.kind === 'renameNode') return renameNth(flow.nodes, 'id', fix.id, fix.nth);
+  if (fix.kind === 'renameEdge') return renameNth(flow.edges, 'id', fix.id, fix.nth);
+  if (fix.kind === 'renameLib') return renameNth(lib[fix.sec] || [], fix.sec === 'verdicts' ? 'key' : 'id', fix.id, fix.nth);
+  return false;
+}
+// Починить всё: несколько проходов, потому что одна починка открывает следующую
+// (дубли id сначала, потом остальное; разрыв цикла может обнажить ещё один).
+export function fixFlowAll(doc, page, max = 20) {
+  let n = 0;
+  for (let pass = 0; pass < max; pass++) {
+    const iss = validateFlow(doc, page).filter(i => i.fix);
+    let done = 0;
+    for (const i of iss) if (applyFlowFix(doc, page, i.fix)) done++;
+    n += done;
+    if (!done) break;
+  }
+  return n;
+}
+export const FIX_LABEL = {dropEdge: 'Удалить связь', dropNode: 'Удалить ноду', unparent: 'Вынуть из рамки',
+  renameNode: 'Переименовать дубль', renameEdge: 'Переименовать дубль', renameLib: 'Переименовать дубль'};

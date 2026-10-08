@@ -953,6 +953,49 @@ async function key(c, code, keyName, mods = 0, vk = 0) {
     const noVisLimit = await c.eval(`document.querySelectorAll('#flowRoot .react-flow__node').length`);
     check(noVisLimit === 109, 'после снимка видимость нод возвращается к обычной');
 
+    /* =====================  M6: валидатор, превью, подпись версии  ===================== */
+    // Ломаем схему так, как её ломают правкой файла руками или неудачным слиянием.
+    const base6 = await c.eval(`JSON.stringify(fingerprint(P))`);
+    await c.eval(`(() => { const f = pageById('pg_kyc_rko').flow; snapNow();
+      f.nodes.push({id: 'ghost', k: 'check', ref: 'chk_nope', x: 0, y: 1400});
+      f.edges.push({id: 'e_bad', s: 'n_src_egrul', sh: 'out:f_regdate', t: 'n_chk_3_4', th: 'in:debt'});
+      f.edges.push({id: 'e_gone', s: 'n_src_egrul', sh: 'out:f_gone', t: 'n_chk_2_6', th: 'in:reg'});
+      save(1); renderPage(); return true; })()`);
+    const sum6 = await c.eval(`summarize(JSON.parse(${JSON.stringify(base6)}), P)`);
+    check(/\+1 блок схемы/.test(sum6) && /\+2 связи схемы/.test(sum6), 'подпись версии говорит про схему', sum6);
+    const vrows = () => c.eval(`[...document.querySelectorAll('#mbox .lrow')].filter(r => /Конструктор/.test(r.textContent))
+      .map(r => r.textContent.replace(/\\s+/g, ' ').trim())`);
+    await c.eval(`showValidator()`);
+    await sleep(150);
+    let vr = await vrows();
+    check(vr.length === 3 && vr.some(t => /chk_nope/.test(t) && /Удалить ноду/.test(t)) && vr.some(t => /date → money/.test(t))
+      && vr.some(t => /исчезнувшему сокету/.test(t)), 'валидатор: раздел «Конструктор» — три находки, у каждой починка', vr.map(t => t.slice(0, 70)).join(' | '));
+    // починка одной находки кнопкой в её строке
+    await c.eval(`(() => { const r = [...document.querySelectorAll('#mbox .lrow')].find(r => /date → money/.test(r.textContent));
+      r.querySelector('[data-fix]').click(); return true; })()`);
+    await sleep(150);
+    vr = await vrows();
+    const ebad = await c.eval(`pageById('pg_kyc_rko').flow.edges.some(e => e.id === 'e_bad')`);
+    check(vr.length === 2 && !ebad, 'кнопка в строке чинит одну находку, окно пересчитывается', vr.length + ' осталось');
+    // переход к ноде из находки
+    await c.eval(`document.querySelector('#mbox .lrow [data-fgo]') && [...document.querySelectorAll('#mbox [data-fgo]')].find(el => /chk_nope/.test(el.textContent)).click()`);
+    await sleep(400);
+    const go6 = await c.eval(`({modal: document.getElementById('modal').classList.contains('open'), sel: FLOW.state().selected})`);
+    check(!go6.modal && go6.sel.length === 1 && go6.sel[0] === 'ghost', 'из находки — переход к ноде на схеме', JSON.stringify(go6));
+    // «Починить всё»
+    await c.eval(`showValidator()`);
+    await sleep(150);
+    await c.eval(`document.querySelector('#mbox [data-a=fixall]').click()`);
+    await sleep(200);
+    vr = await vrows();
+    const after6 = await c.eval(`(() => { const f = pageById('pg_kyc_rko').flow; return {n: f.nodes.length, e: f.edges.length, rf: FLOW.state().rfNodes}; })()`);
+    check(vr.length === 0 && after6.n === 109 && after6.e === 137 && after6.rf === 109, '«Починить всё» возвращает схему к целостной', JSON.stringify(after6));
+    await c.eval(`closeModal()`);
+    // превью для главной: рамки этапов — первыми и серым, ноды — цветом вида
+    const pv = await c.eval(`buildPreview()`);
+    check(pv && pv.n.length === 90 && pv.n[0][4] === '#e5e8f0' && pv.n.slice(0, 7).every(x => x[4] === '#e5e8f0') && pv.e.length > 50,
+      'превью конструктора для главной: рамки первыми, затем ноды и связи', pv && `${pv.n.length} блоков, ${pv.e.length} связей`);
+
     if (c.errors.length) bad('исключения в консоли', c.errors.join(' | ').slice(0, 400));
     else ok('исключений в консоли нет');
   } catch (e) {

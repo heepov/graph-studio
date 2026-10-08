@@ -1,8 +1,12 @@
 // Данные конструктора: нормализация, идентификаторы, операции над библиотекой.
 // В отличие от rules.js, модуль знает про документ доски целиком (страницы,
 // P.flowLib), но по-прежнему без DOM и React — его зовёт и normalize() приложения.
-import {defaultFlow, defaultLib, DEFAULT_VERDICTS, LIB_KINDS, canConnect, socketOf, nodeSize, fitStage, absPos, itemOf,
-  inputSources as inputSourcesOf} from './rules.js';
+import {defaultFlow, defaultLib, DEFAULT_VERDICTS, LIB_KINDS, canConnect, nodeSize, absPos, itemOf,
+  inputSources as inputSourcesOf, NESTABLE, orderStages, deleteNodes, refit, addEdge, blankBlock} from './rules.js';
+
+// Операции, общие с MCP (server/src/mcp/flow.js), живут в rules.js — у сервера
+// её байтовая копия. Отсюда они видны под прежними именами.
+export {NESTABLE, orderStages, deleteNodes, refit};
 
 const arr = v => (Array.isArray(v) ? v : []);
 const obj = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
@@ -75,57 +79,18 @@ const idsOf = list => new Set(list.map(x => x.id));
    Все — по месту, над объектом страницы. Снимок для отмены и save() — дело
    вызывающего: модель не знает ни про undo, ни про сервер. */
 
-// Соединить по правилам rules.js. Занятый вход данных освобождается в той же
-// операции; «один из» с типом any запоминает тип первой связи.
+// Соединить по правилам rules.js (там же — занятый вход и тип «один из»);
+// здесь только новый id связи.
 export function connect(flow, lib, c, extra) {
-  const r = canConnect(flow, lib, c);
-  if (!r.ok) return r;
-  if (r.replace.length) flow.edges = flow.edges.filter(e => !r.replace.includes(e.id));
-  const e = Object.assign({id: newId('e', idsOf(flow.edges)), s: c.source, sh: c.sourceHandle, t: c.target, th: c.targetHandle}, extra || {});
-  flow.edges.push(e);
-  for (const id of [c.source, c.target]) {
-    const n = flow.nodes.find(x => x.id === id);
-    if (n && n.k === 'anyof' && (!n.data || !n.data.type || n.data.type === 'any')) {
-      const s = socketOf(flow, lib, c.source, c.sourceHandle, 'out');
-      if (s && s.kind === 'data' && s.type && s.type !== 'any') { n.data = n.data || {}; n.data.type = s.type; }
-    }
-  }
-  return {ok: true, edge: e, replaced: r.replace};
+  return addEdge(flow, lib, c, newId('e', idsOf(flow.edges)), extra);
 }
 
-// Удалить ноды и все их связи. Дети удаляемой рамки остаются на схеме на тех же
-// местах: стереть этап вместе с двадцатью проверками одним Delete — не то,
-// чего ждёт человек, выделивший рамку.
-export function deleteNodes(flow, ids) {
-  const del = new Set(ids);
-  for (const n of flow.nodes) {
-    if (n.parent && del.has(n.parent) && !del.has(n.id)) {
-      const p = absPos(flow, n);
-      delete n.parent; n.x = p.x; n.y = p.y;
-    }
-  }
-  const before = flow.edges.length;
-  flow.nodes = flow.nodes.filter(n => !del.has(n.id));
-  flow.edges = flow.edges.filter(e => !del.has(e.s) && !del.has(e.t));
-  return {nodes: ids.length, edges: before - flow.edges.length};
-}
 export function deleteEdges(flow, ids) {
   const del = new Set(ids);
   const before = flow.edges.length;
   flow.edges = flow.edges.filter(e => !del.has(e.id));
   return before - flow.edges.length;
 }
-
-// Рамки этапов всегда раньше детей: так их рисует React Flow (родитель до
-// потомков) и так они лежат под остальным — порядок в массиве = порядок наложения.
-export function orderStages(flow) {
-  const st = flow.nodes.filter(n => n.k === 'stage'), rest = flow.nodes.filter(n => n.k !== 'stage');
-  flow.nodes = st.concat(rest);
-}
-
-// В рамку кладутся «рабочие» ноды. Измерения, источники и исходы — общие для
-// всего конвейера, их место вне этапов; рамка в рамке запрещена (§6.3 п. 5).
-export const NESTABLE = new Set(['check', 'calc', 'anyof', 'note', 'reroute']);
 
 // Нода отпущена в точке abs (центр, мировые координаты): найти рамку под ней
 // и перевесить. Возвращает затронутые рамки, чтобы их подогнать.
@@ -144,18 +109,6 @@ export function reparent(flow, lib, node, sizeOf) {
   if (now) { node.parent = now; node.x = Math.round(a.x - target.x); node.y = Math.round(a.y - target.y); }
   else { delete node.parent; node.x = Math.round(a.x); node.y = Math.round(a.y); }
   return [was, now].filter(Boolean);
-}
-
-// Подогнать рамки (fit:1) и записать результат: сдвиг влево/вверх двигает
-// и рамку, и её детей, чтобы абсолютные места детей не поменялись.
-export function refit(flow, lib, stageIds, sizeOf) {
-  for (const id of new Set(stageIds)) {
-    const s = flow.nodes.find(n => n.id === id && n.k === 'stage');
-    if (!s || !s.fit) continue;
-    const f = fitStage(flow, lib, s, sizeOf);
-    if (f.dx || f.dy) for (const k of flow.nodes) if (k.parent === s.id) { k.x = Math.round(+k.x + f.dx); k.y = Math.round(+k.y + f.dy); }
-    s.x = Math.round(f.x); s.y = Math.round(f.y); s.w = f.w; s.h = f.h;
-  }
 }
 
 // Ctrl+J: новая рамка вокруг выделенного. Выделенные дети другой рамки
@@ -293,27 +246,9 @@ export function nextCheckCode(lib, stageNum) {
   return major[0] + '.' + (max + 1);
 }
 
-const PALETTE = ['#3355d1', '#0f8f6a', '#8b46c9', '#d2740c', '#b3261e', '#136c33', '#2f6fed', '#8a5d00', '#0e7490', '#9d174d', '#6b7280', '#b08900', '#4338ca', '#c2410c', '#18a558'];
 export function createBlock(lib, sec, init) {
   const taken = new Set((lib[sec] || []).map(x => x.id || x.key));
-  const i = init || {};
-  let it;
-  if (sec === 'dims') {
-    it = {id: newId('dim_', taken), code: '', name: i.name || 'Новое измерение', desc: '',
-      values: [{id: newId('v_'), code: '', name: 'Значение 1', desc: '', wave: 1}]};
-  } else if (sec === 'sources') {
-    it = {id: newId('src_', taken), name: i.name || 'Новый источник', kind: i.kind || 'gov', access: 'api', mode: 'sync',
-      status: 'unknown', providers: '', url: '', cost: '', note: '', fields: i.fields || []};
-  } else if (sec === 'checks') {
-    it = {id: newId('chk_', taken), code: i.code || '', name: i.name || 'Новая проверка', how: '', why: '', rule: '', norm: '',
-      factors: [], inputs: i.inputs || [], verdicts: i.verdicts || [], verdictTbd: 0, bank: {status: 'none', comment: ''},
-      wave: 1, actor: 'system', note: '', comment: '', srcText: '', tags: []};
-  } else if (sec === 'outcomes') {
-    it = {id: newId('out_', taken), verdict: i.verdict || (lib.verdicts[0] || {}).key || 'ok', name: i.name || 'Новый исход', desc: ''};
-  } else if (sec === 'verdicts') {
-    const used = new Set(lib.verdicts.map(v => v.color));
-    it = {key: newId('vd_', taken), name: i.name || 'Новый вердикт', color: i.color || PALETTE.find(c => !used.has(c)) || PALETTE[0]};
-  }
+  const it = blankBlock(lib, sec, prefix => newId(prefix, taken), init);
   lib[sec].push(it);
   return it;
 }

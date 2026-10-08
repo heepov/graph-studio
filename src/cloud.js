@@ -128,13 +128,13 @@ let pendingPrev = null;
 // такую фразу составить не может. Храним слепок, а не копию документа целиком —
 // вторая копия доски в памяти ради подписи к строчке истории того не стоит.
 let baseline = null;
-// Второй слепок — только для досок: страница → id объекта → его JSON, плюс
-// «всё остальное» строкой. Он нужен на 409, чтобы отличить «я удалил объект»
-// от «коллега его добавил»: без базы это неразличимо, и любое слияние наугад
-// либо воскрешает удалённое, либо стирает чужое.
-let baseJam = null;
-export function setBaseline(fp, jam) { baseline = fp || null; baseJam = jam || null; }
-export function getBaseJam() { return baseJam; }
+// Второй слепок — для слияния: коллекция (объекты доски, ноды и связи конвейера,
+// разделы библиотеки) → id объекта → его JSON, плюс «всё остальное» строкой. Он нужен
+// на 409, чтобы отличить «я удалил объект» от «коллега его добавил»: без базы это
+// неразличимо, и любое слияние наугад либо воскрешает удалённое, либо стирает чужое.
+let baseObj = null;
+export function setBaseline(fp, obj) { baseline = fp || null; baseObj = obj || null; }
+export function getBaseObj() { return baseObj; }
 export function hasPending() { return !!pendingDoc || pushing; }
 export function schedulePush(getDoc, onState, getPreview) {
   if (!CLOUD.board) return;
@@ -158,7 +158,7 @@ export async function pushNow(onState) {
     const r = await api.boardPut(CLOUD.board.id, doc, CLOUD.board.version, prev, summary);
     CLOUD.board.version = r.version;
     try { baseline = H.fingerprint ? H.fingerprint(doc) : null; } catch { baseline = null; }
-    try { baseJam = H.jamBase ? H.jamBase(doc) : null; } catch { baseJam = null; }
+    try { baseObj = H.objBase ? H.objBase(doc) : null; } catch { baseObj = null; }
     if (onState) onState({ok: true, version: r.version});
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
@@ -173,4 +173,4 @@ export async function pushNow(onState) {
 
 export function boundToServer() { return !!CLOUD.board; }
 export function bindBoard(info) { CLOUD.board = info; }
-export function unbindBoard() { CLOUD.board = null; clearTimeout(pushT); pendingDoc = null; pendingPrev = null; baseline = null; baseJam = null; }
+export function unbindBoard() { CLOUD.board = null; clearTimeout(pushT); pendingDoc = null; pendingPrev = null; baseline = null; baseObj = null; }

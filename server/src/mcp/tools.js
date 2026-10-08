@@ -7,6 +7,8 @@
 // бесплатно. Открытая вкладка обновляется на глазах, пока Claude правит доску.
 import * as D from './doc.js';
 import { importDoc } from './import.js';
+import * as F from './flow.js';
+import { LIB_SECTIONS, NODE_KINDS } from './flow-rules.js';
 
 const S = (desc, extra = {}) => ({ type: 'string', description: desc, ...extra });
 const N = (desc) => ({ type: 'number', description: desc });
@@ -392,7 +394,6 @@ export const TOOLS = [
     }),
   },
 
-  /* ---------- история и доступ ---------- */
   /* ---------- свободная доска ---------- */
   {
     name: 'jam_add',
@@ -491,6 +492,233 @@ export const TOOLS = [
       return { summary: `раскладка доски (${a.op}) из Claude`, result };
     }),
   },
+  /* ---------- конструктор KYC Flow ---------- */
+  {
+    name: 'flow_lib_read',
+    title: 'Конструктор: прочитать библиотеку',
+    description: 'Библиотека блоков конструктора — общая для всех страниц kind=flow доски: измерения клиента (dims), '
+      + 'источники с полями (sources), проверки со входами и вердиктами (checks), исходы (outcomes), виды вердиктов (verdicts). '
+      + 'Без section — вся библиотека; ids сужает выборку.',
+    inputSchema: O('', {
+      board: BOARD,
+      section: S('Раздел', { enum: LIB_SECTIONS }),
+      ids: A('id блоков (у вердиктов — key)', S('id')),
+    }, ['board']),
+    handler: (ctx, a) => {
+      const { board, doc } = ctx.load(a.board);
+      return { board: board.id, ...F.libRead(doc, a.section, a.ids) };
+    },
+  },
+  {
+    name: 'flow_lib_upsert',
+    title: 'Конструктор: создать или изменить блоки библиотеки',
+    description: 'Блок с известным id (у вердиктов — key) правится: меняются только присланные поля. Без id или с новым id — создаётся, '
+      + 'тогда name обязателен. Поля: dims — code, name, desc, values[{id?, name, code?, desc?, wave?}]; '
+      + 'sources — name, kind, access, mode, status, providers, url, cost, note, fields[{id?, name, type, desc?}]; '
+      + 'checks — code, name, how, why, rule, norm, factors[], inputs[{id?, name, type}], verdicts[ключи], verdictTbd, '
+      + 'bank{status, comment}, wave, actor, note, comment, srcText, tags[]; outcomes — name, verdict, desc; verdicts — name, color. '
+      + 'Списки values/fields/inputs приходят ЦЕЛИКОМ: элемент с известным id правится, без id — создаётся, '
+      + 'пропавший — удаляется вместе со связями к его сокету на всех схемах (их перечислит dropped_edges). '
+      + 'Типы данных: bool, text, number, money, date, list, person, file, any. Правка общая: блок меняется на всех страницах.',
+    inputSchema: O('', {
+      board: BOARD,
+      section: S('Раздел', { enum: LIB_SECTIONS }),
+      items: A('Блоки', O('Блок раздела; набор полей — в описании инструмента', {
+        id: S('id блока; без него — новый'), key: S('Для вердикта — ключ'), name: S('Название'),
+      })),
+    }, ['board', 'section', 'items']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const r = F.libUpsert(doc, a.section, a.items);
+      const parts = [r.created.length ? '+' + F.plural(r.created.length, 'блок', 'блока', 'блоков') : '',
+        r.updated.length ? 'изменено ' + r.updated.length : ''].filter(Boolean).join(', ');
+      return { summary: `библиотека конструктора: ${parts} из Claude`, result: r };
+    }),
+  },
+  {
+    name: 'flow_lib_delete',
+    title: 'Конструктор: удалить блоки библиотеки',
+    description: 'Без force отказывает, если блок стоит на схемах, и перечисляет где. С force=true блок удаляется вместе '
+      + 'со своими нодами на всех страницах и их связями. Вердикт с force снимается с проверок, а исходы переходят на первый оставшийся.',
+    inputSchema: O('', {
+      board: BOARD,
+      section: S('Раздел', { enum: LIB_SECTIONS }),
+      ids: A('id блоков (у вердиктов — key)', S('id')),
+      force: B('Удалить и с нод на схемах'),
+    }, ['board', 'section', 'ids']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const r = F.libDelete(doc, a.section, a.ids, !!a.force);
+      return { summary: `библиотека конструктора: −${F.plural(r.deleted.length, 'блок', 'блока', 'блоков')} из Claude`, result: r };
+    }),
+  },
+  {
+    name: 'flow_read',
+    title: 'Конструктор: прочитать схему',
+    description: 'detail=summary (по умолчанию) — счётчики, этапы в порядке исполнения с кодами проверок, профили и находки валидатора. '
+      + 'detail=full — ещё все ноды с сокетами (h — имя сокета для flow_connect) и все связи в виде «нода.сокет».',
+    inputSchema: O('', {
+      board: BOARD,
+      page: S('Страница-конструктор: id или название'),
+      detail: S('Подробность', { enum: ['summary', 'full'] }),
+    }, ['board', 'page']),
+    handler: (ctx, a) => {
+      const { board, doc } = ctx.load(a.board);
+      return { board: board.id, ...F.flowRead(doc, F.flowPage(doc, a.page), a.detail) };
+    },
+  },
+  {
+    name: 'flow_add',
+    title: 'Конструктор: поставить ноды',
+    description: 'Ноды измерения, источника, проверки и исхода (dim, source, check, outcome) ставятся по ref — id блока библиотеки; '
+      + 'проверка стоит на странице один раз. Остальные виды несут data: stage {num, name, point}, gate {text}, '
+      + 'anyof {type, n, label}, calc {name, formula, type, inputs[{id?, name, type}]}, note {text}; reroute — без данных. '
+      + 'parent — id рамки этапа (в неё кладутся check, calc, anyof, note, reroute), тогда x/y — относительно рамки. '
+      + 'Без x/y нода встаёт в столбец справа от схемы, а ребёнок рамки — в её столбец под последней нодой. '
+      + 'В ответе у каждой ноды сокеты — по ним соединяет flow_connect.',
+    inputSchema: O('', {
+      board: BOARD,
+      page: S('Страница-конструктор: id или название'),
+      nodes: A('Ноды', O('', {
+        k: S('Вид ноды', { enum: NODE_KINDS }),
+        ref: S('id блока библиотеки — для dim, source, check, outcome'),
+        id: S('Свой id ноды; без него — n_<ref>'),
+        x: N('X'), y: N('Y'),
+        parent: S('id рамки этапа'),
+        data: O('Данные ноды не из библиотеки — см. описание', {}),
+        w: N('Ширина — только stage и note'), h: N('Высота — только stage и note'),
+        collapsed: B('Свернуть'), muted: B('Выключить: нода остаётся на схеме, но не участвует'),
+      }, ['k'])),
+    }, ['board', 'page', 'nodes']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const pg = F.flowPage(doc, a.page);
+      const r = F.flowAdd(doc, pg, a.nodes);
+      return { summary: `+${F.plural(r.added.length, 'нода', 'ноды', 'нод')} на схеме «${pg.name}» из Claude`, result: { page: pg.id, ...r } };
+    }),
+  },
+  {
+    name: 'flow_update',
+    title: 'Конструктор: изменить ноды',
+    description: 'Положение, рамка, свёртка, выключение и данные нод не из библиотеки. parent=null вынимает из рамки; '
+      + 'смена рамки без x/y сохраняет место ноды на экране. data сливается с прежними данными, null в поле удаляет его. '
+      + 'Содержимое блоков библиотеки (название проверки, поля источника) правится через flow_lib_upsert.',
+    inputSchema: O('', {
+      board: BOARD,
+      page: S('Страница-конструктор: id или название'),
+      nodes: A('Что поменять', O('', {
+        id: S('id ноды'),
+        x: N('X'), y: N('Y'),
+        parent: { type: ['string', 'null'], description: 'id рамки этапа; null — вынуть из рамки' },
+        data: O('Данные ноды не из библиотеки', {}),
+        w: N('Ширина — только stage и note'), h: N('Высота — только stage и note'),
+        fit: B('Рамка подгоняется под содержимое'),
+        collapsed: B('Свернуть'), muted: B('Выключить'),
+      }, ['id'])),
+    }, ['board', 'page', 'nodes']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const pg = F.flowPage(doc, a.page);
+      const r = F.flowUpdate(doc, pg, a.nodes);
+      return { summary: `правка ${F.plural(r.updated.length, 'ноды', 'нод', 'нод')} на схеме «${pg.name}» из Claude`, result: { page: pg.id, ...r } };
+    }),
+  },
+  {
+    name: 'flow_delete',
+    title: 'Конструктор: удалить ноды',
+    description: 'Удаляет ноды со схемы вместе с их связями. Блоки библиотеки остаются. Дети удалённой рамки остаются на своих местах.',
+    inputSchema: O('', {
+      board: BOARD, page: S('Страница-конструктор: id или название'), ids: A('id нод', S('id')),
+    }, ['board', 'page', 'ids']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const pg = F.flowPage(doc, a.page);
+      const r = F.flowDelete(doc, pg, a.ids);
+      return { summary: `−${F.plural(r.removed, 'нода', 'ноды', 'нод')} со схемы «${pg.name}» из Claude`, result: { page: pg.id, ...r } };
+    }),
+  },
+  {
+    name: 'flow_connect',
+    title: 'Конструктор: соединить сокеты',
+    description: 'Связь — «нода.сокет» → «нода.сокет», по тем же правилам, что в приложении: тип данных совпадает, '
+      + 'в исход ведут только вердикт или порядок, порядок исполнения без циклов. Сокеты: источник — out:<поле>; '
+      + 'проверка — входы exec-in, cond-in, in:<вход>, выходы exec-out, v:<вердикт>; измерение — val:<значение>; '
+      + 'исход — vin; рамка — exec-in, cond-in, exec-out; гейт — exec-in, exec-out (да), exec-no (нет); '
+      + 'один из — in:0…, out; показатель — in:<вход>, out; reroute — in, out. Префикс можно опустить: '
+      + '«n_src_egrul.f_inn» = «n_src_egrul.out:f_inn», «exec» и «cond» — порядок и применимость. '
+      + 'neg — «кроме» на связи применимости (значение измерения → cond-in). Новая связь во вход данных заменяет старую. '
+      + 'Что не подошло, попадает в skipped с причиной; повтор существующей связи — тоже skipped, версия доски при этом не растёт.',
+    inputSchema: O('', {
+      board: BOARD,
+      page: S('Страница-конструктор: id или название'),
+      edges: A('Связи', O('', {
+        from: S('«нода.сокет» — откуда'), to: S('«нода.сокет» — куда'),
+        neg: B('«кроме»: проверка применима ко всем значениям, кроме этого'),
+      }, ['from', 'to'])),
+    }, ['board', 'page', 'edges']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const pg = F.flowPage(doc, a.page);
+      const r = F.flowConnect(doc, pg, a.edges);
+      return { summary: `+${F.plural(r.added.length, 'связь', 'связи', 'связей')} схемы «${pg.name}» из Claude`, result: { page: pg.id, ...r } };
+    }),
+  },
+  {
+    name: 'flow_disconnect',
+    title: 'Конструктор: разорвать связи',
+    description: 'Удаляет связи по id (id видны в flow_read с detail=full и в ответе flow_connect).',
+    inputSchema: O('', {
+      board: BOARD, page: S('Страница-конструктор: id или название'), ids: A('id связей', S('id')),
+    }, ['board', 'page', 'ids']),
+    handler: (ctx, a) => ctx.edit(a.board, doc => {
+      const pg = F.flowPage(doc, a.page);
+      const r = F.flowDisconnect(doc, pg, a.ids);
+      return { summary: `−${F.plural(r.removed, 'связь', 'связи', 'связей')} схемы «${pg.name}» из Claude`, result: { page: pg.id, ...r } };
+    }),
+  },
+  {
+    name: 'flow_layout',
+    title: 'Конструктор: разложить схему',
+    description: 'Авто-раскладка (ELK) — та же, что у кнопки «Разложить»: слоями слева направо, проверки в рамке этапа — столбцом по коду.',
+    inputSchema: O('', { board: BOARD, page: S('Страница-конструктор: id или название') }, ['board', 'page']),
+    handler: async (ctx, a) => {
+      const { doc } = ctx.load(a.board);
+      const lay = await F.layoutPlan(doc, F.flowPage(doc, a.page));
+      return ctx.edit(a.board, d => {
+        const pg = F.flowPage(d, a.page);
+        return { summary: `раскладка схемы «${pg.name}» из Claude`, result: { page: pg.id, ...F.layoutApply(pg, lay) } };
+      });
+    },
+  },
+  {
+    name: 'flow_profile',
+    title: 'Конструктор: профиль клиента',
+    description: 'Что участвует для данного профиля клиента: активные проверки, нужные источники, достижимые исходы и входы без источника — '
+      + 'те же числа, что в сводке над схемой. profile — id или название сохранённого профиля страницы; '
+      + 'или sel — выбор значений измерений {измерение: [значения]} (id или названия). Пустое измерение = любое значение. '
+      + 'Без обоих — вся схема.',
+    inputSchema: O('', {
+      board: BOARD,
+      page: S('Страница-конструктор: id или название'),
+      profile: S('Сохранённый профиль: id или название'),
+      sel: O('Выбор значений измерений: {dim_ctype: ["v_ip"]}', {}),
+    }, ['board', 'page']),
+    handler: (ctx, a) => {
+      const { board, doc } = ctx.load(a.board);
+      return { board: board.id, ...F.flowProfile(doc, F.flowPage(doc, a.page), a) };
+    },
+  },
+  {
+    name: 'flow_export',
+    title: 'Конструктор: контракт kycflow/1',
+    description: 'JSON-контракт страницы: этапы в порядке исполнения, у каждого входа проверки — источники по приоритету, '
+      + 'у вердикта — куда он ведёт, словари и замечания (issues). С profile — только применимые к профилю проверки.',
+    inputSchema: O('', {
+      board: BOARD,
+      page: S('Страница-конструктор: id или название'),
+      profile: S('Сохранённый профиль: id или название'),
+    }, ['board', 'page']),
+    handler: (ctx, a) => {
+      const { doc } = ctx.load(a.board);
+      return F.flowExport(doc, F.flowPage(doc, a.page), a);
+    },
+  },
+
+  /* ---------- история и доступ ---------- */
   {
     name: 'board_history',
     title: 'История доски',

@@ -269,7 +269,9 @@ function FlowView({ctx, pageId, rev, api}) {
   // Панели (библиотека, инспектор) — личная настройка, как ширина инспектора.
   const [panels, setPanels] = useState(() => {
     try { const v = JSON.parse(localStorage.getItem('gs_flow_panels') || 'null'); if (v) return v; } catch (e) { /* нет — умолчание */ }
-    const narrow = typeof innerWidth === 'number' && innerWidth < 900;
+    // Граница — та же, что у @media (max-width:900px) в flow.css: там панели
+    // ложатся поверх холста, и открытые по умолчанию закрыли бы его целиком.
+    const narrow = typeof innerWidth === 'number' && innerWidth <= 900;
     return {lib: !narrow, insp: !narrow};
   });
   const [libSel, setLibSel] = useState(null);       // блок, выбранный в библиотеке: {sec, id}
@@ -1156,6 +1158,7 @@ function FlowView({ctx, pageId, rev, api}) {
         insp: (() => { const el = rootRef.current && rootRef.current.querySelector('.fl-insp'); return el ? el.getAttribute('data-insp') || 'empty' : null; })()};
     };
     api.pickLib = (sec, id) => { fx.pickLib(sec, id); return true; };
+    api.goNode = (pageId, nodeId) => fx.goNode(pageId, nodeId);
     // Выгрузки (ТЗ §10): все строятся из контракта kycflow/1. «Только для профиля» —
     // применимые к активному профилю проверки; профиль с несохранёнными галочками
     // выгружается своим выбором.

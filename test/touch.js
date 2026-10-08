@@ -181,6 +181,69 @@ const bad = (n, d = '') => { results.push(['✗', n, d]); console.log('✗', n, 
       }
     }
 
+    // --- конструктор пальцем (ТЗ §15) ---------------------------------------
+    // Касания React Flow понимает сам; проверяется, что приложение их не съедает:
+    // у холста свои обработчики pointer-событий и долгого нажатия.
+    // Панели — личная настройка в localStorage; профиль Chrome у теста постоянный,
+    // и запомненные с прошлого прогона панели закрыли бы холст на узком экране.
+    await c.eval(`(() => {
+      localStorage.removeItem('gs_flow_panels');
+      P.flowLib = normalizeLib(P.flowLib);
+      const pg = {id: uid('p'), name: 'Конвейер', kind: 'flow',
+        filter: {q: '', cats: [], statuses: [], types: [], f: {}}, flow: normalizeFlow(null)};
+      pg.flow.nodes.push({id: 'n_g1', k: 'gate', x: 0, y: 0, data: {text: 'Гейт один'}},
+        {id: 'n_g2', k: 'gate', x: 420, y: 260, data: {text: 'Гейт два'}});
+      P.pages.push(pg); save(1); gotoPage(pg.id); return true; })()`);
+    await c.waitFor('FLOW.state().mounted && FLOW.state().rfNodes === 2', 15000, 'конструктор');
+    await sleep(700);
+    const fspot = await c.eval(`(() => { const r = document.querySelector('.react-flow').getBoundingClientRect();
+      for (let fy = 0.85; fy > 0.15; fy -= 0.07) for (let fx = 0.15; fx < 0.9; fx += 0.1) {
+        const x = Math.round(r.x + r.width * fx), y = Math.round(r.y + r.height * fy);
+        const el = document.elementFromPoint(x, y);
+        if (el && el.classList.contains('react-flow__pane')) return {x, y};
+      }
+      return null; })()`);
+    if (!fspot) bad('на схеме не нашлось пустого места');
+    else {
+      const fv0 = await c.eval(`FLOW.state().viewport`);
+      await c.touch('touchStart', [{ x: fspot.x, y: fspot.y }]);
+      for (let i = 1; i <= 6; i++) await c.touch('touchMove', [{ x: fspot.x - i * 20, y: fspot.y - i * 8 }]);
+      await c.touch('touchEnd', []);
+      await sleep(300);
+      const fv1 = await c.eval(`FLOW.state().viewport`);
+      (Math.abs(fv1.x - fv0.x) > 40)
+        ? ok('схема конструктора возится одним пальцем', `x ${fv0.x} → ${fv1.x}`)
+        : bad('панорама схемы пальцем не работает', JSON.stringify([fv0, fv1]));
+
+      const fc = await c.eval(`(() => { const r = document.querySelector('.react-flow').getBoundingClientRect();
+        return {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)}; })()`);
+      await c.touch('touchStart', [{ x: fc.x - 60, y: fc.y, id: 1 }, { x: fc.x + 60, y: fc.y, id: 2 }]);
+      for (let i = 1; i <= 6; i++) {
+        const d = 60 + i * 22;
+        await c.touch('touchMove', [{ x: fc.x - d, y: fc.y, id: 1 }, { x: fc.x + d, y: fc.y, id: 2 }]);
+      }
+      await c.touch('touchEnd', []);
+      await sleep(300);
+      const fv2 = await c.eval(`FLOW.state().viewport`);
+      (fv2.k > fv1.k * 1.3)
+        ? ok('щипок масштабирует схему конструктора', `${fv1.k} → ${fv2.k}`)
+        : bad('щипок на схеме не масштабирует', `${fv1.k} → ${fv2.k}`);
+
+      await c.eval(`(FLOW.call('fit'), true)`);
+      await sleep(300);
+      const gn = await c.eval(`(() => { const r = document.querySelector('.react-flow__node[data-id="n_g1"]').getBoundingClientRect();
+        return {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + Math.min(16, r.height / 3))}; })()`);
+      const gp0 = await c.eval(`(() => { const n = pageById(UI.page).flow.nodes.find(n => n.id === 'n_g1'); return {x: n.x, y: n.y}; })()`);
+      await c.touch('touchStart', [{ x: gn.x, y: gn.y }]);
+      for (let i = 1; i <= 8; i++) { await c.touch('touchMove', [{ x: gn.x + i * 14, y: gn.y + i * 9 }]); await sleep(16); }
+      await c.touch('touchEnd', []);
+      await sleep(500);
+      const gp1 = await c.eval(`(() => { const n = pageById(UI.page).flow.nodes.find(n => n.id === 'n_g1'); return {x: n.x, y: n.y}; })()`);
+      (Math.abs(gp1.x - gp0.x) > 20 || Math.abs(gp1.y - gp0.y) > 20)
+        ? ok('нода конструктора перетаскивается пальцем, место записано в документ', `${JSON.stringify(gp0)} → ${JSON.stringify(gp1)}`)
+        : bad('нода конструктора пальцем не двигается', `${JSON.stringify(gp0)} → ${JSON.stringify(gp1)}`);
+    }
+
     c.errors.length ? bad('исключения в консоли', c.errors.join(' | ').slice(0, 300))
                     : ok('исключений в консоли нет');
   } catch (e) {
